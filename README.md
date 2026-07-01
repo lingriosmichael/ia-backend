@@ -1,4 +1,4 @@
-# GrantReady Backend
+# Impact Atlas Backend
 
 `gr_backend` is the standalone TypeScript backend repository.
 
@@ -134,3 +134,5 @@ Reminder for later:
 - strengthen idempotency and retry behavior for queued AI executions
 - move from generic result artifacts toward richer per-pipeline artifact shapes where needed
 - improve report, insight, dashboard, and chat pipelines so they are meaningfully differentiated from dataset interpretation
+# ia-backend
+Backend Infrastructure for Impact Atlas
