@@ -75,8 +75,15 @@ export class MongoOrganizationRepository implements OrganizationRepository {
     return count > 0;
   }
 
-  async nameExists(name: string, _session: DatabaseSession): Promise<boolean> {
+  async nameExists(
+    name: string,
+    _session: DatabaseSession,
+    options?: { excludeOrganizationId?: string },
+  ): Promise<boolean> {
     const count = await OrganizationMongoModel.countDocuments({
+      ...(options?.excludeOrganizationId
+        ? { _id: { $ne: options.excludeOrganizationId } }
+        : {}),
       name: {
         $regex: `^${escapeRegex(name.trim())}$`,
         $options: "i",

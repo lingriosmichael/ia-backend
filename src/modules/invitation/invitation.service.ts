@@ -6,6 +6,7 @@ import { hashPassword } from "../../shared/utils/password.js";
 import { AuthorizationService } from "../../shared/auth/authorization.service.js";
 import type { OrganizationRepository } from "../organization/organization.repository.js";
 import type { UserRepository } from "../user/user.repository.js";
+import type { InvitationPersistenceRecord } from "./invitation.persistence.js";
 import type { InvitationRepository } from "./invitation.repository.js";
 
 export class InvitationService {
@@ -29,13 +30,11 @@ export class InvitationService {
       throw new AppError("Organization not found.", 404, "organization_not_found");
     }
 
-    return invitations.map((invitation) => ({
-      ...invitation,
-      organizationName: organization.name,
-      acceptedAt: invitation.acceptedAt?.toISOString() ?? null,
-      createdAt: invitation.createdAt.toISOString(),
-      updatedAt: invitation.updatedAt.toISOString(),
-    }));
+    return Promise.all(
+      invitations.map((invitation) =>
+        this.mapInvitationSummary(invitation, organization.name),
+      ),
+    );
   }
 
   async create(
@@ -103,6 +102,7 @@ export class InvitationService {
     return {
       ...invitation,
       organizationName: organization.name,
+      acceptanceMode: existingUser ? "sign_in" : "create_account",
       acceptedAt: invitation.acceptedAt?.toISOString() ?? null,
       createdAt: invitation.createdAt.toISOString(),
       updatedAt: invitation.updatedAt.toISOString(),
@@ -120,20 +120,16 @@ export class InvitationService {
       throw new AppError("Organization not found.", 404, "organization_not_found");
     }
 
-    return {
-      ...invitation,
-      organizationName: organization.name,
-      acceptedAt: invitation.acceptedAt?.toISOString() ?? null,
-      createdAt: invitation.createdAt.toISOString(),
-      updatedAt: invitation.updatedAt.toISOString(),
-    };
+    return this.mapInvitationSummary(invitation, organization.name);
   }
 
   async accept(
     token: string,
     input: {
-      fullName: string;
-      password: string;
+      fullName?: string;
+      password?: string;
+      authenticatedUserId?: string;
+      authenticatedUserEmail?: string;
     },
   ) {
     const invitation = await this.requireInvitation(token);
@@ -150,7 +146,36 @@ export class InvitationService {
       invitation.email,
       databaseSession,
     );
-    const hasExistingAccount = Boolean(existingUser);
+    const acceptanceMode = existingUser ? "sign_in" : "create_account";
+
+    if (existingUser) {
+      const authenticatedEmail = input.authenticatedUserEmail?.trim().toLowerCase();
+
+      if (!input.authenticatedUserId || !authenticatedEmail) {
+        throw new AppError(
+          "This invitation belongs to an existing account. Sign in with the invited email address to accept it.",
+          401,
+          "invitation_requires_authentication",
+        );
+      }
+
+      if (
+        input.authenticatedUserId !== existingUser.id ||
+        authenticatedEmail !== invitation.email
+      ) {
+        throw new AppError(
+          "You must sign in with the invited email address to accept this invitation.",
+          403,
+          "invitation_email_mismatch",
+        );
+      }
+    } else if (!input.fullName?.trim() || !input.password) {
+      throw new AppError(
+        "Full name and password are required to accept this invitation.",
+        400,
+        "invitation_registration_required",
+      );
+    }
 
     const acceptedInvitation = await this.transactionManager.runInTransaction(
       async (session) => {
@@ -159,8 +184,8 @@ export class InvitationService {
           (await this.userRepository.create(
             {
               email: invitation.email,
-              fullName: input.fullName.trim(),
-              passwordHash: await hashPassword(input.password),
+              fullName: input.fullName!.trim(),
+              passwordHash: await hashPassword(input.password!),
             },
             session,
           ));
@@ -196,11 +221,12 @@ export class InvitationService {
       invitation: {
         ...acceptedInvitation,
         organizationName: organization.name,
+        acceptanceMode,
         acceptedAt: acceptedInvitation.acceptedAt?.toISOString() ?? null,
         createdAt: acceptedInvitation.createdAt.toISOString(),
         updatedAt: acceptedInvitation.updatedAt.toISOString(),
       },
-      hasExistingAccount,
+      acceptanceMode,
     };
   }
 
@@ -221,13 +247,7 @@ export class InvitationService {
       throw new AppError("Organization not found.", 404, "organization_not_found");
     }
 
-    return {
-      ...invitation,
-      organizationName: organization.name,
-      acceptedAt: invitation.acceptedAt?.toISOString() ?? null,
-      createdAt: invitation.createdAt.toISOString(),
-      updatedAt: invitation.updatedAt.toISOString(),
-    };
+    return this.mapInvitationSummary(invitation, organization.name);
   }
 
   private async requireInvitation(token: string) {
@@ -246,5 +266,24 @@ export class InvitationService {
     }
 
     return invitation;
+  }
+
+  private async mapInvitationSummary(
+    invitation: InvitationPersistenceRecord,
+    organizationName: string,
+  ) {
+    const existingUser = await this.userRepository.findByEmail(
+      invitation.email,
+      databaseSession,
+    );
+
+    return {
+      ...invitation,
+      organizationName,
+      acceptanceMode: existingUser ? "sign_in" : "create_account",
+      acceptedAt: invitation.acceptedAt?.toISOString() ?? null,
+      createdAt: invitation.createdAt.toISOString(),
+      updatedAt: invitation.updatedAt.toISOString(),
+    };
   }
 }

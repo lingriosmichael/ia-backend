@@ -8,6 +8,10 @@ export async function registerInvitationRoutes(
     request: FastifyRequest,
     reply: FastifyReply,
   ) => Promise<void>,
+  authenticateIfPresent: (
+    request: FastifyRequest,
+    reply: FastifyReply,
+  ) => Promise<void>,
 ) {
   app.get(
     "/organizations/:organizationId/invitations",
@@ -25,5 +29,9 @@ export async function registerInvitationRoutes(
     controller.revoke.bind(controller),
   );
   app.get("/invitations/:token", controller.getByToken.bind(controller));
-  app.post("/invitations/:token/accept", controller.accept.bind(controller));
+  app.post(
+    "/invitations/:token/accept",
+    { preHandler: authenticateIfPresent },
+    controller.accept.bind(controller),
+  );
 }

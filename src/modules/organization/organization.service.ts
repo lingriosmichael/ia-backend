@@ -127,6 +127,18 @@ export class OrganizationService {
 
     let slug: string | undefined;
     if (normalizedName && normalizedName !== organization.name) {
+      if (
+        await this.organizationRepository.nameExists(normalizedName, databaseSession, {
+          excludeOrganizationId: organizationId,
+        })
+      ) {
+        throw new AppError(
+          "An organization with this name already exists.",
+          409,
+          "organization_name_exists",
+        );
+      }
+
       slug = await ensureUniqueSlug(normalizedName, async (candidate) => {
         if (candidate === organization.slug) {
           return false;
@@ -265,7 +277,7 @@ export class OrganizationService {
   }
 
   async listMembers(userId: string, organizationId: string) {
-    await this.authorizationService.canViewOrganization(userId, organizationId);
+    await this.authorizationService.canManageOrganization(userId, organizationId);
 
     const memberships = await this.organizationRepository.listMembershipsByOrganization(
       organizationId,

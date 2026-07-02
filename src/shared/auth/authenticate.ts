@@ -25,3 +25,27 @@ export function createAuthenticateMiddleware(authService: AuthService) {
     }
   };
 }
+
+export function createAuthenticateIfPresentMiddleware(authService: AuthService) {
+  return async function authenticateIfPresent(
+    request: FastifyRequest,
+    _reply: FastifyReply,
+  ) {
+    const authorizationHeader = request.headers.authorization;
+
+    if (!authorizationHeader?.startsWith("Bearer ")) {
+      return;
+    }
+
+    const token = authorizationHeader.replace("Bearer ", "").trim();
+    if (!token) {
+      return;
+    }
+
+    try {
+      request.auth = authService.verifyToken(token);
+    } catch {
+      throw new AppError("Authentication token is invalid.", 401, "invalid_token");
+    }
+  };
+}

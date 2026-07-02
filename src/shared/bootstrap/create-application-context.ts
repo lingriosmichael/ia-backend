@@ -1,5 +1,8 @@
 import type { BackendConfig } from "../config/env.js";
-import { createAuthenticateMiddleware } from "../auth/authenticate.js";
+import {
+  createAuthenticateIfPresentMiddleware,
+  createAuthenticateMiddleware,
+} from "../auth/authenticate.js";
 import { AuthorizationService } from "../auth/authorization.service.js";
 import { NoopTransactionManager } from "../database/transaction-manager.js";
 import { ActivityController } from "../../modules/activity/activity.controller.js";
@@ -230,6 +233,7 @@ export function createApplicationContext(config: BackendConfig) {
 
   return {
     authenticate: createAuthenticateMiddleware(authService),
+    authenticateIfPresent: createAuthenticateIfPresentMiddleware(authService),
     healthController: new HealthController(),
     authController: new AuthController(authService),
     invitationController: new InvitationController(invitationService),

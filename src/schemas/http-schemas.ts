@@ -50,8 +50,8 @@ export const createInvitationSchema = z.object({
 });
 
 export const acceptInvitationSchema = z.object({
-  fullName: z.string().trim().min(2).max(120),
-  password: z.string().min(8).max(128),
+  fullName: z.string().trim().min(2).max(120).optional(),
+  password: z.string().min(8).max(128).optional(),
 });
 
 export const updateOrganizationSchema = z.object({

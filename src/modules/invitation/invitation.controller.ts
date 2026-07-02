@@ -48,7 +48,11 @@ export class InvitationController {
   async accept(request: FastifyRequest) {
     const params = idParamSchema.parse(request.params);
     const payload = acceptInvitationSchema.parse(request.body);
-    const accepted = await this.invitationService.accept(params.token!, payload);
+    const accepted = await this.invitationService.accept(params.token!, {
+      ...payload,
+      authenticatedUserId: request.auth?.userId,
+      authenticatedUserEmail: request.auth?.email,
+    });
     return successResponse(accepted);
   }
 

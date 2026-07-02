@@ -49,6 +49,7 @@ export async function buildApp(config: BackendConfig) {
     app,
     context.invitationController,
     context.authenticate,
+    context.authenticateIfPresent,
   );
   await registerOrganizationRoutes(
     app,

@@ -160,6 +160,7 @@ export interface InvitationSummary {
   organizationName: string;
   email: string;
   role: Extract<OrganizationRole, "PROJECT_MANAGER">;
+  acceptanceMode: "create_account" | "sign_in";
   status: "pending" | "accepted" | "revoked";
   token: string;
   invitedById: string;
@@ -171,7 +172,7 @@ export interface InvitationSummary {
 
 export interface InvitationAcceptanceSummary {
   invitation: InvitationSummary;
-  hasExistingAccount: boolean;
+  acceptanceMode: InvitationSummary["acceptanceMode"];
 }
 
 export interface SubscriptionRecord {

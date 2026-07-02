@@ -10,7 +10,11 @@ import type {
 
 export interface OrganizationRepository {
   slugExists(slug: string, session: DatabaseSession): Promise<boolean>;
-  nameExists(name: string, session: DatabaseSession): Promise<boolean>;
+  nameExists(
+    name: string,
+    session: DatabaseSession,
+    options?: { excludeOrganizationId?: string },
+  ): Promise<boolean>;
   create(
     input: OrganizationCreateInput,
     session: DatabaseSession,
