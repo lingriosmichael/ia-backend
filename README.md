@@ -1,138 +1,126 @@
 # Impact Atlas Backend
 
-`gr_backend` is the standalone TypeScript backend repository.
+This service is the backend API for Impact Atlas. It is a TypeScript application built with Fastify, Mongoose, and MongoDB. It powers authentication, organizations, projects, activities, uploads, and the core grant-management workflows.
 
-## Structure
+## What this service does
 
-```text
-gr_backend/
-  src/
-    config/
-    contracts/
-    controllers/
-    middleware/
-    repositories/
-    routes/
-    schemas/
-    services/
-    storage/
-    utils/
-  .env.example
-  docker-compose.yml
-  package.json
-  tsconfig.json
-```
+- Handles user registration and login
+- Manages organizations, memberships, projects, and activities
+- Stores data in MongoDB
+- Exposes a REST API for the frontend application
+- Supports file upload metadata and processing workflows
 
-## Implemented
+## Prerequisites
 
-- MongoDB via Mongoose
-- JWT authentication
-- account registration
-- login
-- session lookup
-- organizations and memberships
-- projects
-- activities
-- activity uploads
-- upload metadata
-- processing jobs
-- result records
+Before you start, make sure you have the following installed on your computer:
 
-## Accounts
+- Git
+- Node.js 22.12.0 or newer (preferably the current Node 22 LTS release)
+- npm (this comes with Node.js)
+- Docker Desktop
+- A terminal app such as Terminal or iTerm
+- VS Code (recommended)
 
-Account creation is already implemented.
+### macOS setup example
 
-Endpoints:
-
-- `POST /auth/register`
-- `POST /auth/login`
-- `GET /auth/me`
-
-`POST /auth/register` creates:
-
-- a `User`
-- an `Organization`
-- an owner `Membership`
-- a JWT access token in the response
-
-Request body:
-
-```json
-{
-  "fullName": "Jane Doe",
-  "email": "jane@example.com",
-  "password": "strongpassword",
-  "organizationName": "Example Org"
-}
-```
-
-## Database Models
-
-Core Mongo models:
-
-- `User`
-- `Organization`
-- `Membership`
-- `Project`
-- `Activity`
-- `UploadMetadata`
-- `ProcessingJob`
-- `ResultRecord`
-
-## Local Development
-
-1. Start MongoDB:
+If you are on macOS and do not already have Node.js or Homebrew installed, use the following commands:
 
 ```bash
-docker compose up -d mongo
+/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+brew install node@22
+echo 'export PATH="/opt/homebrew/opt/node@22/bin:$PATH"' >> ~/.zshrc
+source ~/.zshrc
 ```
 
-2. Create env:
+Then confirm the installation:
+
+```bash
+node --version
+npm --version
+docker --version
+docker compose version
+```
+
+> Docker Desktop must be running before you start MongoDB.
+
+## Clone the repository
+
+```bash
+git clone <your-repo-url>
+cd Impact_Atlas/ia_backend
+```
+
+## Install dependencies
+
+```bash
+npm install
+```
+
+## Create the environment file
 
 ```bash
 cp .env.example .env
 ```
 
-3. Start the backend:
+Open the new .env file and review the values. The defaults are usually enough for local development.
+
+## Start MongoDB with Docker
 
 ```bash
-npm install
+docker compose up -d mongo
+```
+
+This starts a local MongoDB container on port 27017.
+
+If this is your first time running it, Docker may take a few minutes to download the image.
+
+## Start the backend locally
+
+```bash
 npm run dev
 ```
 
-Backend default URL: `http://localhost:4000`
+The API should now be available at:
 
-Health check:
+- http://localhost:4000
+- Health check: http://localhost:4000/health
 
-- `GET /health`
+## Useful commands
 
-## Environment Variables
+```bash
+npm run dev      # start the development server
+npm run build    # compile the TypeScript app
+npm run lint     # type-check the project
+npm run test     # run tests
+```
 
-| Variable | Purpose |
-| --- | --- |
-| `API_PORT` | Backend HTTP port |
-| `JWT_SECRET` | JWT signing secret |
-| `JWT_EXPIRES_IN` | Token lifetime |
-| `CORS_ORIGIN` | Allowed frontend origin |
-| `PYTHON_SERVICE_URL` | Future Python microservice base URL |
-| `UPLOAD_DIR` | Local uploads directory |
-| `MONGODB_URI` | MongoDB server connection string |
-| `MONGODB_DB_NAME` | MongoDB database name |
-| `AI_PROVIDER` | Active AI provider key |
-| `AI_MODEL` | Default AI model identifier |
+## Stop the services
 
-The backend now runs directly on MongoDB. Stable string `_id` values are used across business and AI documents, and processing-job status parity includes `cancelled`.
+To stop the MongoDB container:
 
-## Deferred AI Pipeline Deepening
+```bash
+docker compose down
+```
 
-The reusable AI pipeline runtime is in place, but the pipeline-specific deepening work is intentionally deferred.
+## Common troubleshooting
 
-Reminder for later:
+- If the server does not start, make sure Docker Desktop is open and running.
+- If MongoDB fails to connect, confirm the database container is running with `docker compose ps`.
+- If you see a port error, check whether port 4000 is already being used by another app.
+- If the app cannot connect to the frontend, confirm the backend is running and that `CORS_ORIGIN` in `.env` matches the frontend address.
 
-- give each pipeline more domain-specific preprocessing and postprocessing instead of relying on the shared provider-backed base for most behavior
-- add reusable pipeline chaining so later stages can consume earlier structured outputs explicitly
-- strengthen idempotency and retry behavior for queued AI executions
-- move from generic result artifacts toward richer per-pipeline artifact shapes where needed
-- improve report, insight, dashboard, and chat pipelines so they are meaningfully differentiated from dataset interpretation
-# ia-backend
-Backend Infrastructure for Impact Atlas
+## Environment variables
+
+The default values are already provided in .env.example:
+
+- API_PORT: the local port for the backend
+- JWT_SECRET: secret used to sign authentication tokens
+- JWT_EXPIRES_IN: token lifetime
+- CORS_ORIGIN: allowed frontend origin
+- PYTHON_SERVICE_URL: URL for the Python service if you use it
+- UPLOAD_DIR: where upload files are stored locally
+- MONGODB_URI: MongoDB connection string
+- MONGODB_DB_NAME: database name
+- AI_PROVIDER: local AI provider mode
+- AI_MODEL: AI model name
+
