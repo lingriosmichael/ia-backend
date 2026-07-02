@@ -7,17 +7,32 @@ Stack: Node.js, TypeScript, Fastify, Mongoose, MongoDB, JWT auth.
 (Adjust this section to match reality as the codebase grows — keep it a
 truthful map, not an aspiration.)
 
-- `src/routes/` — route definitions only, no logic
-- `src/controllers/` — request/response handling, calls services
-- `src/services/` — business logic, framework-agnostic
-- `src/modules/*/*.mongo-repository.ts` — Mongo data access
-- `src/modules/*/*.model.ts` — Mongoose schemas/models
+- `src/modules/<domain>/` — domain modules such as `organization`, `project`, `activity`, `upload`
+- `src/modules/<domain>/*Controller.ts` — request/response coordination
+- `src/modules/<domain>/*Routes.ts` — Fastify route registration
+- `src/modules/<domain>/*Service.ts` — business logic
+- `src/modules/<domain>/*Repository.ts` — repository contracts
+- `src/modules/<domain>/*MongoRepository.ts` — Mongo data access
+- `src/modules/<domain>/*Model.ts` — Mongoose schemas/models
+- `src/modules/<domain>/*Persistence.ts` — persistence record/input types
+- `src/shared/` — cross-cutting infrastructure such as auth, bootstrap, database, errors, http
+- `src/schemas/` — request validation schemas
+- `src/scripts/` — explicit maintenance/migration scripts
 
 ## Layering rule
 
 Routes → controllers → services → repositories. Controllers never call
 Mongo/Mongoose directly; services never touch `req`/`res`. This keeps business logic
 testable independent of Fastify and keeps DB access in one place.
+
+## Naming standard
+
+- Use `camelCase` for all multi-word backend source filenames.
+- Use suffix-based filenames such as `organizationService.ts`, `organizationController.ts`, `organizationRoutes.ts`, `organizationMongoRepository.ts`.
+- Tests use `camelCase.test.ts`.
+- Type declaration files may keep the `.d.ts` suffix, e.g. `fastify.d.ts`.
+- Do not introduce kebab-case backend source filenames.
+- Keep folder names as lower-case domain nouns unless there is a strong reason to do otherwise.
 
 ## Validation & types
 
@@ -86,3 +101,4 @@ Routes should not contain business logic.
 Controllers should coordinate.
 Services should implement business rules.
 Repositories should only access persistence.
+Keep file names predictable enough that the role of a file is obvious from its name alone.

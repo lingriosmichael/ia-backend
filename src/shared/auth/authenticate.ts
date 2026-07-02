@@ -1,6 +1,6 @@
 import type { FastifyReply, FastifyRequest } from "fastify";
-import { AppError } from "../errors/app-error.js";
-import { AuthService } from "../../modules/auth/auth.service.js";
+import { AppError } from "../errors/appError.js";
+import { AuthService } from "../../modules/auth/authService.js";
 
 export function createAuthenticateMiddleware(authService: AuthService) {
   return async function authenticate(

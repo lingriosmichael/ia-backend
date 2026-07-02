@@ -1,23 +1,23 @@
 import Fastify from "fastify";
 import cors from "@fastify/cors";
 import multipart from "@fastify/multipart";
-import { registerActivityRoutes } from "./modules/activity/activity.routes.js";
-import { registerResultRoutes } from "./modules/ai/artifact/result.routes.js";
-import { registerProcessingJobRoutes } from "./modules/ai/execution/processing-job.routes.js";
-import { registerAuthRoutes } from "./modules/auth/auth.routes.js";
-import { registerHealthRoutes } from "./modules/health/health.routes.js";
-import { registerInvitationRoutes } from "./modules/invitation/invitation.routes.js";
-import { registerOrganizationRoutes } from "./modules/organization/organization.routes.js";
-import { registerProjectRoutes } from "./modules/project/project.routes.js";
-import { registerActivityUploadRoutes } from "./modules/upload/activity-upload.routes.js";
-import { registerUploadMetadataRoutes } from "./modules/upload/upload-metadata.routes.js";
+import { registerActivityRoutes } from "./modules/activity/activityRoutes.js";
+import { registerResultRoutes } from "./modules/ai/artifact/resultRoutes.js";
+import { registerProcessingJobRoutes } from "./modules/ai/execution/processingJobRoutes.js";
+import { registerAuthRoutes } from "./modules/auth/authRoutes.js";
+import { registerHealthRoutes } from "./modules/health/healthRoutes.js";
+import { registerInvitationRoutes } from "./modules/invitation/invitationRoutes.js";
+import { registerOrganizationRoutes } from "./modules/organization/organizationRoutes.js";
+import { registerProjectRoutes } from "./modules/project/projectRoutes.js";
+import { registerActivityUploadRoutes } from "./modules/upload/activityUploadRoutes.js";
+import { registerUploadMetadataRoutes } from "./modules/upload/uploadMetadataRoutes.js";
 import type { BackendConfig } from "./shared/config/env.js";
-import { createApplicationContext } from "./shared/bootstrap/create-application-context.js";
+import { createApplicationContext } from "./shared/bootstrap/createApplicationContext.js";
 import {
   connectMongoDatabase,
   disconnectMongoDatabase,
 } from "./shared/database/mongoose.js";
-import { registerErrorHandler } from "./shared/errors/error-handler.js";
+import { registerErrorHandler } from "./shared/errors/errorHandler.js";
 
 export async function buildApp(config: BackendConfig) {
   const app = Fastify({
