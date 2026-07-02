@@ -1,6 +1,7 @@
 import type { MultipartFile } from "@fastify/multipart";
 import type { ActivityUploadResponse } from "../../shared/contracts.js";
 import { AppError } from "../../shared/errors/app-error.js";
+import { AuthorizationService } from "../../shared/auth/authorization.service.js";
 import { ActivityService } from "../activity/activity.service.js";
 import { AIOrchestrationService } from "../ai/orchestration/ai-orchestration.service.js";
 import { FileStorageService } from "./file-storage.service.js";
@@ -12,6 +13,7 @@ export class ActivityUploadService {
     private readonly fileStorageService: FileStorageService,
     private readonly uploadMetadataService: UploadMetadataService,
     private readonly aiOrchestrationService: AIOrchestrationService,
+    private readonly authorizationService: AuthorizationService,
   ) {}
 
   async uploadForActivity(
@@ -23,6 +25,7 @@ export class ActivityUploadService {
       throw new AppError("A file is required.", 400, "file_required");
     }
 
+    await this.authorizationService.canUploadToActivity(userId, activityId);
     const activity = await this.activityService.getById(userId, activityId);
     const storedFile = await this.fileStorageService.storeActivityUpload(
       activityId,

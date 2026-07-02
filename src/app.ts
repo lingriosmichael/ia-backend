@@ -6,6 +6,7 @@ import { registerResultRoutes } from "./modules/ai/artifact/result.routes.js";
 import { registerProcessingJobRoutes } from "./modules/ai/execution/processing-job.routes.js";
 import { registerAuthRoutes } from "./modules/auth/auth.routes.js";
 import { registerHealthRoutes } from "./modules/health/health.routes.js";
+import { registerInvitationRoutes } from "./modules/invitation/invitation.routes.js";
 import { registerOrganizationRoutes } from "./modules/organization/organization.routes.js";
 import { registerProjectRoutes } from "./modules/project/project.routes.js";
 import { registerActivityUploadRoutes } from "./modules/upload/activity-upload.routes.js";
@@ -44,6 +45,11 @@ export async function buildApp(config: BackendConfig) {
 
   await registerHealthRoutes(app, context.healthController);
   await registerAuthRoutes(app, context.authController, context.authenticate);
+  await registerInvitationRoutes(
+    app,
+    context.invitationController,
+    context.authenticate,
+  );
   await registerOrganizationRoutes(
     app,
     context.organizationController,

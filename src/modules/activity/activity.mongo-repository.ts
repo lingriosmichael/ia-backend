@@ -33,6 +33,7 @@ function toActivityRecord(
     expectedOutcomes: document.expectedOutcomes ?? null,
     successIndicators: document.successIndicators ?? null,
     targetAudience: document.targetAudience ?? null,
+    additionalContext: document.additionalContext ?? null,
     beneficiaryGroup: document.beneficiaryGroup ?? null,
     status: document.status,
     createdAt: document.createdAt,

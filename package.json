@@ -11,7 +11,8 @@
     "build": "tsc -p tsconfig.json",
     "start": "node dist/src/server.js",
     "lint": "tsc -p tsconfig.json --noEmit",
-    "test": "node --import tsx --test src/**/*.test.ts"
+    "test": "node --import tsx --test src/**/*.test.ts",
+    "migrate:roles": "tsx src/scripts/migrate-organization-role-model.ts"
   },
   "dependencies": {
     "@fastify/cors": "^10.0.1",

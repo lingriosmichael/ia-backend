@@ -1,9 +1,9 @@
 import { databaseSession } from "../../shared/database/database-client.js";
 import { AppError } from "../../shared/errors/app-error.js";
+import { AuthorizationService } from "../../shared/auth/authorization.service.js";
 import { mapActivity } from "../../shared/utils/mappers.js";
 import { ensureUniqueSlug } from "../../shared/utils/slug.js";
 import type { ActivityRepository } from "./activity.repository.js";
-import { ProjectService } from "../project/project.service.js";
 
 function mapActivityStatus(status: "planning" | "active" | "completed") {
   return status;
@@ -12,16 +12,24 @@ function mapActivityStatus(status: "planning" | "active" | "completed") {
 export class ActivityService {
   constructor(
     private readonly activityRepository: ActivityRepository,
-    private readonly projectService: ProjectService,
+    private readonly authorizationService: AuthorizationService,
   ) {}
 
   async listForProject(userId: string, projectId: string) {
-    const project = await this.projectService.getById(userId, projectId);
+    const { project } = await this.authorizationService.canViewProject(userId, projectId);
     const activities = await this.activityRepository.listByProject(
       project.id,
       databaseSession,
     );
-    return activities.map(mapActivity);
+    return activities.map((activity) =>
+      mapActivity(
+        {
+          ...activity,
+          projectOwnerId: project.ownerId,
+        },
+        userId,
+      ),
+    );
   }
 
   async create(
@@ -38,11 +46,12 @@ export class ActivityService {
       expectedOutcomes?: string;
       successIndicators?: string;
       targetAudience?: string;
+      additionalContext?: string;
       beneficiaryGroup?: string;
       status?: "planning" | "active" | "completed";
     },
   ) {
-    await this.projectService.getById(userId, projectId);
+    await this.authorizationService.canEditProject(userId, projectId);
 
     const slug = await ensureUniqueSlug(input.name, (candidate) =>
       this.activityRepository.slugExists(projectId, candidate, databaseSession),
@@ -63,13 +72,20 @@ export class ActivityService {
         expectedOutcomes: input.expectedOutcomes?.trim() ?? null,
         successIndicators: input.successIndicators?.trim() ?? null,
         targetAudience: input.targetAudience?.trim() ?? null,
+        additionalContext: input.additionalContext?.trim() ?? null,
         beneficiaryGroup: input.beneficiaryGroup?.trim() ?? null,
         status: input.status ? mapActivityStatus(input.status) : undefined,
       },
       databaseSession,
     );
 
-    return mapActivity(activity);
+    return mapActivity(
+      {
+        ...activity,
+        projectOwnerId: userId,
+      },
+      userId,
+    );
   }
 
   async update(
@@ -86,6 +102,7 @@ export class ActivityService {
       expectedOutcomes?: string | null;
       successIndicators?: string | null;
       targetAudience?: string | null;
+      additionalContext?: string | null;
       beneficiaryGroup?: string | null;
       status?: "planning" | "active" | "completed";
     },
@@ -96,7 +113,7 @@ export class ActivityService {
       throw new AppError("Activity not found.", 404, "activity_not_found");
     }
 
-    await this.projectService.getById(userId, activity.projectId);
+    const { project } = await this.authorizationService.canEditActivity(userId, activityId);
 
     let slug: string | undefined;
     if (input.name && input.name.trim() !== activity.name) {
@@ -148,6 +165,10 @@ export class ActivityService {
           input.targetAudience === undefined
             ? undefined
             : input.targetAudience?.trim() ?? null,
+        additionalContext:
+          input.additionalContext === undefined
+            ? undefined
+            : input.additionalContext?.trim() ?? null,
         beneficiaryGroup:
           input.beneficiaryGroup === undefined
             ? undefined
@@ -157,18 +178,27 @@ export class ActivityService {
       databaseSession,
     );
 
-    return mapActivity(updatedActivity);
+    return mapActivity(
+      {
+        ...updatedActivity,
+        projectOwnerId: project.ownerId,
+      },
+      userId,
+    );
   }
 
   async getById(userId: string, activityId: string) {
-    const activity = await this.activityRepository.findById(activityId, databaseSession);
+    const { activity, project } = await this.authorizationService.canViewActivity(
+      userId,
+      activityId,
+    );
 
-    if (!activity) {
-      throw new AppError("Activity not found.", 404, "activity_not_found");
-    }
-
-    await this.projectService.getById(userId, activity.projectId);
-
-    return activity;
+    return mapActivity(
+      {
+        ...activity,
+        projectOwnerId: project.ownerId,
+      },
+      userId,
+    );
   }
 }

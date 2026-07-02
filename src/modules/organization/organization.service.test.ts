@@ -4,9 +4,11 @@ import type { ActivityRepository } from "../activity/activity.repository.js";
 import type { ResultRepository } from "../ai/artifact/result.repository.js";
 import type { ProcessingJobRepository } from "../ai/execution/processing-job.repository.js";
 import type { ProjectRepository } from "../project/project.repository.js";
+import type { AuthorizationService } from "../../shared/auth/authorization.service.js";
 import type { TransactionManager } from "../../shared/database/transaction-manager.js";
 import { FileStorageService } from "../upload/file-storage.service.js";
 import type { UploadMetadataRepository } from "../upload/upload-metadata.repository.js";
+import type { UserRepository } from "../user/user.repository.js";
 import type { OrganizationRepository } from "./organization.repository.js";
 import { OrganizationService } from "./organization.service.js";
 
@@ -16,11 +18,11 @@ test("organization workspace enriches activity upload counts from the upload rep
       id: "organization-1",
       name: "Example Org",
       slug: "example-org",
-      description: null,
-      logoPath: null,
+      mission: null,
+      logoUrl: null,
       createdAt: new Date("2026-01-01T00:00:00.000Z"),
       updatedAt: new Date("2026-01-02T00:00:00.000Z"),
-      memberships: [{ role: "owner" }],
+      memberships: [{ role: "ORGANIZATION_ADMIN" }],
     }),
   } as unknown as OrganizationRepository;
 
@@ -29,6 +31,7 @@ test("organization workspace enriches activity upload counts from the upload rep
       {
         id: "project-1",
         organizationId: "organization-1",
+        ownerId: "user-1",
         name: "Project One",
         slug: "project-one",
         description: null,
@@ -63,6 +66,7 @@ test("organization workspace enriches activity upload counts from the upload rep
         expectedOutcomes: null,
         successIndicators: null,
         targetAudience: null,
+        additionalContext: null,
         beneficiaryGroup: null,
         status: "planning",
         createdAt: new Date("2026-01-05T00:00:00.000Z"),
@@ -89,6 +93,30 @@ test("organization workspace enriches activity upload counts from the upload rep
 
   const fileStorageService = {} as FileStorageService;
   const transactionManager = {} as TransactionManager;
+  const authorizationService = {
+    canViewOrganization: async () => ({
+      membership: {
+        id: "membership-1",
+        userId: "user-1",
+        organizationId: "organization-1",
+        role: "ORGANIZATION_ADMIN",
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      },
+    }),
+  } as unknown as AuthorizationService;
+  const userRepository = {
+    findByIds: async () => [
+      {
+        id: "user-1",
+        email: "admin@example.org",
+        fullName: "Org Admin",
+        passwordHash: "hash",
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      },
+    ],
+  } as unknown as UserRepository;
 
   const organizationService = new OrganizationService(
     organizationRepository,
@@ -99,6 +127,8 @@ test("organization workspace enriches activity upload counts from the upload rep
     processingJobRepository,
     resultRepository,
     transactionManager,
+    authorizationService,
+    userRepository,
   );
 
   const workspace = await organizationService.getWorkspace(

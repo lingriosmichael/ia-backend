@@ -55,7 +55,7 @@ export interface OrganizationContext {
   kind: "organization";
   organizationId: string;
   name: string;
-  description: string | null;
+  mission: string | null;
 }
 
 export interface ReportContext {

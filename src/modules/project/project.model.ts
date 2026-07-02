@@ -5,7 +5,9 @@ const projectSchema = new Schema(
   {
     _id: { type: String, required: true },
     organizationId: { type: String, required: true, index: true },
-    createdById: { type: String, required: true },
+    ownerId: { type: String, required: true, index: true },
+    // Legacy field retained temporarily for migration compatibility.
+    createdById: { type: String, default: null },
     name: { type: String, required: true, trim: true },
     slug: { type: String, required: true, trim: true },
     description: { type: String, default: null },
@@ -30,6 +32,7 @@ const projectSchema = new Schema(
 );
 
 projectSchema.index({ organizationId: 1, slug: 1 }, { unique: true });
+projectSchema.index({ organizationId: 1, ownerId: 1, createdAt: -1 });
 
 export type ProjectMongoDocument = InferSchemaType<typeof projectSchema>;
 export type ProjectMongoHydratedDocument = HydratedDocument<ProjectMongoDocument>;

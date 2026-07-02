@@ -19,18 +19,20 @@ const stringArraySchema = z.array(z.string().trim().min(1).max(120)).max(20).opt
 
 export const idParamSchema = z.object({
   organizationId: z.string().min(1).optional(),
+  membershipId: z.string().min(1).optional(),
   projectId: z.string().min(1).optional(),
   activityId: z.string().min(1).optional(),
   uploadMetadataId: z.string().min(1).optional(),
   processingJobId: z.string().min(1).optional(),
   resultRecordId: z.string().min(1).optional(),
+  invitationId: z.string().min(1).optional(),
+  token: z.string().min(1).optional(),
 });
 
 export const registerSchema = z.object({
   fullName: z.string().trim().min(2).max(120),
   email: z.string().trim().email(),
   password: z.string().min(8).max(128),
-  organizationName: z.string().trim().min(2).max(120),
 });
 
 export const loginSchema = z.object({
@@ -42,8 +44,19 @@ export const createOrganizationSchema = z.object({
   name: z.string().trim().min(2).max(120),
 });
 
+export const createInvitationSchema = z.object({
+  email: z.string().trim().email(),
+  role: z.literal("PROJECT_MANAGER"),
+});
+
+export const acceptInvitationSchema = z.object({
+  fullName: z.string().trim().min(2).max(120),
+  password: z.string().min(8).max(128),
+});
+
 export const updateOrganizationSchema = z.object({
   name: z.string().trim().min(2).max(120).optional(),
+  mission: z.string().trim().max(2000).nullable().optional(),
   description: z.string().trim().max(2000).nullable().optional(),
 });
 
@@ -90,6 +103,7 @@ export const createActivitySchema = z.object({
   expectedOutcomes: z.string().trim().max(2000).optional(),
   successIndicators: z.string().trim().max(2000).optional(),
   targetAudience: z.string().trim().max(2000).optional(),
+  additionalContext: z.string().trim().max(2000).optional(),
   beneficiaryGroup: z.string().trim().max(2000).optional(),
   status: z.enum(activityStatusValues).optional(),
 });
@@ -105,6 +119,7 @@ export const updateActivitySchema = z.object({
   expectedOutcomes: z.string().trim().max(2000).nullable().optional(),
   successIndicators: z.string().trim().max(2000).nullable().optional(),
   targetAudience: z.string().trim().max(2000).nullable().optional(),
+  additionalContext: z.string().trim().max(2000).nullable().optional(),
   beneficiaryGroup: z.string().trim().max(2000).nullable().optional(),
   status: z.enum(activityStatusValues).optional(),
 });

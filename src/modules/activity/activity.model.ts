@@ -17,6 +17,7 @@ const activitySchema = new Schema(
     expectedOutcomes: { type: String, default: null },
     successIndicators: { type: String, default: null },
     targetAudience: { type: String, default: null },
+    additionalContext: { type: String, default: null },
     beneficiaryGroup: { type: String, default: null },
     status: {
       type: String,

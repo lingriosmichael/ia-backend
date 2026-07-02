@@ -14,6 +14,7 @@ export interface ActivityPersistenceRecord {
   expectedOutcomes: string | null;
   successIndicators: string | null;
   targetAudience: string | null;
+  additionalContext: string | null;
   beneficiaryGroup: string | null;
   status: ActivityStatus;
   createdAt: Date;
@@ -34,6 +35,7 @@ export interface ActivityCreateInput {
   expectedOutcomes: string | null;
   successIndicators: string | null;
   targetAudience: string | null;
+  additionalContext: string | null;
   beneficiaryGroup: string | null;
   status?: ActivityStatus;
 }
@@ -50,6 +52,7 @@ export interface ActivityUpdateInput {
   expectedOutcomes?: string | null;
   successIndicators?: string | null;
   targetAudience?: string | null;
+  additionalContext?: string | null;
   beneficiaryGroup?: string | null;
   status?: ActivityStatus;
 }

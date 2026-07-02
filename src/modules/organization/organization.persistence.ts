@@ -4,8 +4,8 @@ export interface OrganizationPersistenceRecord {
   id: string;
   name: string;
   slug: string;
-  description: string | null;
-  logoPath: string | null;
+  mission: string | null;
+  logoUrl: string | null;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -26,9 +26,9 @@ export interface OrganizationCreateInput {
 
 export interface OrganizationUpdateInput {
   name?: string;
-  description?: string | null;
+  mission?: string | null;
   slug?: string;
-  logoPath?: string | null;
+  logoUrl?: string | null;
 }
 
 export interface OrganizationMembershipCreateInput {

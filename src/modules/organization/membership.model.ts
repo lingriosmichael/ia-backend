@@ -8,8 +8,8 @@ const membershipSchema = new Schema(
     organizationId: { type: String, required: true, index: true },
     role: {
       type: String,
-      enum: ["owner", "member"],
-      default: "member",
+      enum: ["ORGANIZATION_ADMIN", "PROJECT_MANAGER"],
+      default: "PROJECT_MANAGER",
       required: true,
     },
   },

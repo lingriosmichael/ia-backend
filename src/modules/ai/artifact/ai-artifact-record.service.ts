@@ -1,8 +1,7 @@
 import { databaseSession } from "../../../shared/database/database-client.js";
 import { AppError } from "../../../shared/errors/app-error.js";
+import { AuthorizationService } from "../../../shared/auth/authorization.service.js";
 import { mapResultRecord } from "../../../shared/utils/mappers.js";
-import { ActivityService } from "../../activity/activity.service.js";
-import { ProjectService } from "../../project/project.service.js";
 import type { UploadMetadataRepository } from "../../upload/upload-metadata.repository.js";
 import type { ProcessingJobRepository } from "../execution/processing-job.repository.js";
 import type { ResultRepository } from "./result.repository.js";
@@ -12,12 +11,11 @@ export class AIArtifactRecordService {
     private readonly resultRepository: ResultRepository,
     private readonly uploadMetadataRepository: UploadMetadataRepository,
     private readonly processingJobRepository: ProcessingJobRepository,
-    private readonly projectService: ProjectService,
-    private readonly activityService: ActivityService,
+    private readonly authorizationService: AuthorizationService,
   ) {}
 
   async listByActivity(userId: string, activityId: string) {
-    await this.activityService.getById(userId, activityId);
+    await this.authorizationService.canViewActivity(userId, activityId);
     const results = await this.resultRepository.listByActivity(
       activityId,
       databaseSession,
@@ -36,10 +34,11 @@ export class AIArtifactRecordService {
       payload?: Record<string, unknown>;
     },
   ) {
-    const project = await this.projectService.getById(userId, projectId);
+    const { project } = await this.authorizationService.canEditProject(userId, projectId);
 
     if (input.activityId) {
-      const activity = await this.activityService.getById(userId, input.activityId);
+      const activity = (await this.authorizationService.canEditActivity(userId, input.activityId))
+        .activity;
       if (activity.projectId !== project.id) {
         throw new AppError(
           "The activity does not belong to the specified project.",
@@ -110,7 +109,7 @@ export class AIArtifactRecordService {
       throw new AppError("Result record not found.", 404, "result_record_not_found");
     }
 
-    await this.projectService.getById(userId, existingResult.projectId);
+    await this.authorizationService.canEditProject(userId, existingResult.projectId);
 
     const updatedResult = await this.resultRepository.update(
       resultRecordId,

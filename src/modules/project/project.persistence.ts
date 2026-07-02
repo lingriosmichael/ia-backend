@@ -3,6 +3,7 @@ import type { ProjectStatus } from "../../shared/contracts.js";
 export interface ProjectPersistenceRecord {
   id: string;
   organizationId: string;
+  ownerId: string;
   name: string;
   slug: string;
   description: string | null;
@@ -21,7 +22,7 @@ export interface ProjectPersistenceRecord {
 
 export interface ProjectCreateInput {
   organizationId: string;
-  createdById: string;
+  ownerId: string;
   name: string;
   slug: string;
   description: string | null;

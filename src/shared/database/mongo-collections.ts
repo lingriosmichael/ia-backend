@@ -2,6 +2,8 @@ export const mongoCollections = {
   users: "users",
   organizations: "organizations",
   memberships: "memberships",
+  invitations: "invitations",
+  subscriptions: "subscriptions",
   projects: "projects",
   activities: "activities",
   uploads: "uploads",

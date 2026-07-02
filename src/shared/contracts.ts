@@ -1,4 +1,7 @@
-export const organizationRoleValues = ["owner", "member"] as const;
+export const organizationRoleValues = [
+  "ORGANIZATION_ADMIN",
+  "PROJECT_MANAGER",
+] as const;
 export type OrganizationRole = (typeof organizationRoleValues)[number];
 
 export const projectStatusValues = ["planning", "active", "completed"] as const;
@@ -64,13 +67,34 @@ export interface UserSummary {
   updatedAt: string;
 }
 
+export interface OrganizationPermissions {
+  canManageProfile: boolean;
+  canManageMembers: boolean;
+  canManageBilling: boolean;
+  canManageSettings: boolean;
+  canCreateProject: boolean;
+}
+
+export interface ProjectPermissions {
+  canEdit: boolean;
+  canDelete: boolean;
+  canCreateActivity: boolean;
+  canUploadEvidence: boolean;
+}
+
+export interface ActivityPermissions {
+  canEdit: boolean;
+  canUploadEvidence: boolean;
+}
+
 export interface OrganizationSummary {
   id: string;
   name: string;
   slug: string;
-  description: string | null;
+  mission: string | null;
   logoUrl: string | null;
   role: OrganizationRole;
+  permissions: OrganizationPermissions;
   createdAt: string;
   updatedAt: string;
 }
@@ -78,6 +102,8 @@ export interface OrganizationSummary {
 export interface ProjectSummary {
   id: string;
   organizationId: string;
+  ownerId: string;
+  ownerName: string | null;
   name: string;
   slug: string;
   description: string | null;
@@ -90,6 +116,7 @@ export interface ProjectSummary {
   targetBeneficiaries: string[];
   fundingSource: string | null;
   status: ProjectStatus;
+  permissions: ProjectPermissions;
   createdAt: string;
   updatedAt: string;
 }
@@ -108,8 +135,52 @@ export interface ActivitySummary {
   expectedOutcomes: string | null;
   successIndicators: string | null;
   targetAudience: string | null;
+  additionalContext: string | null;
   beneficiaryGroup: string | null;
   status: ActivityStatus;
+  permissions: ActivityPermissions;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface OrganizationMemberSummary {
+  id: string;
+  userId: string;
+  organizationId: string;
+  fullName: string;
+  email: string;
+  role: OrganizationRole;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface InvitationSummary {
+  id: string;
+  organizationId: string;
+  organizationName: string;
+  email: string;
+  role: Extract<OrganizationRole, "PROJECT_MANAGER">;
+  status: "pending" | "accepted" | "revoked";
+  token: string;
+  invitedById: string;
+  acceptedById: string | null;
+  acceptedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface InvitationAcceptanceSummary {
+  invitation: InvitationSummary;
+  hasExistingAccount: boolean;
+}
+
+export interface SubscriptionRecord {
+  id: string;
+  organizationId: string;
+  planName: string;
+  includedAdminSeats: number;
+  includedProjectManagerSeats: number;
+  status: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -232,11 +303,20 @@ export interface RegisterRequest {
   fullName: string;
   email: string;
   password: string;
-  organizationName: string;
 }
 
 export interface LoginRequest {
   email: string;
+  password: string;
+}
+
+export interface CreateInvitationRequest {
+  email: string;
+  role: Extract<OrganizationRole, "PROJECT_MANAGER">;
+}
+
+export interface AcceptInvitationRequest {
+  fullName: string;
   password: string;
 }
 
@@ -246,6 +326,7 @@ export interface CreateOrganizationRequest {
 
 export interface UpdateOrganizationRequest {
   name?: string;
+  mission?: string | null;
   description?: string | null;
 }
 
@@ -288,6 +369,7 @@ export interface CreateActivityRequest {
   expectedOutcomes?: string;
   successIndicators?: string;
   targetAudience?: string;
+  additionalContext?: string;
   beneficiaryGroup?: string;
   status?: ActivityStatus;
 }
@@ -303,6 +385,7 @@ export interface UpdateActivityRequest {
   expectedOutcomes?: string | null;
   successIndicators?: string | null;
   targetAudience?: string | null;
+  additionalContext?: string | null;
   beneficiaryGroup?: string | null;
   status?: ActivityStatus;
 }

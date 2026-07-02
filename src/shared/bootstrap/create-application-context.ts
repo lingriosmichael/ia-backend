@@ -1,5 +1,6 @@
 import type { BackendConfig } from "../config/env.js";
 import { createAuthenticateMiddleware } from "../auth/authenticate.js";
+import { AuthorizationService } from "../auth/authorization.service.js";
 import { NoopTransactionManager } from "../database/transaction-manager.js";
 import { ActivityController } from "../../modules/activity/activity.controller.js";
 import { MongoActivityRepository } from "../../modules/activity/activity.mongo-repository.js";
@@ -39,6 +40,9 @@ import { AIProviderRegistry } from "../../modules/ai/providers/provider-registry
 import { AuthController } from "../../modules/auth/auth.controller.js";
 import { AuthService } from "../../modules/auth/auth.service.js";
 import { HealthController } from "../../modules/health/health.controller.js";
+import { InvitationController } from "../../modules/invitation/invitation.controller.js";
+import { MongoInvitationRepository } from "../../modules/invitation/invitation.mongo-repository.js";
+import { InvitationService } from "../../modules/invitation/invitation.service.js";
 import { OrganizationController } from "../../modules/organization/organization.controller.js";
 import { MongoOrganizationRepository } from "../../modules/organization/organization.mongo-repository.js";
 import { OrganizationService } from "../../modules/organization/organization.service.js";
@@ -57,11 +61,17 @@ export function createApplicationContext(config: BackendConfig) {
   const transactionManager = new NoopTransactionManager();
   const userRepository = new MongoUserRepository();
   const organizationRepository = new MongoOrganizationRepository();
+  const invitationRepository = new MongoInvitationRepository();
   const projectRepository = new MongoProjectRepository();
   const activityRepository = new MongoActivityRepository();
   const uploadMetadataRepository = new MongoUploadMetadataRepository();
   const processingJobRepository = new MongoAIExecutionRepository();
   const resultRepository = new MongoAIArtifactRepository();
+  const authorizationService = new AuthorizationService(
+    organizationRepository,
+    projectRepository,
+    activityRepository,
+  );
 
   const authService = new AuthService(
     config,
@@ -79,39 +89,40 @@ export function createApplicationContext(config: BackendConfig) {
     processingJobRepository,
     resultRepository,
     transactionManager,
+    authorizationService,
+    userRepository,
   );
   const projectService = new ProjectService(
     projectRepository,
-    organizationService,
+    authorizationService,
     fileStorageService,
     activityRepository,
     uploadMetadataRepository,
     processingJobRepository,
     resultRepository,
     transactionManager,
+    userRepository,
   );
   const activityService = new ActivityService(
     activityRepository,
-    projectService,
+    authorizationService,
   );
   const uploadMetadataService = new UploadMetadataService(
     uploadMetadataRepository,
-    projectService,
     activityService,
+    authorizationService,
   );
   const aiExecutionService = new AIExecutionService(
     processingJobRepository,
     uploadMetadataRepository,
-    projectService,
-    activityService,
+    authorizationService,
   );
   const processingJobService = new ProcessingJobService(aiExecutionService);
   const aiArtifactRecordService = new AIArtifactRecordService(
     resultRepository,
     uploadMetadataRepository,
     processingJobRepository,
-    projectService,
-    activityService,
+    authorizationService,
   );
   const resultService = new ResultService(aiArtifactRecordService);
   const promptRegistry = new PromptRegistry(defaultPromptTemplates);
@@ -207,12 +218,21 @@ export function createApplicationContext(config: BackendConfig) {
     fileStorageService,
     uploadMetadataService,
     aiOrchestrationService,
+    authorizationService,
+  );
+  const invitationService = new InvitationService(
+    invitationRepository,
+    organizationRepository,
+    userRepository,
+    authorizationService,
+    transactionManager,
   );
 
   return {
     authenticate: createAuthenticateMiddleware(authService),
     healthController: new HealthController(),
     authController: new AuthController(authService),
+    invitationController: new InvitationController(invitationService),
     organizationController: new OrganizationController(organizationService),
     projectController: new ProjectController(projectService),
     activityController: new ActivityController(activityService),

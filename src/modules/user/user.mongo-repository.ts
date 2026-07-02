@@ -44,6 +44,23 @@ export class MongoUserRepository implements UserRepository {
     return toUserRecord(document);
   }
 
+  async findByIds(
+    ids: string[],
+    _session: DatabaseSession,
+  ): Promise<UserPersistenceRecord[]> {
+    if (ids.length === 0) {
+      return [];
+    }
+
+    const documents = await UserMongoModel.find({
+      _id: { $in: ids },
+    }).exec();
+
+    return documents
+      .map((document) => toUserRecord(document))
+      .filter((document): document is UserPersistenceRecord => Boolean(document));
+  }
+
   async create(
     input: UserCreateInput,
     _session: DatabaseSession,

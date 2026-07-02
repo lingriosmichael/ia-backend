@@ -43,7 +43,6 @@ export class AuthService {
     fullName: string;
     email: string;
     password: string;
-    organizationName: string;
   }) {
     const email = input.email.trim().toLowerCase();
     const existingUser = await this.userRepository.findByEmail(email, databaseSession);
@@ -57,44 +56,12 @@ export class AuthService {
     }
 
     const passwordHash = await hashPassword(input.password);
-    const organizationSlug = await ensureUniqueSlug(input.organizationName, (slug) =>
-      this.organizationRepository.slugExists(slug, databaseSession),
-    );
-
-    const { user } = await this.transactionManager.runInTransaction(async (session) => {
-      const createdUser = await this.userRepository.create(
-        {
-          email,
-          fullName: input.fullName.trim(),
-          passwordHash,
-        },
-        session,
-      );
-
-      const organization = await this.organizationRepository.create(
-        {
-          name: input.organizationName.trim(),
-          slug: organizationSlug,
-        },
-        session,
-      );
-
-      await this.organizationRepository.createMembership(
-        {
-          userId: createdUser.id,
-          organizationId: organization.id,
-          role: "owner",
-        },
-        session,
-      );
-
-      return {
-        user: createdUser,
-      };
-    });
-
-    const memberships = await this.organizationRepository.listForUser(
-      user.id,
+    const user = await this.userRepository.create(
+      {
+        email,
+        fullName: input.fullName.trim(),
+        passwordHash,
+      },
       databaseSession,
     );
     const accessToken = this.signToken(user.id, user.email);
@@ -103,7 +70,7 @@ export class AuthService {
       accessToken,
       expiresInSeconds: expiresToSeconds(this.config.JWT_EXPIRES_IN),
       user,
-      organizations: memberships,
+      organizations: [],
     });
   }
 

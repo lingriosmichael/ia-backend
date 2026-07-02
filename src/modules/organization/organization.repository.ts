@@ -10,6 +10,7 @@ import type {
 
 export interface OrganizationRepository {
   slugExists(slug: string, session: DatabaseSession): Promise<boolean>;
+  nameExists(name: string, session: DatabaseSession): Promise<boolean>;
   create(
     input: OrganizationCreateInput,
     session: DatabaseSession,
@@ -27,6 +28,14 @@ export interface OrganizationRepository {
     organizationId: string,
     session: DatabaseSession,
   ): Promise<OrganizationMembershipPersistenceRecord | null>;
+  listMembershipsByOrganization(
+    organizationId: string,
+    session: DatabaseSession,
+  ): Promise<OrganizationMembershipPersistenceRecord[]>;
+  deleteMembership(
+    membershipId: string,
+    session: DatabaseSession,
+  ): Promise<void>;
   findById(
     organizationId: string,
     session: DatabaseSession,
@@ -44,8 +53,8 @@ export interface OrganizationRepository {
     id: string;
     name: string;
     slug: string;
-    description: string | null;
-    logoPath: string | null;
+    mission: string | null;
+    logoUrl: string | null;
     createdAt: Date;
     updatedAt: Date;
     memberships: Array<{ role: OrganizationRole }>;

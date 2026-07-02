@@ -1,8 +1,7 @@
 import { databaseSession } from "../../../shared/database/database-client.js";
 import { AppError } from "../../../shared/errors/app-error.js";
+import { AuthorizationService } from "../../../shared/auth/authorization.service.js";
 import { mapProcessingJob } from "../../../shared/utils/mappers.js";
-import { ActivityService } from "../../activity/activity.service.js";
-import { ProjectService } from "../../project/project.service.js";
 import type { UploadMetadataRepository } from "../../upload/upload-metadata.repository.js";
 import type { ProcessingJobRepository } from "./processing-job.repository.js";
 
@@ -10,12 +9,11 @@ export class AIExecutionService {
   constructor(
     private readonly processingJobRepository: ProcessingJobRepository,
     private readonly uploadMetadataRepository: UploadMetadataRepository,
-    private readonly projectService: ProjectService,
-    private readonly activityService: ActivityService,
+    private readonly authorizationService: AuthorizationService,
   ) {}
 
   async listByActivity(userId: string, activityId: string) {
-    await this.activityService.getById(userId, activityId);
+    await this.authorizationService.canViewActivity(userId, activityId);
     const jobs = await this.processingJobRepository.listByActivity(
       activityId,
       databaseSession,
@@ -33,10 +31,11 @@ export class AIExecutionService {
       payload?: Record<string, unknown>;
     },
   ) {
-    const project = await this.projectService.getById(userId, projectId);
+    const { project } = await this.authorizationService.canEditProject(userId, projectId);
 
     if (input.activityId) {
-      const activity = await this.activityService.getById(userId, input.activityId);
+      const activity = (await this.authorizationService.canEditActivity(userId, input.activityId))
+        .activity;
       if (activity.projectId !== project.id) {
         throw new AppError(
           "The activity does not belong to the specified project.",
@@ -95,7 +94,7 @@ export class AIExecutionService {
       throw new AppError("Processing job not found.", 404, "processing_job_not_found");
     }
 
-    await this.projectService.getById(userId, existingJob.projectId);
+    await this.authorizationService.canEditProject(userId, existingJob.projectId);
 
     const updatedJob = await this.processingJobRepository.update(
       processingJobId,
@@ -133,7 +132,7 @@ export class AIExecutionService {
       throw new AppError("Processing job not found.", 404, "processing_job_not_found");
     }
 
-    await this.projectService.getById(userId, job.projectId);
+    await this.authorizationService.canViewProject(userId, job.projectId);
 
     return mapProcessingJob(job);
   }

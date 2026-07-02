@@ -36,6 +36,11 @@ export interface ProjectRepository {
     organizationId: string,
     session: DatabaseSession,
   ): Promise<ProjectPersistenceRecord[]>;
+  listByOrganizationForOwner(
+    organizationId: string,
+    ownerId: string,
+    session: DatabaseSession,
+  ): Promise<ProjectPersistenceRecord[]>;
   delete(
     projectId: string,
     session: DatabaseSession,

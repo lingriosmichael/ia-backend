@@ -72,6 +72,33 @@ export class OrganizationController {
     return successResponse(workspace);
   }
 
+  async listMembers(request: FastifyRequest) {
+    if (!request.auth) {
+      throw new AppError("Authentication is required.", 401, "unauthorized");
+    }
+
+    const params = idParamSchema.parse(request.params);
+    const members = await this.organizationService.listMembers(
+      request.auth.userId,
+      params.organizationId!,
+    );
+    return successResponse(members);
+  }
+
+  async removeMember(request: FastifyRequest) {
+    if (!request.auth) {
+      throw new AppError("Authentication is required.", 401, "unauthorized");
+    }
+
+    const params = idParamSchema.parse(request.params);
+    const removedMember = await this.organizationService.removeMember(
+      request.auth.userId,
+      params.organizationId!,
+      params.membershipId!,
+    );
+    return successResponse(removedMember);
+  }
+
   async getLogo(request: FastifyRequest, reply: FastifyReply) {
     const params = idParamSchema.parse(request.params);
     const logo = await this.organizationService.getLogo(params.organizationId!);
@@ -107,6 +134,7 @@ async function parseMultipartOrganizationUpdate(request: FastifyRequest): Promis
   return {
     payload: updateOrganizationSchema.parse({
       name: fields.name,
+      mission: fields.mission ?? fields.description,
       description: fields.description,
     }),
     logoFile,

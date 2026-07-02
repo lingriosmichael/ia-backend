@@ -94,7 +94,7 @@ export class AIContextService {
       kind: "organization",
       organizationId: organization.id,
       name: organization.name,
-      description: organization.description,
+      mission: organization.mission,
     };
   }
 

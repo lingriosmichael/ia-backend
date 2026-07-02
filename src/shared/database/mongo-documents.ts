@@ -15,19 +15,38 @@ export interface UserDocument extends BaseDocument {
 export interface OrganizationDocument extends BaseDocument {
   name: string;
   slug: string;
-  description: string | null;
-  logoPath: string | null;
+  mission: string | null;
+  logoUrl: string | null;
 }
 
 export interface MembershipDocument extends BaseDocument {
   userId: DocumentId;
   organizationId: DocumentId;
-  role: "owner" | "member";
+  role: "ORGANIZATION_ADMIN" | "PROJECT_MANAGER";
+}
+
+export interface InvitationDocument extends BaseDocument {
+  organizationId: DocumentId;
+  email: string;
+  role: "PROJECT_MANAGER";
+  token: string;
+  status: "pending" | "accepted" | "revoked";
+  invitedById: DocumentId;
+  acceptedById: DocumentId | null;
+  acceptedAt: Date | null;
+}
+
+export interface SubscriptionDocument extends BaseDocument {
+  organizationId: DocumentId;
+  planName: string;
+  includedAdminSeats: number;
+  includedProjectManagerSeats: number;
+  status: string;
 }
 
 export interface ProjectDocument extends BaseDocument {
   organizationId: DocumentId;
-  createdById: DocumentId;
+  ownerId: DocumentId;
   name: string;
   slug: string;
   description: string | null;
@@ -56,6 +75,7 @@ export interface ActivityDocument extends BaseDocument {
   expectedOutcomes: string | null;
   successIndicators: string | null;
   targetAudience: string | null;
+  additionalContext: string | null;
   beneficiaryGroup: string | null;
   status: "planning" | "active" | "completed";
 }

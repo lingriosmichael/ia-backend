@@ -11,9 +11,11 @@ import type { ActivityRepository } from "../activity/activity.repository.js";
 import type { ResultRepository } from "../ai/artifact/result.repository.js";
 import type { ProcessingJobRepository } from "../ai/execution/processing-job.repository.js";
 import type { ProjectRepository } from "../project/project.repository.js";
+import { AuthorizationService } from "../../shared/auth/authorization.service.js";
 import { FileStorageService } from "../upload/file-storage.service.js";
 import type { UploadMetadataRepository } from "../upload/upload-metadata.repository.js";
 import type { OrganizationRepository } from "./organization.repository.js";
+import type { UserRepository } from "../user/user.repository.js";
 
 export class OrganizationService {
   constructor(
@@ -25,6 +27,8 @@ export class OrganizationService {
     private readonly processingJobRepository: ProcessingJobRepository,
     private readonly resultRepository: ResultRepository,
     private readonly transactionManager: TransactionManager,
+    private readonly authorizationService: AuthorizationService,
+    private readonly userRepository: UserRepository,
   ) {}
 
   async listForUser(userId: string) {
@@ -36,6 +40,16 @@ export class OrganizationService {
   }
 
   async create(userId: string, input: { name: string }) {
+    const normalizedName = input.name.trim();
+
+    if (await this.organizationRepository.nameExists(normalizedName, databaseSession)) {
+      throw new AppError(
+        "An organization with this name already exists.",
+        409,
+        "organization_name_exists",
+      );
+    }
+
     const slug = await ensureUniqueSlug(input.name, (candidate) =>
       this.organizationRepository.slugExists(candidate, databaseSession),
     );
@@ -43,7 +57,7 @@ export class OrganizationService {
     const organization = await this.transactionManager.runInTransaction(async (session) => {
       const createdOrganization = await this.organizationRepository.create(
         {
-          name: input.name.trim(),
+          name: normalizedName,
           slug,
         },
         session,
@@ -53,7 +67,7 @@ export class OrganizationService {
         {
           userId,
           organizationId: createdOrganization.id,
-          role: "owner",
+          role: "ORGANIZATION_ADMIN",
         },
         session,
       );
@@ -75,6 +89,8 @@ export class OrganizationService {
       id: organization.id,
       name: organization.name,
       slug: organization.slug,
+      mission: organization.mission,
+      logoUrl: organization.logoUrl ? `/organizations/${organization.id}/logo` : null,
       role: membership.role,
       createdAt: organization.createdAt.toISOString(),
       updatedAt: organization.updatedAt.toISOString(),
@@ -86,11 +102,12 @@ export class OrganizationService {
     organizationId: string,
     input: {
       name?: string;
+      mission?: string | null;
       description?: string | null;
       logoFile?: MultipartFile;
     },
   ) {
-    await this.requireMembership(userId, organizationId);
+    await this.authorizationService.canManageOrganization(userId, organizationId);
 
     const organization = await this.organizationRepository.findById(
       organizationId,
@@ -101,11 +118,11 @@ export class OrganizationService {
     }
 
     const normalizedName = input.name?.trim();
-    const normalizedDescription =
-      input.description === undefined
+    const normalizedMission =
+      input.mission === undefined && input.description === undefined
         ? undefined
-        : input.description?.trim()
-          ? input.description.trim()
+        : input.mission?.trim() || input.description?.trim()
+          ? (input.mission?.trim() ?? input.description?.trim() ?? null)
           : null;
 
     let slug: string | undefined;
@@ -119,22 +136,22 @@ export class OrganizationService {
       });
     }
 
-    let logoPath: string | undefined;
+    let logoUrl: string | undefined;
     if (input.logoFile) {
       const storedLogo = await this.fileStorageService.storeOrganizationLogo(
         organizationId,
         input.logoFile,
       );
-      logoPath = storedLogo.storageKey;
+      logoUrl = storedLogo.storageKey;
     }
 
     const updatedOrganization = await this.organizationRepository.update(
       organizationId,
       {
         name: normalizedName,
-        description: normalizedDescription,
+        mission: normalizedMission,
         slug,
-        logoPath,
+        logoUrl,
       },
       databaseSession,
     );
@@ -156,6 +173,10 @@ export class OrganizationService {
   }
 
   async getWorkspace(userId: string, organizationId: string) {
+    const authorizationContext = await this.authorizationService.canViewOrganization(
+      userId,
+      organizationId,
+    );
     const workspace = await this.organizationRepository.findWorkspaceForUser(
       organizationId,
       userId,
@@ -166,9 +187,20 @@ export class OrganizationService {
       throw new AppError("Organization workspace not found.", 404, "organization_not_found");
     }
 
-    const organizationProjects = await this.projectRepository.listByOrganization(
-      organizationId,
+    const organizationProjects =
+      authorizationContext.membership.role === "ORGANIZATION_ADMIN"
+        ? await this.projectRepository.listByOrganization(organizationId, databaseSession)
+        : await this.projectRepository.listByOrganizationForOwner(
+            organizationId,
+            userId,
+            databaseSession,
+          );
+    const ownerUsers = await this.userRepository.findByIds(
+      [...new Set(organizationProjects.map((project) => project.ownerId))],
       databaseSession,
+    );
+    const ownerNamesById = new Map(
+      ownerUsers.map((user) => [user.id, user.fullName] as const),
     );
     const projectActivities = await this.activityRepository.listByProjectIds(
       organizationProjects.map((project) => project.id),
@@ -219,12 +251,88 @@ export class OrganizationService {
     }, {});
 
     return mapWorkspace({
+      currentUserId: userId,
       ...workspace,
       projects: organizationProjects.map((project) => ({
         ...project,
-        activities: activitiesByProjectId[project.id] ?? [],
+        ownerName: ownerNamesById.get(project.ownerId) ?? null,
+        activities: (activitiesByProjectId[project.id] ?? []).map((activity) => ({
+          ...activity,
+          projectOwnerId: project.ownerId,
+        })),
       })),
     });
+  }
+
+  async listMembers(userId: string, organizationId: string) {
+    await this.authorizationService.canViewOrganization(userId, organizationId);
+
+    const memberships = await this.organizationRepository.listMembershipsByOrganization(
+      organizationId,
+      databaseSession,
+    );
+    const users = await this.userRepository.findByIds(
+      [...new Set(memberships.map((membership) => membership.userId))],
+      databaseSession,
+    );
+    const usersById = new Map(users.map((user) => [user.id, user]));
+
+    return memberships
+      .map((membership) => {
+        const user = usersById.get(membership.userId);
+        if (!user) {
+          return null;
+        }
+
+        return {
+          id: membership.id,
+          userId: membership.userId,
+          organizationId: membership.organizationId,
+          fullName: user.fullName,
+          email: user.email,
+          role: membership.role,
+          createdAt: membership.createdAt.toISOString(),
+          updatedAt: membership.updatedAt.toISOString(),
+        };
+      })
+      .filter(Boolean);
+  }
+
+  async removeMember(userId: string, organizationId: string, membershipId: string) {
+    await this.authorizationService.canManageOrganization(userId, organizationId);
+
+    const memberships = await this.organizationRepository.listMembershipsByOrganization(
+      organizationId,
+      databaseSession,
+    );
+    const membershipToRemove = memberships.find((membership) => membership.id === membershipId);
+
+    if (!membershipToRemove) {
+      throw new AppError("Organization member not found.", 404, "organization_member_not_found");
+    }
+
+    if (membershipToRemove.role === "ORGANIZATION_ADMIN") {
+      const adminCount = memberships.filter(
+        (membership) => membership.role === "ORGANIZATION_ADMIN",
+      ).length;
+
+      if (adminCount <= 1) {
+        throw new AppError(
+          "At least one organization admin must remain.",
+          409,
+          "organization_admin_required",
+        );
+      }
+    }
+
+    await this.organizationRepository.deleteMembership(membershipId, databaseSession);
+
+    return {
+      id: membershipToRemove.id,
+      userId: membershipToRemove.userId,
+      organizationId: membershipToRemove.organizationId,
+      role: membershipToRemove.role,
+    };
   }
 
   async getLogo(organizationId: string) {
@@ -233,33 +341,23 @@ export class OrganizationService {
       databaseSession,
     );
 
-    if (!organization || !organization.logoPath) {
+    if (!organization || !organization.logoUrl) {
       throw new AppError("Organization logo not found.", 404, "organization_logo_not_found");
     }
 
-    const storedLogo = await this.fileStorageService.readStoredFile(organization.logoPath);
+    const storedLogo = await this.fileStorageService.readStoredFile(organization.logoUrl);
 
     return {
       buffer: storedLogo.buffer,
-      contentType: this.fileStorageService.getContentTypeForPath(organization.logoPath),
+      contentType: this.fileStorageService.getContentTypeForPath(organization.logoUrl),
     };
   }
 
   async requireMembership(userId: string, organizationId: string) {
-    const membership = await this.organizationRepository.findMembership(
+    const { membership } = await this.authorizationService.canViewOrganization(
       userId,
       organizationId,
-      databaseSession,
     );
-
-    if (!membership) {
-      throw new AppError(
-        "You do not have access to this organization.",
-        403,
-        "organization_access_denied",
-      );
-    }
-
     return membership;
   }
 }

@@ -22,6 +22,7 @@ function toProjectRecord(
   return {
     id: document._id.toString(),
     organizationId: document.organizationId,
+    ownerId: document.ownerId ?? document.createdById,
     name: document.name,
     slug: document.slug,
     description: document.description ?? null,
@@ -122,6 +123,20 @@ export class MongoProjectRepository implements ProjectRepository {
     _session: DatabaseSession,
   ): Promise<ProjectPersistenceRecord[]> {
     const documents = await ProjectMongoModel.find({ organizationId })
+      .sort({ createdAt: -1 })
+      .exec();
+
+    return documents
+      .map((document) => toProjectRecord(document))
+      .filter((document): document is ProjectPersistenceRecord => Boolean(document));
+  }
+
+  async listByOrganizationForOwner(
+    organizationId: string,
+    ownerId: string,
+    _session: DatabaseSession,
+  ): Promise<ProjectPersistenceRecord[]> {
+    const documents = await ProjectMongoModel.find({ organizationId, ownerId })
       .sort({ createdAt: -1 })
       .exec();
 

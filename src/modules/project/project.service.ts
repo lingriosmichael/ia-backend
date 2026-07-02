@@ -6,13 +6,14 @@ import {
   mapWorkspaceActivity,
 } from "../../shared/utils/mappers.js";
 import { ensureUniqueSlug } from "../../shared/utils/slug.js";
+import { AuthorizationService } from "../../shared/auth/authorization.service.js";
 import type { ProjectRepository } from "./project.repository.js";
-import { OrganizationService } from "../organization/organization.service.js";
 import { FileStorageService } from "../upload/file-storage.service.js";
 import type { ActivityRepository } from "../activity/activity.repository.js";
 import type { UploadMetadataRepository } from "../upload/upload-metadata.repository.js";
 import type { ProcessingJobRepository } from "../ai/execution/processing-job.repository.js";
 import type { ResultRepository } from "../ai/artifact/result.repository.js";
+import type { UserRepository } from "../user/user.repository.js";
 import type {
   ProjectOverview,
   ProjectRecentActivityItem,
@@ -29,23 +30,40 @@ function toIso(value: Date) {
 export class ProjectService {
   constructor(
     private readonly projectRepository: ProjectRepository,
-    private readonly organizationService: OrganizationService,
+    private readonly authorizationService: AuthorizationService,
     private readonly fileStorageService: FileStorageService,
     private readonly activityRepository: ActivityRepository,
     private readonly uploadMetadataRepository: UploadMetadataRepository,
     private readonly processingJobRepository: ProcessingJobRepository,
     private readonly resultRepository: ResultRepository,
     private readonly transactionManager: TransactionManager,
+    private readonly userRepository: UserRepository,
   ) {}
 
   async listForOrganization(userId: string, organizationId: string) {
-    await this.organizationService.requireMembership(userId, organizationId);
-    const projects = await this.projectRepository.listByOrganization(
+    const authorizationContext = await this.authorizationService.canViewOrganization(
+      userId,
       organizationId,
-      databaseSession,
     );
+    const projects =
+      authorizationContext.membership.role === "ORGANIZATION_ADMIN"
+        ? await this.projectRepository.listByOrganization(organizationId, databaseSession)
+        : await this.projectRepository.listByOrganizationForOwner(
+            organizationId,
+            userId,
+            databaseSession,
+          );
 
-    return projects.map(mapProjectSummary);
+    const ownerNamesById = await this.getOwnerNamesById(projects.map((project) => project.ownerId));
+    return projects.map((project) =>
+      mapProjectSummary(
+        {
+          ...project,
+          ownerName: ownerNamesById.get(project.ownerId) ?? null,
+        },
+        userId,
+      ),
+    );
   }
 
   async create(
@@ -65,7 +83,7 @@ export class ProjectService {
       status?: "planning" | "active" | "completed";
     },
   ) {
-    await this.organizationService.requireMembership(userId, organizationId);
+    await this.authorizationService.canCreateProject(userId, organizationId);
 
     const slug = await ensureUniqueSlug(input.name, (candidate) =>
       this.projectRepository.slugExists(organizationId, candidate, databaseSession),
@@ -74,7 +92,7 @@ export class ProjectService {
     const project = await this.projectRepository.create(
       {
         organizationId,
-        createdById: userId,
+        ownerId: userId,
         name: input.name.trim(),
         slug,
         description: input.description?.trim() ?? null,
@@ -91,7 +109,13 @@ export class ProjectService {
       databaseSession,
     );
 
-    return mapProjectSummary(project);
+    return mapProjectSummary(
+      {
+        ...project,
+        ownerName: await this.getOwnerName(project.ownerId),
+      },
+      userId,
+    );
   }
 
   async update(
@@ -111,18 +135,9 @@ export class ProjectService {
       status?: "planning" | "active" | "completed";
     },
   ) {
-    const existingProject = await this.projectRepository.findById(
-      projectId,
-      databaseSession,
-    );
-
-    if (!existingProject) {
-      throw new AppError("Project not found.", 404, "project_not_found");
-    }
-
-    await this.organizationService.requireMembership(
+    const { project: existingProject } = await this.authorizationService.canEditProject(
       userId,
-      existingProject.organizationId,
+      projectId,
     );
 
     let slug: string | undefined;
@@ -161,31 +176,31 @@ export class ProjectService {
       databaseSession,
     );
 
-    return mapProjectSummary(updatedProject);
+    return mapProjectSummary(
+      {
+        ...updatedProject,
+        ownerName: await this.getOwnerName(updatedProject.ownerId),
+      },
+      userId,
+    );
   }
 
   async getById(userId: string, projectId: string) {
-    const project = await this.projectRepository.findById(projectId, databaseSession);
-
-    if (!project) {
-      throw new AppError("Project not found.", 404, "project_not_found");
-    }
-
-    await this.organizationService.requireMembership(userId, project.organizationId);
-    return project;
+    const { project } = await this.authorizationService.canViewProject(userId, projectId);
+    return mapProjectSummary(
+      {
+        ...project,
+        ownerName: await this.getOwnerName(project.ownerId),
+      },
+      userId,
+    );
   }
 
   async getOverview(userId: string, projectId: string): Promise<ProjectOverview> {
-    const overview = await this.projectRepository.findById(
+    const { project: overview } = await this.authorizationService.canViewProject(
+      userId,
       projectId,
-      databaseSession,
     );
-
-    if (!overview) {
-      throw new AppError("Project not found.", 404, "project_not_found");
-    }
-
-    await this.organizationService.requireMembership(userId, overview.organizationId);
 
     const pendingInsightCount = await this.processingJobRepository.countByProjectStatuses(
       projectId,
@@ -243,14 +258,18 @@ export class ProjectService {
     );
 
     const activities = projectActivities.map((activity) =>
-      mapWorkspaceActivity({
-        ...activity,
-        _count: {
-          uploadMetadata: activityUploadCounts[activity.id] ?? 0,
-          processingJobs: activityProcessingJobCounts[activity.id] ?? 0,
-          resultRecords: activityResultCounts[activity.id] ?? 0,
+      mapWorkspaceActivity(
+        {
+          ...activity,
+          projectOwnerId: overview.ownerId,
+          _count: {
+            uploadMetadata: activityUploadCounts[activity.id] ?? 0,
+            processingJobs: activityProcessingJobCounts[activity.id] ?? 0,
+            resultRecords: activityResultCounts[activity.id] ?? 0,
+          },
         },
-      }),
+        userId,
+      ),
     );
     const recentActivity = [
       ...projectActivities.map<ProjectRecentActivityItem>((activity) => ({
@@ -300,7 +319,13 @@ export class ProjectService {
       .slice(0, 8);
 
     return {
-      project: mapProjectSummary(overview),
+      project: mapProjectSummary(
+        {
+          ...overview,
+          ownerName: await this.getOwnerName(overview.ownerId),
+        },
+        userId,
+      ),
       activities,
       metrics: {
         activityCount: activities.length,
@@ -335,10 +360,7 @@ export class ProjectService {
       throw new AppError("Project not found.", 404, "project_not_found");
     }
 
-    await this.organizationService.requireMembership(
-      userId,
-      existingProject.organizationId,
-    );
+    await this.authorizationService.canEditProject(userId, projectId);
 
     if (input.projectName !== existingProject.name) {
       throw new AppError(
@@ -398,5 +420,19 @@ export class ProjectService {
     }
 
     return deletedProject;
+  }
+
+  private async getOwnerName(ownerId: string) {
+    const owner = await this.userRepository.findById(ownerId, databaseSession);
+    return owner?.fullName ?? null;
+  }
+
+  private async getOwnerNamesById(ownerIds: string[]) {
+    const owners = await this.userRepository.findByIds(
+      [...new Set(ownerIds)],
+      databaseSession,
+    );
+
+    return new Map(owners.map((owner) => [owner.id, owner.fullName] as const));
   }
 }

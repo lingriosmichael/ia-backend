@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import type { ProjectService } from "../project/project.service.js";
+import type { AuthorizationService } from "../../shared/auth/authorization.service.js";
 import type { ActivityRepository } from "./activity.repository.js";
 import { ActivityService } from "./activity.service.js";
 
@@ -29,20 +29,66 @@ test("activity getById authorizes access through the project service", async () 
     }),
   } as unknown as ActivityRepository;
 
-  const projectService = {
-    getById: async (userId: string, projectId: string) => {
+  const authorizationService = {
+    canViewActivity: async (userId: string, activityId: string) => {
       assert.equal(userId, "user-1");
-      authorizedProjectId = projectId;
+      assert.equal(activityId, "activity-1");
+      authorizedProjectId = "project-1";
       return {
-        id: projectId,
-        organizationId: "organization-1",
+        membership: {
+          id: "membership-1",
+          userId,
+          organizationId: "organization-1",
+          role: "PROJECT_MANAGER",
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        },
+        project: {
+          id: "project-1",
+          organizationId: "organization-1",
+          ownerId: userId,
+          name: "Project One",
+          slug: "project-one",
+          description: null,
+          programGoal: null,
+          startMonth: null,
+          endMonth: null,
+          country: null,
+          regionCity: null,
+          sdgs: [],
+          targetBeneficiaries: [],
+          fundingSource: null,
+          status: "planning",
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        },
+        activity: {
+          id: "activity-1",
+          projectId: "project-1",
+          name: "Activity One",
+          slug: "activity-one",
+          description: null,
+          activityType: null,
+          owner: null,
+          startDate: null,
+          endDate: null,
+          objectives: null,
+          expectedOutcomes: null,
+          successIndicators: null,
+          targetAudience: null,
+          additionalContext: null,
+          beneficiaryGroup: null,
+          status: "planning",
+          createdAt: new Date("2026-01-01T00:00:00.000Z"),
+          updatedAt: new Date("2026-01-02T00:00:00.000Z"),
+        },
       };
     },
-  } as unknown as ProjectService;
+  } as unknown as AuthorizationService;
 
   const activityService = new ActivityService(
     activityRepository,
-    projectService,
+    authorizationService,
   );
 
   const activity = await activityService.getById("user-1", "activity-1");

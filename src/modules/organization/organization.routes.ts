@@ -16,6 +16,16 @@ export async function registerOrganizationRoutes(
     { preHandler: authenticate },
     controller.update.bind(controller),
   );
+  app.get(
+    "/organizations/:organizationId/members",
+    { preHandler: authenticate },
+    controller.listMembers.bind(controller),
+  );
+  app.delete(
+    "/organizations/:organizationId/members/:membershipId",
+    { preHandler: authenticate },
+    controller.removeMember.bind(controller),
+  );
   app.get("/organizations/:organizationId/logo", controller.getLogo.bind(controller));
   app.get(
     "/organizations/:organizationId/workspace",

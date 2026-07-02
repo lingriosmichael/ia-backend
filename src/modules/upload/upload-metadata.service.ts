@@ -1,8 +1,8 @@
 import { databaseSession } from "../../shared/database/database-client.js";
 import { AppError } from "../../shared/errors/app-error.js";
+import { AuthorizationService } from "../../shared/auth/authorization.service.js";
 import { mapUploadMetadata } from "../../shared/utils/mappers.js";
 import { ActivityService } from "../activity/activity.service.js";
-import { ProjectService } from "../project/project.service.js";
 import type { UploadMetadataRepository } from "./upload-metadata.repository.js";
 
 function mapUploadStatus(status: "pending" | "uploaded" | "archived") {
@@ -12,8 +12,8 @@ function mapUploadStatus(status: "pending" | "uploaded" | "archived") {
 export class UploadMetadataService {
   constructor(
     private readonly uploadMetadataRepository: UploadMetadataRepository,
-    private readonly projectService: ProjectService,
     private readonly activityService: ActivityService,
+    private readonly authorizationService: AuthorizationService,
   ) {}
 
   async listByActivity(userId: string, activityId: string) {
@@ -37,7 +37,9 @@ export class UploadMetadataService {
       storageKey?: string;
     },
   ) {
-    const project = await this.projectService.getById(userId, projectId);
+    const project = input.activityId
+      ? (await this.authorizationService.canUploadToActivity(userId, input.activityId)).project
+      : (await this.authorizationService.canEditProject(userId, projectId)).project;
 
     if (input.activityId) {
       const activity = await this.activityService.getById(userId, input.activityId);
@@ -85,7 +87,7 @@ export class UploadMetadataService {
       throw new AppError("Upload metadata not found.", 404, "upload_metadata_not_found");
     }
 
-    await this.projectService.getById(userId, existingRecord.projectId);
+    await this.authorizationService.canEditProject(userId, existingRecord.projectId);
 
     const updatedRecord = await this.uploadMetadataRepository.update(
       uploadMetadataId,

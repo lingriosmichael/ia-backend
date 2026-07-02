@@ -1,15 +1,16 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { AppError } from "../../shared/errors/app-error.js";
+import { AuthorizationService } from "../../shared/auth/authorization.service.js";
 import type { TransactionManager } from "../../shared/database/transaction-manager.js";
 import { FileStorageService } from "../upload/file-storage.service.js";
-import { OrganizationService } from "../organization/organization.service.js";
 import type { ProjectRepository } from "./project.repository.js";
 import { ProjectService } from "./project.service.js";
 import type { ActivityRepository } from "../activity/activity.repository.js";
 import type { UploadMetadataRepository } from "../upload/upload-metadata.repository.js";
 import type { ProcessingJobRepository } from "../ai/execution/processing-job.repository.js";
 import type { ResultRepository } from "../ai/artifact/result.repository.js";
+import type { UserRepository } from "../user/user.repository.js";
 
 test(
   "project deletion rejects a mismatched confirmation name",
@@ -34,9 +35,37 @@ test(
       },
     } as unknown as ProjectRepository;
 
-    const organizationService = {
-      requireMembership: async () => undefined,
-    } as unknown as OrganizationService;
+    const authorizationService = {
+      canEditProject: async () => ({
+        membership: {
+          id: "membership-1",
+          userId: "user-1",
+          organizationId: "organization-1",
+          role: "PROJECT_MANAGER",
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        },
+        project: {
+          id: "project-1",
+          organizationId: "organization-1",
+          ownerId: "user-1",
+          name: "Mentoring Programme 2026",
+          slug: "mentoring-programme-2026",
+          description: null,
+          programGoal: null,
+          startMonth: null,
+          endMonth: null,
+          country: null,
+          regionCity: null,
+          sdgs: [],
+          targetBeneficiaries: [],
+          fundingSource: null,
+          status: "planning",
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        },
+      }),
+    } as unknown as AuthorizationService;
 
     const fileStorageService = {
       deleteStoredFiles: async (storageKeys: string[]) => {
@@ -60,16 +89,18 @@ test(
         operation: (session: undefined) => Promise<T>,
       ) => operation(undefined),
     } as unknown as TransactionManager;
+    const userRepository = {} as UserRepository;
 
     const projectService = new ProjectService(
       projectRepository,
-      organizationService,
+      authorizationService,
       fileStorageService,
       activityRepository,
       uploadMetadataRepository,
       processingJobRepository,
       resultRepository,
       transactionManager,
+      userRepository,
     );
 
     await assert.rejects(
@@ -110,9 +141,37 @@ test(
       },
     } as unknown as ProjectRepository;
 
-    const organizationService = {
-      requireMembership: async () => undefined,
-    } as unknown as OrganizationService;
+    const authorizationService = {
+      canEditProject: async () => ({
+        membership: {
+          id: "membership-1",
+          userId: "user-1",
+          organizationId: "organization-1",
+          role: "PROJECT_MANAGER",
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        },
+        project: {
+          id: "project-1",
+          organizationId: "organization-1",
+          ownerId: "user-1",
+          name: "Mentoring Programme 2026",
+          slug: "mentoring-programme-2026",
+          description: null,
+          programGoal: null,
+          startMonth: null,
+          endMonth: null,
+          country: null,
+          regionCity: null,
+          sdgs: [],
+          targetBeneficiaries: [],
+          fundingSource: null,
+          status: "planning",
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        },
+      }),
+    } as unknown as AuthorizationService;
 
     const fileStorageService = {
       deleteStoredFiles: async (storageKeys: string[]) => {
@@ -139,16 +198,18 @@ test(
         operation: (session: undefined) => Promise<T>,
       ) => operation(undefined),
     } as unknown as TransactionManager;
+    const userRepository = {} as UserRepository;
 
     const projectService = new ProjectService(
       projectRepository,
-      organizationService,
+      authorizationService,
       fileStorageService,
       activityRepository,
       uploadMetadataRepository,
       processingJobRepository,
       resultRepository,
       transactionManager,
+      userRepository,
     );
 
     const deletedProject = await projectService.delete("user-1", "project-1", {
