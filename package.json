@@ -15,8 +15,6 @@
     "lint:check": "eslint . && npm run typecheck",
     "test": "node --import tsx --test src/**/*.test.ts",
     "migrate:roles": "tsx src/scripts/migrateOrganizationRoleModel.ts",
-    "migrate:organization-shape": "tsx src/scripts/cleanupOrganizationShape.ts",
-    "migrate:legacy-slugs": "tsx src/scripts/cleanupLegacySlugFields.ts"
   },
   "dependencies": {
     "@fastify/cors": "^10.0.1",
