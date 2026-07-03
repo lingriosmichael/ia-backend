@@ -70,7 +70,6 @@ export interface UserSummary {
 }
 
 export interface OrganizationPermissions {
-  canManageProfile: boolean;
   canManageMembers: boolean;
   canManageBilling: boolean;
   canManageSettings: boolean;
@@ -120,7 +119,6 @@ export interface ProjectSummary {
   ownerId: string;
   ownerName: string | null;
   name: string;
-  slug: string;
   description: string | null;
   programGoal: string | null;
   startMonth: string | null;
@@ -140,7 +138,6 @@ export interface ActivitySummary {
   id: string;
   projectId: string;
   name: string;
-  slug: string;
   description: string | null;
   activityType: string | null;
   owner: string | null;
@@ -343,7 +340,6 @@ export interface CreateOrganizationRequest {
 export interface UpdateOrganizationRequest {
   name?: string;
   mission?: string | null;
-  description?: string | null;
 }
 
 export interface CreateProjectRequest {

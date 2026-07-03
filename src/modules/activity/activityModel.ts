@@ -7,7 +7,6 @@ const activitySchema = new Schema(
     projectId: { type: String, required: true, index: true },
     createdById: { type: String, required: true },
     name: { type: String, required: true, trim: true },
-    slug: { type: String, required: true, trim: true },
     description: { type: String, default: null },
     activityType: { type: String, default: null },
     owner: { type: String, default: null },
@@ -30,8 +29,6 @@ const activitySchema = new Schema(
     timestamps: true,
   },
 );
-
-activitySchema.index({ projectId: 1, slug: 1 }, { unique: true });
 
 export type ActivityMongoDocument = InferSchemaType<typeof activitySchema>;
 export type ActivityMongoHydratedDocument =

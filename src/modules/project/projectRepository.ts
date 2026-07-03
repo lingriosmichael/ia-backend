@@ -6,11 +6,6 @@ import type {
 } from "./projectPersistence.js";
 
 export interface ProjectRepository {
-  slugExists(
-    organizationId: string,
-    slug: string,
-    session: DatabaseSession,
-  ): Promise<boolean>;
   create(
     input: ProjectCreateInput,
     session: DatabaseSession,

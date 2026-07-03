@@ -140,15 +140,14 @@ async function parseMultipartOrganizationUpdate(
   return {
     payload: updateOrganizationSchema.parse({
       name: fields.name,
-      mission: fields.mission ?? fields.description,
-      description: fields.description,
+      mission: fields.mission,
       settings: {
         organizationName: fields.organizationName ?? fields.name,
         legalForm: parseNullableStringField(fields.legalForm),
         foundingYear: parseNullableIntegerField(fields.foundingYear),
         country: parseNullableStringField(fields.country),
         employeeCount: parseNullableIntegerField(fields.employeeCount),
-        mission: parseNullableStringField(fields.mission ?? fields.description),
+        mission: parseNullableStringField(fields.mission),
         activityAreas: parseStringArrayField(fields.activityAreas),
         targetGroups: parseStringArrayField(fields.targetGroups),
         operatingRegions: parseStringArrayField(fields.operatingRegions),

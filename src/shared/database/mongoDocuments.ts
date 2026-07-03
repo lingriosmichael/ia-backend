@@ -62,7 +62,6 @@ export interface ProjectDocument extends BaseDocument {
   organizationId: DocumentId;
   ownerId: DocumentId;
   name: string;
-  slug: string;
   description: string | null;
   programGoal: string | null;
   startMonth: string | null;
@@ -79,7 +78,6 @@ export interface ActivityDocument extends BaseDocument {
   projectId: DocumentId;
   createdById: DocumentId;
   name: string;
-  slug: string;
   description: string | null;
   activityType: string | null;
   owner: string | null;

@@ -8,7 +8,6 @@ import {
   mapUser,
 } from "../../shared/utils/mappers.js";
 import { hashPassword, verifyPassword } from "../../shared/utils/password.js";
-import { ensureUniqueSlug } from "../../shared/utils/slug.js";
 import jwt from "jsonwebtoken";
 import type { Secret, SignOptions } from "jsonwebtoken";
 import type { OrganizationRepository } from "../organization/organizationRepository.js";

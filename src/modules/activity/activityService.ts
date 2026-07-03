@@ -2,7 +2,6 @@ import { databaseSession } from "../../shared/database/databaseClient.js";
 import { AppError } from "../../shared/errors/appError.js";
 import { AuthorizationService } from "../../shared/auth/authorizationService.js";
 import { mapActivity } from "../../shared/utils/mappers.js";
-import { ensureUniqueSlug } from "../../shared/utils/slug.js";
 import type { ActivityRepository } from "./activityRepository.js";
 
 function mapActivityStatus(status: "planning" | "active" | "completed") {
@@ -56,16 +55,11 @@ export class ActivityService {
   ) {
     await this.authorizationService.canEditProject(userId, projectId);
 
-    const slug = await ensureUniqueSlug(input.name, (candidate) =>
-      this.activityRepository.slugExists(projectId, candidate, databaseSession),
-    );
-
     const activity = await this.activityRepository.create(
       {
         projectId,
         createdById: userId,
         name: input.name.trim(),
-        slug,
         description: input.description?.trim() ?? null,
         activityType: input.activityType?.trim() ?? null,
         owner: input.owner?.trim() ?? null,
@@ -124,26 +118,10 @@ export class ActivityService {
       activityId,
     );
 
-    let slug: string | undefined;
-    if (input.name && input.name.trim() !== activity.name) {
-      slug = await ensureUniqueSlug(input.name, async (candidate) => {
-        if (candidate === activity.slug) {
-          return false;
-        }
-
-        return this.activityRepository.slugExists(
-          activity.projectId,
-          candidate,
-          databaseSession,
-        );
-      });
-    }
-
     const updatedActivity = await this.activityRepository.update(
       activityId,
       {
         name: input.name?.trim(),
-        slug,
         description:
           input.description === undefined
             ? undefined

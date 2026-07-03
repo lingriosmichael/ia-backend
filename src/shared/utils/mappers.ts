@@ -86,7 +86,6 @@ function mapOrganizationPermissions(
   role: OrganizationRole,
 ): OrganizationPermissions {
   return {
-    canManageProfile: role === "ORGANIZATION_ADMIN",
     canManageMembers: role === "ORGANIZATION_ADMIN",
     canManageBilling: role === "ORGANIZATION_ADMIN",
     canManageSettings: role === "ORGANIZATION_ADMIN",
@@ -170,7 +169,6 @@ export function mapProject(
     ownerId: string;
     ownerName?: string | null;
     name: string;
-    slug: string;
     description: string | null;
     programGoal: string | null;
     startMonth: string | null;
@@ -192,7 +190,6 @@ export function mapProject(
     ownerId: project.ownerId,
     ownerName: project.ownerName ?? null,
     name: project.name,
-    slug: project.slug,
     description: project.description,
     programGoal: project.programGoal,
     startMonth: project.startMonth,
@@ -217,7 +214,6 @@ export function mapProjectSummary(
     ownerId: string;
     ownerName?: string | null;
     name: string;
-    slug: string;
     description: string | null;
     programGoal: string | null;
     startMonth: string | null;
@@ -239,7 +235,6 @@ export function mapProjectSummary(
     ownerId: project.ownerId,
     ownerName: project.ownerName ?? null,
     name: project.name,
-    slug: project.slug,
     description: project.description,
     programGoal: project.programGoal,
     startMonth: project.startMonth,
@@ -262,7 +257,6 @@ export function mapActivity(
     projectId: string;
     projectOwnerId: string;
     name: string;
-    slug: string;
     description: string | null;
     activityType: string | null;
     owner: string | null;
@@ -284,7 +278,6 @@ export function mapActivity(
     id: activity.id,
     projectId: activity.projectId,
     name: activity.name,
-    slug: activity.slug,
     description: activity.description,
     activityType: activity.activityType,
     owner: activity.owner,
@@ -309,7 +302,6 @@ export function mapWorkspaceActivity(
     projectId: string;
     projectOwnerId: string;
     name: string;
-    slug: string;
     description: string | null;
     activityType: string | null;
     owner: string | null;
@@ -357,7 +349,6 @@ export function mapWorkspace(record: {
     ownerId: string;
     ownerName?: string | null;
     name: string;
-    slug: string;
     description: string | null;
     programGoal: string | null;
     startMonth: string | null;
@@ -375,7 +366,6 @@ export function mapWorkspace(record: {
       projectId: string;
       projectOwnerId: string;
       name: string;
-      slug: string;
       description: string | null;
       activityType: string | null;
       owner: string | null;
@@ -419,7 +409,6 @@ export function mapWorkspace(record: {
       ownerId: project.ownerId,
       ownerName: project.ownerName ?? null,
       name: project.name,
-      slug: project.slug,
       description: project.description,
       programGoal: project.programGoal,
       startMonth: project.startMonth,

@@ -4,7 +4,6 @@ export interface ActivityPersistenceRecord {
   id: string;
   projectId: string;
   name: string;
-  slug: string;
   description: string | null;
   activityType: string | null;
   owner: string | null;
@@ -25,7 +24,6 @@ export interface ActivityCreateInput {
   projectId: string;
   createdById: string;
   name: string;
-  slug: string;
   description: string | null;
   activityType: string | null;
   owner: string | null;
@@ -42,7 +40,6 @@ export interface ActivityCreateInput {
 
 export interface ActivityUpdateInput {
   name?: string;
-  slug?: string;
   description?: string | null;
   activityType?: string | null;
   owner?: string | null;

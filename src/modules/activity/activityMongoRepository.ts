@@ -23,7 +23,6 @@ function toActivityRecord(
     id: document._id.toString(),
     projectId: document.projectId,
     name: document.name,
-    slug: document.slug,
     description: document.description ?? null,
     activityType: document.activityType ?? null,
     owner: document.owner ?? null,
@@ -42,18 +41,6 @@ function toActivityRecord(
 }
 
 export class MongoActivityRepository implements ActivityRepository {
-  async slugExists(
-    projectId: string,
-    slug: string,
-    _session: DatabaseSession,
-  ): Promise<boolean> {
-    const count = await ActivityMongoModel.countDocuments({
-      projectId,
-      slug,
-    }).exec();
-    return count > 0;
-  }
-
   async create(
     input: ActivityCreateInput,
     _session: DatabaseSession,

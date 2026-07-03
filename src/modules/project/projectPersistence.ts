@@ -5,7 +5,6 @@ export interface ProjectPersistenceRecord {
   organizationId: string;
   ownerId: string;
   name: string;
-  slug: string;
   description: string | null;
   programGoal: string | null;
   startMonth: string | null;
@@ -24,7 +23,6 @@ export interface ProjectCreateInput {
   organizationId: string;
   ownerId: string;
   name: string;
-  slug: string;
   description: string | null;
   programGoal: string | null;
   startMonth: string | null;
@@ -39,7 +37,6 @@ export interface ProjectCreateInput {
 
 export interface ProjectUpdateInput {
   name?: string;
-  slug?: string;
   description?: string | null;
   programGoal?: string | null;
   startMonth?: string | null;

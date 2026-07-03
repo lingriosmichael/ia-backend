@@ -24,7 +24,6 @@ function toProjectRecord(
     organizationId: document.organizationId,
     ownerId: document.ownerId ?? document.createdById,
     name: document.name,
-    slug: document.slug,
     description: document.description ?? null,
     programGoal: document.programGoal ?? null,
     startMonth: document.startMonth ?? null,
@@ -41,18 +40,6 @@ function toProjectRecord(
 }
 
 export class MongoProjectRepository implements ProjectRepository {
-  async slugExists(
-    organizationId: string,
-    slug: string,
-    _session: DatabaseSession,
-  ): Promise<boolean> {
-    const count = await ProjectMongoModel.countDocuments({
-      organizationId,
-      slug,
-    }).exec();
-    return count > 0;
-  }
-
   async create(
     input: ProjectCreateInput,
     _session: DatabaseSession,

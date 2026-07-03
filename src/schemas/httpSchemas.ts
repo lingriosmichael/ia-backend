@@ -67,7 +67,6 @@ export const acceptInvitationSchema = z.object({
 export const updateOrganizationSchema = z.object({
   name: z.string().trim().min(2).max(120).optional(),
   mission: nullableTextFieldSchema,
-  description: nullableTextFieldSchema,
   settings: z
     .object({
       organizationName: z.string().trim().min(2).max(120).optional(),

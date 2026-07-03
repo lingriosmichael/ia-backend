@@ -5,7 +5,6 @@ import {
   mapProjectSummary,
   mapWorkspaceActivity,
 } from "../../shared/utils/mappers.js";
-import { ensureUniqueSlug } from "../../shared/utils/slug.js";
 import { AuthorizationService } from "../../shared/auth/authorizationService.js";
 import type { ProjectRepository } from "./projectRepository.js";
 import { FileStorageService } from "../upload/fileStorageService.js";
@@ -91,20 +90,11 @@ export class ProjectService {
   ) {
     await this.authorizationService.canCreateProject(userId, organizationId);
 
-    const slug = await ensureUniqueSlug(input.name, (candidate) =>
-      this.projectRepository.slugExists(
-        organizationId,
-        candidate,
-        databaseSession,
-      ),
-    );
-
     const project = await this.projectRepository.create(
       {
         organizationId,
         ownerId: userId,
         name: input.name.trim(),
-        slug,
         description: input.description?.trim() ?? null,
         programGoal: input.programGoal?.trim() ?? null,
         startMonth: input.startMonth ?? null,
@@ -148,26 +138,10 @@ export class ProjectService {
     const { project: existingProject } =
       await this.authorizationService.canEditProject(userId, projectId);
 
-    let slug: string | undefined;
-    if (input.name && input.name.trim() !== existingProject.name) {
-      slug = await ensureUniqueSlug(input.name, async (candidate) => {
-        if (candidate === existingProject.slug) {
-          return false;
-        }
-
-        return this.projectRepository.slugExists(
-          existingProject.organizationId,
-          candidate,
-          databaseSession,
-        );
-      });
-    }
-
     const updatedProject = await this.projectRepository.update(
       projectId,
       {
         name: input.name?.trim(),
-        slug,
         description:
           input.description === undefined
             ? undefined
