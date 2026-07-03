@@ -17,11 +17,9 @@ test("organization workspace enriches activity upload counts from the upload rep
     findWorkspaceForUser: async () => ({
       id: "organization-1",
       name: "Example Org",
-      slug: "example-org",
       mission: null,
       logoUrl: null,
       createdAt: new Date("2026-01-01T00:00:00.000Z"),
-      updatedAt: new Date("2026-01-02T00:00:00.000Z"),
       memberships: [{ role: "ORGANIZATION_ADMIN" }],
     }),
   } as unknown as OrganizationRepository;

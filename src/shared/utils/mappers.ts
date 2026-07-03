@@ -134,11 +134,9 @@ export function mapOrganizationMembership(record: {
   organization: {
     id: string;
     name: string;
-    slug: string;
     mission?: string | null;
     logoUrl?: string | null;
     createdAt: Date;
-    updatedAt: Date;
   };
 }): OrganizationSummary {
   const normalizedRole = normalizeOrganizationRole(record.role);
@@ -146,7 +144,6 @@ export function mapOrganizationMembership(record: {
   return {
     id: record.organization.id,
     name: record.organization.name,
-    slug: record.organization.slug,
     mission: record.organization.mission ?? null,
     logoUrl: record.organization.logoUrl
       ? `/organizations/${record.organization.id}/logo`
@@ -154,7 +151,6 @@ export function mapOrganizationMembership(record: {
     role: normalizedRole,
     permissions: mapOrganizationPermissions(normalizedRole),
     createdAt: toIso(record.organization.createdAt),
-    updatedAt: toIso(record.organization.updatedAt),
   };
 }
 
@@ -327,11 +323,9 @@ export function mapWorkspace(record: {
   currentUserId: string;
   id: string;
   name: string;
-  slug: string;
   mission: string | null;
   logoUrl: string | null;
   createdAt: Date;
-  updatedAt: Date;
   memberships: Array<{ role: OrganizationRole | keyof typeof organizationRoleMap }>;
   projects: Array<{
     id: string;
@@ -386,13 +380,11 @@ export function mapWorkspace(record: {
     organization: {
       id: record.id,
       name: record.name,
-      slug: record.slug,
       mission: record.mission,
       logoUrl: record.logoUrl ? `/organizations/${record.id}/logo` : null,
       role,
       permissions: mapOrganizationPermissions(role),
       createdAt: toIso(record.createdAt),
-      updatedAt: toIso(record.updatedAt),
     },
     projects: record.projects.map((project) => ({
       id: project.id,
@@ -530,11 +522,9 @@ export function mapAuthResponse(params: {
       organization: {
         id: string;
         name: string;
-        slug: string;
         mission?: string | null;
         logoUrl?: string | null;
         createdAt: Date;
-        updatedAt: Date;
       };
   }>;
 }): AuthResponse {

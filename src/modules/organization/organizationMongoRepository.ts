@@ -44,11 +44,9 @@ function toOrganizationRecord(
   return {
     id: document._id.toString(),
     name: document.name,
-    slug: document.slug,
-    mission: document.mission ?? document.description ?? null,
-    logoUrl: document.logoUrl ?? document.logoPath ?? null,
+    mission: document.mission ?? null,
+    logoUrl: document.logoUrl ?? null,
     createdAt: document.createdAt,
-    updatedAt: document.updatedAt,
   };
 }
 
@@ -70,11 +68,6 @@ function toMembershipRecord(
 }
 
 export class MongoOrganizationRepository implements OrganizationRepository {
-  async slugExists(slug: string, _session: DatabaseSession): Promise<boolean> {
-    const count = await OrganizationMongoModel.countDocuments({ slug }).exec();
-    return count > 0;
-  }
-
   async nameExists(
     name: string,
     _session: DatabaseSession,
@@ -236,11 +229,9 @@ export class MongoOrganizationRepository implements OrganizationRepository {
   ): Promise<{
     id: string;
     name: string;
-    slug: string;
     mission: string | null;
     logoUrl: string | null;
     createdAt: Date;
-    updatedAt: Date;
     memberships: Array<{ role: OrganizationMembershipPersistenceRecord["role"] }>;
   } | null> {
     const membership = await MembershipMongoModel.findOne({

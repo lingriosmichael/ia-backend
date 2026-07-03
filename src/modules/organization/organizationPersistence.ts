@@ -3,11 +3,9 @@ import type { OrganizationRole } from "../../shared/contracts.js";
 export interface OrganizationPersistenceRecord {
   id: string;
   name: string;
-  slug: string;
   mission: string | null;
   logoUrl: string | null;
   createdAt: Date;
-  updatedAt: Date;
 }
 
 export interface OrganizationMembershipPersistenceRecord {
@@ -21,13 +19,11 @@ export interface OrganizationMembershipPersistenceRecord {
 
 export interface OrganizationCreateInput {
   name: string;
-  slug: string;
 }
 
 export interface OrganizationUpdateInput {
   name?: string;
   mission?: string | null;
-  slug?: string;
   logoUrl?: string | null;
 }
 

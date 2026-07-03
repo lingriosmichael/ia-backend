@@ -6,7 +6,6 @@ import {
   mapOrganizationMembership,
   mapWorkspace,
 } from "../../shared/utils/mappers.js";
-import { ensureUniqueSlug } from "../../shared/utils/slug.js";
 import type { ActivityRepository } from "../activity/activityRepository.js";
 import type { ResultRepository } from "../ai/artifact/resultRepository.js";
 import type { ProcessingJobRepository } from "../ai/execution/processingJobRepository.js";
@@ -50,15 +49,10 @@ export class OrganizationService {
       );
     }
 
-    const slug = await ensureUniqueSlug(input.name, (candidate) =>
-      this.organizationRepository.slugExists(candidate, databaseSession),
-    );
-
     const organization = await this.transactionManager.runInTransaction(async (session) => {
       const createdOrganization = await this.organizationRepository.create(
         {
           name: normalizedName,
-          slug,
         },
         session,
       );
@@ -88,12 +82,10 @@ export class OrganizationService {
     return {
       id: organization.id,
       name: organization.name,
-      slug: organization.slug,
       mission: organization.mission,
       logoUrl: organization.logoUrl ? `/organizations/${organization.id}/logo` : null,
       role: membership.role,
       createdAt: organization.createdAt.toISOString(),
-      updatedAt: organization.updatedAt.toISOString(),
     };
   }
 
@@ -103,7 +95,6 @@ export class OrganizationService {
     input: {
       name?: string;
       mission?: string | null;
-      description?: string | null;
       logoFile?: MultipartFile;
     },
   ) {
@@ -119,13 +110,14 @@ export class OrganizationService {
 
     const normalizedName = input.name?.trim();
     const normalizedMission =
-      input.mission === undefined && input.description === undefined
+      input.mission === undefined
         ? undefined
-        : input.mission?.trim() || input.description?.trim()
-          ? (input.mission?.trim() ?? input.description?.trim() ?? null)
-          : null;
+        : input.mission === null
+          ? null
+          : input.mission.trim()
+            ? input.mission.trim()
+            : null;
 
-    let slug: string | undefined;
     if (normalizedName && normalizedName !== organization.name) {
       if (
         await this.organizationRepository.nameExists(normalizedName, databaseSession, {
@@ -138,14 +130,6 @@ export class OrganizationService {
           "organization_name_exists",
         );
       }
-
-      slug = await ensureUniqueSlug(normalizedName, async (candidate) => {
-        if (candidate === organization.slug) {
-          return false;
-        }
-
-        return this.organizationRepository.slugExists(candidate, databaseSession);
-      });
     }
 
     let logoUrl: string | undefined;
@@ -162,7 +146,6 @@ export class OrganizationService {
       {
         name: normalizedName,
         mission: normalizedMission,
-        slug,
         logoUrl,
       },
       databaseSession,

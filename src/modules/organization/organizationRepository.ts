@@ -9,7 +9,6 @@ import type {
 } from "./organizationPersistence.js";
 
 export interface OrganizationRepository {
-  slugExists(slug: string, session: DatabaseSession): Promise<boolean>;
   nameExists(
     name: string,
     session: DatabaseSession,
@@ -56,11 +55,9 @@ export interface OrganizationRepository {
   ): Promise<{
     id: string;
     name: string;
-    slug: string;
     mission: string | null;
     logoUrl: string | null;
     createdAt: Date;
-    updatedAt: Date;
     memberships: Array<{ role: OrganizationRole }>;
   } | null>;
 }

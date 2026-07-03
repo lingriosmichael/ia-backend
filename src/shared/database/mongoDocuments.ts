@@ -12,11 +12,12 @@ export interface UserDocument extends BaseDocument {
   passwordHash: string;
 }
 
-export interface OrganizationDocument extends BaseDocument {
+export interface OrganizationDocument {
+  _id: DocumentId;
   name: string;
-  slug: string;
   mission: string | null;
   logoUrl: string | null;
+  createdAt: Date;
 }
 
 export interface MembershipDocument extends BaseDocument {
