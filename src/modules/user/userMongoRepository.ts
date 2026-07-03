@@ -1,9 +1,6 @@
 import type { DatabaseSession } from "../../shared/database/databaseClient.js";
 import { createDocumentId } from "../../shared/database/documentId.js";
-import {
-  UserMongoModel,
-  type UserMongoHydratedDocument,
-} from "./userModel.js";
+import { UserMongoModel, type UserMongoHydratedDocument } from "./userModel.js";
 import type { UserRepository } from "./userRepository.js";
 import type {
   UserCreateInput,
@@ -58,7 +55,9 @@ export class MongoUserRepository implements UserRepository {
 
     return documents
       .map((document) => toUserRecord(document))
-      .filter((document): document is UserPersistenceRecord => Boolean(document));
+      .filter((document): document is UserPersistenceRecord =>
+        Boolean(document),
+      );
   }
 
   async create(

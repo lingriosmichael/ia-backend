@@ -34,5 +34,6 @@ const activitySchema = new Schema(
 activitySchema.index({ projectId: 1, slug: 1 }, { unique: true });
 
 export type ActivityMongoDocument = InferSchemaType<typeof activitySchema>;
-export type ActivityMongoHydratedDocument = HydratedDocument<ActivityMongoDocument>;
+export type ActivityMongoHydratedDocument =
+  HydratedDocument<ActivityMongoDocument>;
 export const ActivityMongoModel = createModel("Activity", activitySchema);

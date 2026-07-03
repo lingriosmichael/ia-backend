@@ -108,7 +108,11 @@ export class AIContextService {
     );
 
     if (!upload) {
-      throw new AppError("Upload metadata not found.", 404, "upload_metadata_not_found");
+      throw new AppError(
+        "Upload metadata not found.",
+        404,
+        "upload_metadata_not_found",
+      );
     }
 
     await this.projectService.getById(userId, upload.projectId);
@@ -148,7 +152,9 @@ export class AIContextService {
 
     for (const contextKind of input.requiredContextKinds) {
       if (contextKind === "project") {
-        contexts.push(await this.buildProjectContext(input.userId, input.projectId));
+        contexts.push(
+          await this.buildProjectContext(input.userId, input.projectId),
+        );
         continue;
       }
 
@@ -161,7 +167,9 @@ export class AIContextService {
           );
         }
 
-        contexts.push(await this.buildActivityContext(input.userId, input.activityId));
+        contexts.push(
+          await this.buildActivityContext(input.userId, input.activityId),
+        );
         continue;
       }
 
@@ -174,12 +182,17 @@ export class AIContextService {
           );
         }
 
-        contexts.push(await this.buildDatasetContext(input.userId, input.uploadMetadataId));
+        contexts.push(
+          await this.buildDatasetContext(input.userId, input.uploadMetadataId),
+        );
         continue;
       }
 
       if (contextKind === "organization") {
-        const projectContext = await this.buildProjectContext(input.userId, input.projectId);
+        const projectContext = await this.buildProjectContext(
+          input.userId,
+          input.projectId,
+        );
         contexts.push(
           await this.buildOrganizationContext(
             input.userId,

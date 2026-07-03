@@ -56,8 +56,16 @@ export async function buildApp(config: BackendConfig) {
     context.organizationController,
     context.authenticate,
   );
-  await registerProjectRoutes(app, context.projectController, context.authenticate);
-  await registerActivityRoutes(app, context.activityController, context.authenticate);
+  await registerProjectRoutes(
+    app,
+    context.projectController,
+    context.authenticate,
+  );
+  await registerActivityRoutes(
+    app,
+    context.activityController,
+    context.authenticate,
+  );
   await registerActivityUploadRoutes(
     app,
     context.activityUploadController,
@@ -73,7 +81,11 @@ export async function buildApp(config: BackendConfig) {
     context.processingJobController,
     context.authenticate,
   );
-  await registerResultRoutes(app, context.resultController, context.authenticate);
+  await registerResultRoutes(
+    app,
+    context.resultController,
+    context.authenticate,
+  );
 
   registerErrorHandler(app);
 

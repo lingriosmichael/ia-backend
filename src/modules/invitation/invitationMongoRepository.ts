@@ -1,7 +1,10 @@
 import type { DatabaseSession } from "../../shared/database/databaseClient.js";
 import { createDocumentId } from "../../shared/database/documentId.js";
 import { AppError } from "../../shared/errors/appError.js";
-import { InvitationMongoModel, type InvitationMongoHydratedDocument } from "./invitationModel.js";
+import {
+  InvitationMongoModel,
+  type InvitationMongoHydratedDocument,
+} from "./invitationModel.js";
 import type { InvitationRepository } from "./invitationRepository.js";
 import type {
   InvitationCreateInput,
@@ -75,7 +78,9 @@ export class MongoInvitationRepository implements InvitationRepository {
 
     return documents
       .map((document) => toInvitationRecord(document))
-      .filter((document): document is InvitationPersistenceRecord => Boolean(document));
+      .filter((document): document is InvitationPersistenceRecord =>
+        Boolean(document),
+      );
   }
 
   async markAccepted(

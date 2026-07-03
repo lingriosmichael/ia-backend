@@ -1,12 +1,24 @@
-import type { AIContextObject, DatasetContext, ProjectContext } from "../context/aiContextTypes.js";
-import type { AIProvider, AIProviderRequest, AIProviderResponse } from "./aiProvider.js";
+import type {
+  AIContextObject,
+  DatasetContext,
+  ProjectContext,
+} from "../context/aiContextTypes.js";
+import type {
+  AIProvider,
+  AIProviderRequest,
+  AIProviderResponse,
+} from "./aiProvider.js";
 
 function getDatasetContext(contexts: AIContextObject[]): DatasetContext | null {
-  return contexts.find((context) => context.kind === "dataset") as DatasetContext | null;
+  return contexts.find(
+    (context) => context.kind === "dataset",
+  ) as DatasetContext | null;
 }
 
 function getProjectContext(contexts: AIContextObject[]): ProjectContext | null {
-  return contexts.find((context) => context.kind === "project") as ProjectContext | null;
+  return contexts.find(
+    (context) => context.kind === "project",
+  ) as ProjectContext | null;
 }
 
 function buildInterpretationOutput(contexts: AIContextObject[]) {
@@ -47,7 +59,8 @@ function buildAnalysisOutput(contexts: AIContextObject[]) {
   return {
     summary: {
       title: project ? `Analysis for ${project.name}` : "Analysis output",
-      description: "Generated chart-ready metrics and dashboard configuration placeholders.",
+      description:
+        "Generated chart-ready metrics and dashboard configuration placeholders.",
     },
     metrics: {
       datasetCount: dataset ? 1 : 0,
@@ -63,7 +76,8 @@ function buildAnalysisOutput(contexts: AIContextObject[]) {
     trends: [
       {
         direction: "stable",
-        message: "Trend analysis requires parsed tabular values to become more specific.",
+        message:
+          "Trend analysis requires parsed tabular values to become more specific.",
       },
     ],
     recommendations: [
@@ -82,25 +96,29 @@ function buildInsightOutput(contexts: AIContextObject[]) {
   return {
     summary: {
       title: project ? `Insights for ${project.name}` : "Generated insights",
-      description: "Produced narrative findings and recommended actions from available evidence context.",
+      description:
+        "Produced narrative findings and recommended actions from available evidence context.",
     },
     findings: [
       {
         type: "coverage",
-        message: "Current evidence supports high-level narrative insight generation.",
+        message:
+          "Current evidence supports high-level narrative insight generation.",
       },
     ],
     anomalies: [],
     opportunities: [
       {
         type: "improvement",
-        message: "Capture normalized indicator values to strengthen comparative insight quality.",
+        message:
+          "Capture normalized indicator values to strengthen comparative insight quality.",
       },
     ],
     recommendedActions: [
       {
         type: "next_step",
-        message: "Confirm interpreted schema assumptions with a reviewer before sharing insights externally.",
+        message:
+          "Confirm interpreted schema assumptions with a reviewer before sharing insights externally.",
       },
     ],
     confidence: 0.67,
@@ -113,7 +131,8 @@ function buildReportOutput(contexts: AIContextObject[]) {
   return {
     summary: {
       title: project ? `Report draft for ${project.name}` : "Report draft",
-      description: "Prepared structured report sections suitable for donor or executive outputs.",
+      description:
+        "Prepared structured report sections suitable for donor or executive outputs.",
     },
     sections: [
       {
@@ -149,9 +168,7 @@ function buildChatOutput(contexts: AIContextObject[]) {
           ? `Structured response placeholder for: ${chatContext.latestUserMessage}`
           : "Structured response placeholder.",
     },
-    followUpQuestions: [
-      "Which evidence segment should be explored next?",
-    ],
+    followUpQuestions: ["Which evidence segment should be explored next?"],
     confidence: 0.58,
   };
 }

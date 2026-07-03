@@ -18,10 +18,16 @@ export interface RenderedPromptTemplate {
   userPrompt: string;
 }
 
-function replaceVariables(template: string, variables: PromptVariables): string {
-  return template.replace(/\{\{\s*([a-zA-Z0-9_]+)\s*\}\}/g, (_match, variableName) => {
-    return variables[variableName] ?? "";
-  });
+function replaceVariables(
+  template: string,
+  variables: PromptVariables,
+): string {
+  return template.replace(
+    /\{\{\s*([a-zA-Z0-9_]+)\s*\}\}/g,
+    (_match, variableName) => {
+      return variables[variableName] ?? "";
+    },
+  );
 }
 
 export class PromptTemplateRenderer {

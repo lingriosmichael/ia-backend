@@ -32,17 +32,25 @@ export class ActivityUploadService {
       file,
     );
 
-    const upload = await this.uploadMetadataService.create(userId, activity.projectId, {
-      activityId,
-      originalFileName: storedFile.originalFileName,
-      contentType: storedFile.contentType ?? undefined,
-      sizeBytes: storedFile.sizeBytes,
-      storageKey: storedFile.storageKey,
-    });
+    const upload = await this.uploadMetadataService.create(
+      userId,
+      activity.projectId,
+      {
+        activityId,
+        originalFileName: storedFile.originalFileName,
+        contentType: storedFile.contentType ?? undefined,
+        sizeBytes: storedFile.sizeBytes,
+        storageKey: storedFile.storageKey,
+      },
+    );
 
-    const updatedUpload = await this.uploadMetadataService.update(userId, upload.id, {
-      status: "uploaded",
-    });
+    const updatedUpload = await this.uploadMetadataService.update(
+      userId,
+      upload.id,
+      {
+        status: "uploaded",
+      },
+    );
 
     const job = await this.aiOrchestrationService.queueDatasetInterpretation({
       userId,

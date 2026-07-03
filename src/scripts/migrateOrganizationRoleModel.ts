@@ -14,59 +14,50 @@ async function run() {
     throw new Error("Mongo database connection is not available.");
   }
 
-  await database.collection("memberships").updateMany(
-    {},
-    [
-      {
-        $set: {
-          role: {
-            $switch: {
-              branches: [
-                {
-                  case: { $eq: ["$role", "owner"] },
-                  then: "ORGANIZATION_ADMIN",
-                },
-                {
-                  case: { $eq: ["$role", "member"] },
-                  then: "PROJECT_MANAGER",
-                },
-              ],
-              default: "$role",
-            },
+  await database.collection("memberships").updateMany({}, [
+    {
+      $set: {
+        role: {
+          $switch: {
+            branches: [
+              {
+                case: { $eq: ["$role", "owner"] },
+                then: "ORGANIZATION_ADMIN",
+              },
+              {
+                case: { $eq: ["$role", "member"] },
+                then: "PROJECT_MANAGER",
+              },
+            ],
+            default: "$role",
           },
         },
       },
-    ],
-  );
+    },
+  ]);
 
-  await database.collection("organizations").updateMany(
-    {},
-    [
-      {
-        $set: {
-          mission: { $ifNull: ["$mission", "$description"] },
-          logoUrl: { $ifNull: ["$logoUrl", "$logoPath"] },
-        },
+  await database.collection("organizations").updateMany({}, [
+    {
+      $set: {
+        mission: { $ifNull: ["$mission", "$description"] },
+        logoUrl: { $ifNull: ["$logoUrl", "$logoPath"] },
       },
-      {
-        $unset: ["description", "logoPath"],
-      },
-    ],
-  );
+    },
+    {
+      $unset: ["description", "logoPath"],
+    },
+  ]);
 
-  await database.collection("projects").updateMany(
-    {},
-    [
-      {
-        $set: {
-          ownerId: { $ifNull: ["$ownerId", "$createdById"] },
-        },
+  await database.collection("projects").updateMany({}, [
+    {
+      $set: {
+        ownerId: { $ifNull: ["$ownerId", "$createdById"] },
       },
-      {
-        $unset: ["createdById"],
-      },
-    ],
-  );
+    },
+    {
+      $unset: ["createdById"],
+    },
+  ]);
 
   await database.collection("activities").updateMany(
     {

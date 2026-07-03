@@ -26,6 +26,9 @@ export class AIPromptService {
   renderSingleContext(context: AIContextObject, templateId: string) {
     const template = this.promptRegistry.getById(templateId);
     const builder = new JsonContextBuilder(context.kind);
-    return this.promptRenderer.render(template, builder.buildVariables(context));
+    return this.promptRenderer.render(
+      template,
+      builder.buildVariables(context),
+    );
   }
 }

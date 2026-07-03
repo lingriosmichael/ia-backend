@@ -27,7 +27,8 @@ function expiresToSeconds(value: string): number {
 
   const amount = Number(match[1]);
   const unit = match[2];
-  const multiplier = unit === "s" ? 1 : unit === "m" ? 60 : unit === "h" ? 3600 : 86400;
+  const multiplier =
+    unit === "s" ? 1 : unit === "m" ? 60 : unit === "h" ? 3600 : 86400;
   return amount * multiplier;
 }
 
@@ -39,13 +40,12 @@ export class AuthService {
     private readonly transactionManager: TransactionManager,
   ) {}
 
-  async register(input: {
-    fullName: string;
-    email: string;
-    password: string;
-  }) {
+  async register(input: { fullName: string; email: string; password: string }) {
     const email = input.email.trim().toLowerCase();
-    const existingUser = await this.userRepository.findByEmail(email, databaseSession);
+    const existingUser = await this.userRepository.findByEmail(
+      email,
+      databaseSession,
+    );
 
     if (existingUser) {
       throw new AppError(
@@ -79,12 +79,20 @@ export class AuthService {
     const user = await this.userRepository.findByEmail(email, databaseSession);
 
     if (!user) {
-      throw new AppError("Invalid email or password.", 401, "invalid_credentials");
+      throw new AppError(
+        "Invalid email or password.",
+        401,
+        "invalid_credentials",
+      );
     }
 
     const isValid = await verifyPassword(input.password, user.passwordHash);
     if (!isValid) {
-      throw new AppError("Invalid email or password.", 401, "invalid_credentials");
+      throw new AppError(
+        "Invalid email or password.",
+        401,
+        "invalid_credentials",
+      );
     }
 
     const memberships = await this.organizationRepository.listForUser(

@@ -70,17 +70,23 @@ export class MongoAIArtifactRepository implements ResultRepository {
 
     return documents
       .map((document) => toPlainArtifact(document))
-      .filter((document): document is AIArtifactPersistenceRecord => Boolean(document));
+      .filter((document): document is AIArtifactPersistenceRecord =>
+        Boolean(document),
+      );
   }
 
   async listRecentByProject(
     projectId: string,
     limit: number,
     _session: DatabaseSession,
-  ): Promise<Array<Pick<
-    AIArtifactPersistenceRecord,
-    "id" | "activityId" | "status" | "createdAt"
-  >>> {
+  ): Promise<
+    Array<
+      Pick<
+        AIArtifactPersistenceRecord,
+        "id" | "activityId" | "status" | "createdAt"
+      >
+    >
+  > {
     const documents = await AIArtifactMongoModel.find({ projectId })
       .sort({ createdAt: -1 })
       .limit(limit)
@@ -168,7 +174,11 @@ export class MongoAIArtifactRepository implements ResultRepository {
     const record = toPlainArtifact(document);
 
     if (!record) {
-      throw new AppError("Result record not found.", 404, "result_record_not_found");
+      throw new AppError(
+        "Result record not found.",
+        404,
+        "result_record_not_found",
+      );
     }
 
     return record;

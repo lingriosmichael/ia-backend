@@ -22,26 +22,21 @@ export interface UploadMetadataRepository {
     projectId: string,
     limit: number,
     session: DatabaseSession,
-  ): Promise<Array<Pick<
-    UploadMetadataPersistenceRecord,
-    "id" | "activityId" | "createdAt"
-  >>>;
+  ): Promise<
+    Array<
+      Pick<UploadMetadataPersistenceRecord, "id" | "activityId" | "createdAt">
+    >
+  >;
   listStorageKeysByProject(
     projectId: string,
     session: DatabaseSession,
   ): Promise<string[]>;
-  countByProject(
-    projectId: string,
-    session: DatabaseSession,
-  ): Promise<number>;
+  countByProject(projectId: string, session: DatabaseSession): Promise<number>;
   countByActivityIds(
     activityIds: string[],
     session: DatabaseSession,
   ): Promise<Record<string, number>>;
-  deleteByProject(
-    projectId: string,
-    session: DatabaseSession,
-  ): Promise<number>;
+  deleteByProject(projectId: string, session: DatabaseSession): Promise<number>;
   update(
     uploadMetadataId: string,
     input: UploadMetadataUpdateInput,

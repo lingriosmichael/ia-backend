@@ -18,10 +18,14 @@ export interface ResultRepository {
     projectId: string,
     limit: number,
     session: DatabaseSession,
-  ): Promise<Array<Pick<
-    AIArtifactPersistenceRecord,
-    "id" | "activityId" | "status" | "createdAt"
-  >>>;
+  ): Promise<
+    Array<
+      Pick<
+        AIArtifactPersistenceRecord,
+        "id" | "activityId" | "status" | "createdAt"
+      >
+    >
+  >;
   countByActivityIds(
     activityIds: string[],
     session: DatabaseSession,

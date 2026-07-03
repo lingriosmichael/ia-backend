@@ -16,7 +16,12 @@ const subscriptionSchema = new Schema(
   },
 );
 
-export type SubscriptionMongoDocument = InferSchemaType<typeof subscriptionSchema>;
+export type SubscriptionMongoDocument = InferSchemaType<
+  typeof subscriptionSchema
+>;
 export type SubscriptionMongoHydratedDocument =
   HydratedDocument<SubscriptionMongoDocument>;
-export const SubscriptionMongoModel = createModel("Subscription", subscriptionSchema);
+export const SubscriptionMongoModel = createModel(
+  "Subscription",
+  subscriptionSchema,
+);

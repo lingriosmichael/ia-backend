@@ -59,8 +59,8 @@ export class MongoUploadMetadataRepository implements UploadMetadataRepository {
 
     return documents
       .map((document) => toUploadMetadataRecord(document))
-      .filter(
-        (document): document is UploadMetadataPersistenceRecord => Boolean(document),
+      .filter((document): document is UploadMetadataPersistenceRecord =>
+        Boolean(document),
       );
   }
 
@@ -68,7 +68,8 @@ export class MongoUploadMetadataRepository implements UploadMetadataRepository {
     uploadMetadataId: string,
     _session: DatabaseSession,
   ): Promise<UploadMetadataPersistenceRecord | null> {
-    const document = await UploadMetadataMongoModel.findById(uploadMetadataId).exec();
+    const document =
+      await UploadMetadataMongoModel.findById(uploadMetadataId).exec();
     return toUploadMetadataRecord(document);
   }
 
@@ -76,10 +77,11 @@ export class MongoUploadMetadataRepository implements UploadMetadataRepository {
     projectId: string,
     limit: number,
     _session: DatabaseSession,
-  ): Promise<Array<Pick<
-    UploadMetadataPersistenceRecord,
-    "id" | "activityId" | "createdAt"
-  >>> {
+  ): Promise<
+    Array<
+      Pick<UploadMetadataPersistenceRecord, "id" | "activityId" | "createdAt">
+    >
+  > {
     const documents = await UploadMetadataMongoModel.find({ projectId })
       .sort({ createdAt: -1 })
       .limit(limit)
@@ -163,7 +165,9 @@ export class MongoUploadMetadataRepository implements UploadMetadataRepository {
     projectId: string,
     _session: DatabaseSession,
   ): Promise<number> {
-    const result = await UploadMetadataMongoModel.deleteMany({ projectId }).exec();
+    const result = await UploadMetadataMongoModel.deleteMany({
+      projectId,
+    }).exec();
     return result.deletedCount ?? 0;
   }
 
@@ -185,7 +189,11 @@ export class MongoUploadMetadataRepository implements UploadMetadataRepository {
     const record = toUploadMetadataRecord(document);
 
     if (!record) {
-      throw new AppError("Upload metadata not found.", 404, "upload_metadata_not_found");
+      throw new AppError(
+        "Upload metadata not found.",
+        404,
+        "upload_metadata_not_found",
+      );
     }
 
     return record;

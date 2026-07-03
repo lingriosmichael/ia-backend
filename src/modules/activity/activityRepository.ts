@@ -6,7 +6,11 @@ import type {
 } from "./activityPersistence.js";
 
 export interface ActivityRepository {
-  slugExists(projectId: string, slug: string, session: DatabaseSession): Promise<boolean>;
+  slugExists(
+    projectId: string,
+    slug: string,
+    session: DatabaseSession,
+  ): Promise<boolean>;
   create(
     input: ActivityCreateInput,
     session: DatabaseSession,

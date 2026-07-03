@@ -35,5 +35,6 @@ projectSchema.index({ organizationId: 1, slug: 1 }, { unique: true });
 projectSchema.index({ organizationId: 1, ownerId: 1, createdAt: -1 });
 
 export type ProjectMongoDocument = InferSchemaType<typeof projectSchema>;
-export type ProjectMongoHydratedDocument = HydratedDocument<ProjectMongoDocument>;
+export type ProjectMongoHydratedDocument =
+  HydratedDocument<ProjectMongoDocument>;
 export const ProjectMongoModel = createModel("Project", projectSchema);

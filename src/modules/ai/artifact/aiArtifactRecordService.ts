@@ -30,15 +30,23 @@ export class AIArtifactRecordService {
       activityId?: string | null;
       uploadMetadataId?: string | null;
       processingJobId?: string | null;
-      resultType: "semantic_summary" | "activity_snapshot" | "project_snapshot" | "other";
+      resultType:
+        "semantic_summary" | "activity_snapshot" | "project_snapshot" | "other";
       payload?: Record<string, unknown>;
     },
   ) {
-    const { project } = await this.authorizationService.canEditProject(userId, projectId);
+    const { project } = await this.authorizationService.canEditProject(
+      userId,
+      projectId,
+    );
 
     if (input.activityId) {
-      const activity = (await this.authorizationService.canEditActivity(userId, input.activityId))
-        .activity;
+      const activity = (
+        await this.authorizationService.canEditActivity(
+          userId,
+          input.activityId,
+        )
+      ).activity;
       if (activity.projectId !== project.id) {
         throw new AppError(
           "The activity does not belong to the specified project.",
@@ -106,16 +114,24 @@ export class AIArtifactRecordService {
       databaseSession,
     );
     if (!existingResult) {
-      throw new AppError("Result record not found.", 404, "result_record_not_found");
+      throw new AppError(
+        "Result record not found.",
+        404,
+        "result_record_not_found",
+      );
     }
 
-    await this.authorizationService.canEditProject(userId, existingResult.projectId);
+    await this.authorizationService.canEditProject(
+      userId,
+      existingResult.projectId,
+    );
 
     const updatedResult = await this.resultRepository.update(
       resultRecordId,
       {
         status: input.status,
-        payload: input.payload === undefined ? undefined : input.payload ?? null,
+        payload:
+          input.payload === undefined ? undefined : (input.payload ?? null),
       },
       databaseSession,
     );

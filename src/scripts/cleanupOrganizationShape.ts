@@ -14,20 +14,17 @@ async function run() {
     throw new Error("Mongo database connection is not available.");
   }
 
-  await database.collection("organizations").updateMany(
-    {},
-    [
-      {
-        $set: {
-          mission: { $ifNull: ["$mission", "$description"] },
-          logoUrl: { $ifNull: ["$logoUrl", "$logoPath"] },
-        },
+  await database.collection("organizations").updateMany({}, [
+    {
+      $set: {
+        mission: { $ifNull: ["$mission", "$description"] },
+        logoUrl: { $ifNull: ["$logoUrl", "$logoPath"] },
       },
-      {
-        $unset: ["description", "logoPath", "slug", "updatedAt"],
-      },
-    ],
-  );
+    },
+    {
+      $unset: ["description", "logoPath", "slug", "updatedAt"],
+    },
+  ]);
 }
 
 run()

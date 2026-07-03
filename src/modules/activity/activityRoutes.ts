@@ -4,10 +4,7 @@ import { ActivityController } from "./activityController.js";
 export async function registerActivityRoutes(
   app: FastifyInstance,
   controller: ActivityController,
-  authenticate: (
-    request: FastifyRequest,
-    reply: FastifyReply,
-  ) => Promise<void>,
+  authenticate: (request: FastifyRequest, reply: FastifyReply) => Promise<void>,
 ) {
   app.get(
     "/projects/:projectId/activities",

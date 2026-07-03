@@ -104,7 +104,11 @@ export class FileStorageService {
         buffer,
       };
     } catch {
-      throw new AppError("Stored file could not be found.", 404, "file_not_found");
+      throw new AppError(
+        "Stored file could not be found.",
+        404,
+        "file_not_found",
+      );
     }
   }
 

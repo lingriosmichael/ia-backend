@@ -4,13 +4,18 @@ import { OrganizationController } from "./organizationController.js";
 export async function registerOrganizationRoutes(
   app: FastifyInstance,
   controller: OrganizationController,
-  authenticate: (
-    request: FastifyRequest,
-    reply: FastifyReply,
-  ) => Promise<void>,
+  authenticate: (request: FastifyRequest, reply: FastifyReply) => Promise<void>,
 ) {
-  app.get("/organizations", { preHandler: authenticate }, controller.list.bind(controller));
-  app.post("/organizations", { preHandler: authenticate }, controller.create.bind(controller));
+  app.get(
+    "/organizations",
+    { preHandler: authenticate },
+    controller.list.bind(controller),
+  );
+  app.post(
+    "/organizations",
+    { preHandler: authenticate },
+    controller.create.bind(controller),
+  );
   app.patch(
     "/organizations/:organizationId",
     { preHandler: authenticate },
@@ -26,7 +31,10 @@ export async function registerOrganizationRoutes(
     { preHandler: authenticate },
     controller.removeMember.bind(controller),
   );
-  app.get("/organizations/:organizationId/logo", controller.getLogo.bind(controller));
+  app.get(
+    "/organizations/:organizationId/logo",
+    controller.getLogo.bind(controller),
+  );
   app.get(
     "/organizations/:organizationId/workspace",
     { preHandler: authenticate },

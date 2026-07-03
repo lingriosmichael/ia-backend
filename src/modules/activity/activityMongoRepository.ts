@@ -47,7 +47,10 @@ export class MongoActivityRepository implements ActivityRepository {
     slug: string,
     _session: DatabaseSession,
   ): Promise<boolean> {
-    const count = await ActivityMongoModel.countDocuments({ projectId, slug }).exec();
+    const count = await ActivityMongoModel.countDocuments({
+      projectId,
+      slug,
+    }).exec();
     return count > 0;
   }
 
@@ -106,7 +109,9 @@ export class MongoActivityRepository implements ActivityRepository {
 
     return documents
       .map((document) => toActivityRecord(document))
-      .filter((document): document is ActivityPersistenceRecord => Boolean(document));
+      .filter((document): document is ActivityPersistenceRecord =>
+        Boolean(document),
+      );
   }
 
   async listByProjectIds(
@@ -127,6 +132,8 @@ export class MongoActivityRepository implements ActivityRepository {
 
     return documents
       .map((document) => toActivityRecord(document))
-      .filter((document): document is ActivityPersistenceRecord => Boolean(document));
+      .filter((document): document is ActivityPersistenceRecord =>
+        Boolean(document),
+      );
   }
 }

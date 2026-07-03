@@ -31,11 +31,18 @@ export class AIExecutionService {
       payload?: Record<string, unknown>;
     },
   ) {
-    const { project } = await this.authorizationService.canEditProject(userId, projectId);
+    const { project } = await this.authorizationService.canEditProject(
+      userId,
+      projectId,
+    );
 
     if (input.activityId) {
-      const activity = (await this.authorizationService.canEditActivity(userId, input.activityId))
-        .activity;
+      const activity = (
+        await this.authorizationService.canEditActivity(
+          userId,
+          input.activityId,
+        )
+      ).activity;
       if (activity.projectId !== project.id) {
         throw new AppError(
           "The activity does not belong to the specified project.",
@@ -91,18 +98,28 @@ export class AIExecutionService {
       databaseSession,
     );
     if (!existingJob) {
-      throw new AppError("Processing job not found.", 404, "processing_job_not_found");
+      throw new AppError(
+        "Processing job not found.",
+        404,
+        "processing_job_not_found",
+      );
     }
 
-    await this.authorizationService.canEditProject(userId, existingJob.projectId);
+    await this.authorizationService.canEditProject(
+      userId,
+      existingJob.projectId,
+    );
 
     const updatedJob = await this.processingJobRepository.update(
       processingJobId,
       {
         status: input.status,
-        payload: input.payload === undefined ? undefined : input.payload ?? null,
+        payload:
+          input.payload === undefined ? undefined : (input.payload ?? null),
         errorMessage:
-          input.errorMessage === undefined ? undefined : input.errorMessage?.trim() ?? null,
+          input.errorMessage === undefined
+            ? undefined
+            : (input.errorMessage?.trim() ?? null),
         startedAt:
           input.startedAt === undefined
             ? undefined
@@ -129,7 +146,11 @@ export class AIExecutionService {
     );
 
     if (!job) {
-      throw new AppError("Processing job not found.", 404, "processing_job_not_found");
+      throw new AppError(
+        "Processing job not found.",
+        404,
+        "processing_job_not_found",
+      );
     }
 
     await this.authorizationService.canViewProject(userId, job.projectId);

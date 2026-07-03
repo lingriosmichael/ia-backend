@@ -16,7 +16,9 @@ export interface QueuePipelineExecutionInput {
 }
 
 export interface PipelineExecutionStore {
-  queueExecution(input: QueuePipelineExecutionInput): Promise<ProcessingJobRecord>;
+  queueExecution(
+    input: QueuePipelineExecutionInput,
+  ): Promise<ProcessingJobRecord>;
 }
 
 export interface PipelineExecutionScheduler {
@@ -24,9 +26,7 @@ export interface PipelineExecutionScheduler {
 }
 
 export class ProcessingJobPipelineExecutionStore implements PipelineExecutionStore {
-  constructor(
-    private readonly aiExecutionService: AIExecutionService,
-  ) {}
+  constructor(private readonly aiExecutionService: AIExecutionService) {}
 
   async queueExecution(
     input: QueuePipelineExecutionInput,

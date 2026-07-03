@@ -2,6 +2,7 @@ import type {
   ActivitySummary,
   ActivityStatus,
   ActivityPermissions,
+  OrganizationSettings,
   AIArtifactStatus,
   AIArtifactType,
   AIExecutionStatus,
@@ -63,7 +64,8 @@ function normalizeProjectStatus(
 }
 
 function normalizeOrganizationRole(
-  value: OrganizationRole | keyof typeof organizationRoleMap | "owner" | "member",
+  value:
+    OrganizationRole | keyof typeof organizationRoleMap | "owner" | "member",
 ): OrganizationRole {
   if (value === "ORGANIZATION_ADMIN" || value === "PROJECT_MANAGER") {
     return value;
@@ -80,7 +82,9 @@ function normalizeOrganizationRole(
   return organizationRoleMap[value];
 }
 
-function mapOrganizationPermissions(role: OrganizationRole): OrganizationPermissions {
+function mapOrganizationPermissions(
+  role: OrganizationRole,
+): OrganizationPermissions {
   return {
     canManageProfile: role === "ORGANIZATION_ADMIN",
     canManageMembers: role === "ORGANIZATION_ADMIN",
@@ -90,7 +94,10 @@ function mapOrganizationPermissions(role: OrganizationRole): OrganizationPermiss
   };
 }
 
-function mapProjectPermissions(ownerId: string, currentUserId: string): ProjectPermissions {
+function mapProjectPermissions(
+  ownerId: string,
+  currentUserId: string,
+): ProjectPermissions {
   const canEdit = ownerId === currentUserId;
 
   return {
@@ -136,6 +143,7 @@ export function mapOrganizationMembership(record: {
     name: string;
     mission?: string | null;
     logoUrl?: string | null;
+    settings: OrganizationSettings;
     createdAt: Date;
   };
 }): OrganizationSummary {
@@ -148,32 +156,36 @@ export function mapOrganizationMembership(record: {
     logoUrl: record.organization.logoUrl
       ? `/organizations/${record.organization.id}/logo`
       : null,
+    settings: record.organization.settings,
     role: normalizedRole,
     permissions: mapOrganizationPermissions(normalizedRole),
     createdAt: toIso(record.organization.createdAt),
   };
 }
 
-export function mapProject(project: {
-  id: string;
-  organizationId: string;
-  ownerId: string;
-  ownerName?: string | null;
-  name: string;
-  slug: string;
-  description: string | null;
-  programGoal: string | null;
-  startMonth: string | null;
-  endMonth: string | null;
-  country: string | null;
-  regionCity: string | null;
-  sdgs: string[];
-  targetBeneficiaries: string[];
-  fundingSource: string | null;
-  status: ProjectStatus | keyof typeof projectStatusMap;
-  createdAt: Date;
-  updatedAt: Date;
-}, currentUserId: string): WorkspaceProject {
+export function mapProject(
+  project: {
+    id: string;
+    organizationId: string;
+    ownerId: string;
+    ownerName?: string | null;
+    name: string;
+    slug: string;
+    description: string | null;
+    programGoal: string | null;
+    startMonth: string | null;
+    endMonth: string | null;
+    country: string | null;
+    regionCity: string | null;
+    sdgs: string[];
+    targetBeneficiaries: string[];
+    fundingSource: string | null;
+    status: ProjectStatus | keyof typeof projectStatusMap;
+    createdAt: Date;
+    updatedAt: Date;
+  },
+  currentUserId: string,
+): WorkspaceProject {
   return {
     id: project.id,
     organizationId: project.organizationId,
@@ -198,26 +210,29 @@ export function mapProject(project: {
   };
 }
 
-export function mapProjectSummary(project: {
-  id: string;
-  organizationId: string;
-  ownerId: string;
-  ownerName?: string | null;
-  name: string;
-  slug: string;
-  description: string | null;
-  programGoal: string | null;
-  startMonth: string | null;
-  endMonth: string | null;
-  country: string | null;
-  regionCity: string | null;
-  sdgs: string[];
-  targetBeneficiaries: string[];
-  fundingSource: string | null;
-  status: ProjectStatus | keyof typeof projectStatusMap;
-  createdAt: Date;
-  updatedAt: Date;
-}, currentUserId: string): ProjectSummary {
+export function mapProjectSummary(
+  project: {
+    id: string;
+    organizationId: string;
+    ownerId: string;
+    ownerName?: string | null;
+    name: string;
+    slug: string;
+    description: string | null;
+    programGoal: string | null;
+    startMonth: string | null;
+    endMonth: string | null;
+    country: string | null;
+    regionCity: string | null;
+    sdgs: string[];
+    targetBeneficiaries: string[];
+    fundingSource: string | null;
+    status: ProjectStatus | keyof typeof projectStatusMap;
+    createdAt: Date;
+    updatedAt: Date;
+  },
+  currentUserId: string,
+): ProjectSummary {
   return {
     id: project.id,
     organizationId: project.organizationId,
@@ -241,27 +256,30 @@ export function mapProjectSummary(project: {
   };
 }
 
-export function mapActivity(activity: {
-  id: string;
-  projectId: string;
-  projectOwnerId: string;
-  name: string;
-  slug: string;
-  description: string | null;
-  activityType: string | null;
-  owner: string | null;
-  startDate: Date | null;
-  endDate: Date | null;
-  objectives: string | null;
-  expectedOutcomes: string | null;
-  successIndicators: string | null;
-  targetAudience: string | null;
-  additionalContext: string | null;
-  beneficiaryGroup: string | null;
-  status: ActivityStatus | keyof typeof activityStatusMap;
-  createdAt: Date;
-  updatedAt: Date;
-}, currentUserId: string): ActivitySummary {
+export function mapActivity(
+  activity: {
+    id: string;
+    projectId: string;
+    projectOwnerId: string;
+    name: string;
+    slug: string;
+    description: string | null;
+    activityType: string | null;
+    owner: string | null;
+    startDate: Date | null;
+    endDate: Date | null;
+    objectives: string | null;
+    expectedOutcomes: string | null;
+    successIndicators: string | null;
+    targetAudience: string | null;
+    additionalContext: string | null;
+    beneficiaryGroup: string | null;
+    status: ActivityStatus | keyof typeof activityStatusMap;
+    createdAt: Date;
+    updatedAt: Date;
+  },
+  currentUserId: string,
+): ActivitySummary {
   return {
     id: activity.id,
     projectId: activity.projectId,
@@ -285,32 +303,35 @@ export function mapActivity(activity: {
   };
 }
 
-export function mapWorkspaceActivity(activity: {
-  id: string;
-  projectId: string;
-  projectOwnerId: string;
-  name: string;
-  slug: string;
-  description: string | null;
-  activityType: string | null;
-  owner: string | null;
-  startDate: Date | null;
-  endDate: Date | null;
-  objectives: string | null;
-  expectedOutcomes: string | null;
-  successIndicators: string | null;
-  targetAudience: string | null;
-  additionalContext: string | null;
-  beneficiaryGroup: string | null;
-  status: ActivityStatus | keyof typeof activityStatusMap;
-  createdAt: Date;
-  updatedAt: Date;
-  _count: {
-    uploadMetadata: number;
-    processingJobs: number;
-    resultRecords: number;
-  };
-}, currentUserId: string): WorkspaceActivity {
+export function mapWorkspaceActivity(
+  activity: {
+    id: string;
+    projectId: string;
+    projectOwnerId: string;
+    name: string;
+    slug: string;
+    description: string | null;
+    activityType: string | null;
+    owner: string | null;
+    startDate: Date | null;
+    endDate: Date | null;
+    objectives: string | null;
+    expectedOutcomes: string | null;
+    successIndicators: string | null;
+    targetAudience: string | null;
+    additionalContext: string | null;
+    beneficiaryGroup: string | null;
+    status: ActivityStatus | keyof typeof activityStatusMap;
+    createdAt: Date;
+    updatedAt: Date;
+    _count: {
+      uploadMetadata: number;
+      processingJobs: number;
+      resultRecords: number;
+    };
+  },
+  currentUserId: string,
+): WorkspaceActivity {
   return {
     ...mapActivity(activity, currentUserId),
     uploadMetadataCount: activity._count.uploadMetadata,
@@ -325,8 +346,11 @@ export function mapWorkspace(record: {
   name: string;
   mission: string | null;
   logoUrl: string | null;
+  settings: OrganizationSettings;
   createdAt: Date;
-  memberships: Array<{ role: OrganizationRole | keyof typeof organizationRoleMap }>;
+  memberships: Array<{
+    role: OrganizationRole | keyof typeof organizationRoleMap;
+  }>;
   projects: Array<{
     id: string;
     organizationId: string;
@@ -374,7 +398,9 @@ export function mapWorkspace(record: {
     }>;
   }>;
 }): OrganizationWorkspace {
-  const role = normalizeOrganizationRole(record.memberships[0]?.role ?? "PROJECT_MANAGER");
+  const role = normalizeOrganizationRole(
+    record.memberships[0]?.role ?? "PROJECT_MANAGER",
+  );
 
   return {
     organization: {
@@ -382,6 +408,7 @@ export function mapWorkspace(record: {
       name: record.name,
       mission: record.mission,
       logoUrl: record.logoUrl ? `/organizations/${record.id}/logo` : null,
+      settings: record.settings,
       role,
       permissions: mapOrganizationPermissions(role),
       createdAt: toIso(record.createdAt),
@@ -519,13 +546,14 @@ export function mapAuthResponse(params: {
   };
   organizations: Array<{
     role: OrganizationRole | keyof typeof organizationRoleMap;
-      organization: {
-        id: string;
-        name: string;
-        mission?: string | null;
-        logoUrl?: string | null;
-        createdAt: Date;
-      };
+    organization: {
+      id: string;
+      name: string;
+      mission?: string | null;
+      logoUrl?: string | null;
+      settings: OrganizationSettings;
+      createdAt: Date;
+    };
   }>;
 }): AuthResponse {
   return {

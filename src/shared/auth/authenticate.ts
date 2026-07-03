@@ -21,12 +21,18 @@ export function createAuthenticateMiddleware(authService: AuthService) {
     try {
       request.auth = authService.verifyToken(token);
     } catch {
-      throw new AppError("Authentication token is invalid.", 401, "invalid_token");
+      throw new AppError(
+        "Authentication token is invalid.",
+        401,
+        "invalid_token",
+      );
     }
   };
 }
 
-export function createAuthenticateIfPresentMiddleware(authService: AuthService) {
+export function createAuthenticateIfPresentMiddleware(
+  authService: AuthService,
+) {
   return async function authenticateIfPresent(
     request: FastifyRequest,
     _reply: FastifyReply,
@@ -45,7 +51,11 @@ export function createAuthenticateIfPresentMiddleware(authService: AuthService) 
     try {
       request.auth = authService.verifyToken(token);
     } catch {
-      throw new AppError("Authentication token is invalid.", 401, "invalid_token");
+      throw new AppError(
+        "Authentication token is invalid.",
+        401,
+        "invalid_token",
+      );
     }
   };
 }

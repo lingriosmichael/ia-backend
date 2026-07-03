@@ -4,10 +4,7 @@ import { ProcessingJobController } from "./processingJobController.js";
 export async function registerProcessingJobRoutes(
   app: FastifyInstance,
   controller: ProcessingJobController,
-  authenticate: (
-    request: FastifyRequest,
-    reply: FastifyReply,
-  ) => Promise<void>,
+  authenticate: (request: FastifyRequest, reply: FastifyReply) => Promise<void>,
 ) {
   app.get(
     "/activities/:activityId/jobs",

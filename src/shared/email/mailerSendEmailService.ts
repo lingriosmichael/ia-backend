@@ -44,7 +44,9 @@ export class MailerSendEmailService implements EmailService {
           reply_to: this.config.EMAIL_REPLY_TO
             ? {
                 email: this.config.EMAIL_REPLY_TO,
-                name: this.config.EMAIL_REPLY_TO_NAME ?? this.config.EMAIL_FROM_NAME,
+                name:
+                  this.config.EMAIL_REPLY_TO_NAME ??
+                  this.config.EMAIL_FROM_NAME,
               }
             : undefined,
           to: [

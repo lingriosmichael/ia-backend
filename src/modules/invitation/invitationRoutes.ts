@@ -4,10 +4,7 @@ import { InvitationController } from "./invitationController.js";
 export async function registerInvitationRoutes(
   app: FastifyInstance,
   controller: InvitationController,
-  authenticate: (
-    request: FastifyRequest,
-    reply: FastifyReply,
-  ) => Promise<void>,
+  authenticate: (request: FastifyRequest, reply: FastifyReply) => Promise<void>,
   authenticateIfPresent: (
     request: FastifyRequest,
     reply: FastifyReply,

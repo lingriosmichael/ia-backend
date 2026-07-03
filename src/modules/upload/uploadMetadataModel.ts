@@ -24,7 +24,12 @@ const uploadMetadataSchema = new Schema(
   },
 );
 
-export type UploadMetadataMongoDocument = InferSchemaType<typeof uploadMetadataSchema>;
+export type UploadMetadataMongoDocument = InferSchemaType<
+  typeof uploadMetadataSchema
+>;
 export type UploadMetadataMongoHydratedDocument =
   HydratedDocument<UploadMetadataMongoDocument>;
-export const UploadMetadataMongoModel = createModel("UploadMetadata", uploadMetadataSchema);
+export const UploadMetadataMongoModel = createModel(
+  "UploadMetadata",
+  uploadMetadataSchema,
+);

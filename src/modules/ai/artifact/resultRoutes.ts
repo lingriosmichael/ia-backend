@@ -4,10 +4,7 @@ import { ResultController } from "./resultController.js";
 export async function registerResultRoutes(
   app: FastifyInstance,
   controller: ResultController,
-  authenticate: (
-    request: FastifyRequest,
-    reply: FastifyReply,
-  ) => Promise<void>,
+  authenticate: (request: FastifyRequest, reply: FastifyReply) => Promise<void>,
 ) {
   app.get(
     "/activities/:activityId/results",

@@ -1,4 +1,8 @@
-import type { AIContextObject, ChatContext, ReportContext } from "../context/aiContextTypes.js";
+import type {
+  AIContextObject,
+  ChatContext,
+  ReportContext,
+} from "../context/aiContextTypes.js";
 import type { RenderedPromptTemplate } from "../prompts/promptTemplate.js";
 import type { AIProviderResponse } from "../providers/aiProvider.js";
 import type { AIPipelineDefinition } from "./aiPipeline.js";

@@ -2,7 +2,11 @@ import type { ChatContext, ReportContext } from "../context/aiContextTypes.js";
 import { AIContextService } from "../context/aiContextService.js";
 import { AIPromptService } from "../prompts/aiPromptService.js";
 import { AIProviderRegistry } from "../providers/providerRegistry.js";
-import type { AIPipelineExecutionInput, AIPipelineExecutionResult, AIPipelineRuntime } from "./pipelineRuntime.js";
+import type {
+  AIPipelineExecutionInput,
+  AIPipelineExecutionResult,
+  AIPipelineRuntime,
+} from "./pipelineRuntime.js";
 import type { AIPipelineDefinition } from "./aiPipeline.js";
 
 export abstract class AbstractAIProviderPipeline implements AIPipelineRuntime {

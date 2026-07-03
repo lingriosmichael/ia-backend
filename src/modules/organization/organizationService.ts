@@ -15,6 +15,10 @@ import { FileStorageService } from "../upload/fileStorageService.js";
 import type { UploadMetadataRepository } from "../upload/uploadMetadataRepository.js";
 import type { OrganizationRepository } from "./organizationRepository.js";
 import type { UserRepository } from "../user/userRepository.js";
+import {
+  createOrganizationSettings,
+  resolveOrganizationSettings,
+} from "./organizationSettings.js";
 
 export class OrganizationService {
   constructor(
@@ -41,7 +45,12 @@ export class OrganizationService {
   async create(userId: string, input: { name: string }) {
     const normalizedName = input.name.trim();
 
-    if (await this.organizationRepository.nameExists(normalizedName, databaseSession)) {
+    if (
+      await this.organizationRepository.nameExists(
+        normalizedName,
+        databaseSession,
+      )
+    ) {
       throw new AppError(
         "An organization with this name already exists.",
         409,
@@ -49,25 +58,31 @@ export class OrganizationService {
       );
     }
 
-    const organization = await this.transactionManager.runInTransaction(async (session) => {
-      const createdOrganization = await this.organizationRepository.create(
-        {
-          name: normalizedName,
-        },
-        session,
-      );
+    const organization = await this.transactionManager.runInTransaction(
+      async (session) => {
+        const createdOrganization = await this.organizationRepository.create(
+          {
+            name: normalizedName,
+            mission: null,
+            settings: createOrganizationSettings({
+              organizationName: normalizedName,
+            }),
+          },
+          session,
+        );
 
-      await this.organizationRepository.createMembership(
-        {
-          userId,
-          organizationId: createdOrganization.id,
-          role: "ORGANIZATION_ADMIN",
-        },
-        session,
-      );
+        await this.organizationRepository.createMembership(
+          {
+            userId,
+            organizationId: createdOrganization.id,
+            role: "ORGANIZATION_ADMIN",
+          },
+          session,
+        );
 
-      return createdOrganization;
-    });
+        return createdOrganization;
+      },
+    );
 
     const membership = await this.organizationRepository.findMembership(
       userId,
@@ -76,17 +91,17 @@ export class OrganizationService {
     );
 
     if (!membership) {
-      throw new AppError("Organization membership was not created.", 500, "membership_missing");
+      throw new AppError(
+        "Organization membership was not created.",
+        500,
+        "membership_missing",
+      );
     }
 
-    return {
-      id: organization.id,
-      name: organization.name,
-      mission: organization.mission,
-      logoUrl: organization.logoUrl ? `/organizations/${organization.id}/logo` : null,
+    return mapOrganizationMembership({
       role: membership.role,
-      createdAt: organization.createdAt.toISOString(),
-    };
+      organization,
+    });
   }
 
   async update(
@@ -95,34 +110,74 @@ export class OrganizationService {
     input: {
       name?: string;
       mission?: string | null;
+      settings?: {
+        organizationName?: string;
+        legalForm?: string | null;
+        foundingYear?: number | null;
+        country?: string | null;
+        employeeCount?: number | null;
+        mission?: string | null;
+        activityAreas?: string[];
+        targetGroups?: string[];
+        operatingRegions?: string[];
+        isRecognizedNonProfit?: boolean | null;
+        taxExemptionValidFrom?: string | null;
+      };
       logoFile?: MultipartFile;
     },
   ) {
-    await this.authorizationService.canManageOrganization(userId, organizationId);
+    await this.authorizationService.canManageOrganization(
+      userId,
+      organizationId,
+    );
 
     const organization = await this.organizationRepository.findById(
       organizationId,
       databaseSession,
     );
     if (!organization) {
-      throw new AppError("Organization not found.", 404, "organization_not_found");
+      throw new AppError(
+        "Organization not found.",
+        404,
+        "organization_not_found",
+      );
     }
 
-    const normalizedName = input.name?.trim();
-    const normalizedMission =
-      input.mission === undefined
-        ? undefined
-        : input.mission === null
-          ? null
-          : input.mission.trim()
-            ? input.mission.trim()
-            : null;
+    const normalizedName =
+      input.settings?.organizationName?.trim() || input.name?.trim();
+    const normalizedMission = normalizeNullableText(
+      input.settings?.mission ?? input.mission,
+    );
+    const nextSettings = resolveOrganizationSettings({
+      name: normalizedName ?? organization.name,
+      mission:
+        normalizedMission === undefined
+          ? organization.mission
+          : normalizedMission,
+      settings: {
+        ...organization.settings,
+        ...normalizeOrganizationSettingsInput(input.settings),
+        ...(normalizedName ? { organizationName: normalizedName } : {}),
+        ...(normalizedMission !== undefined
+          ? { mission: normalizedMission }
+          : {}),
+      },
+    });
+    const nextName = normalizedName ?? nextSettings.organizationName;
+    const nextMission =
+      normalizedMission === undefined
+        ? nextSettings.mission
+        : normalizedMission;
 
-    if (normalizedName && normalizedName !== organization.name) {
+    if (nextName !== organization.name) {
       if (
-        await this.organizationRepository.nameExists(normalizedName, databaseSession, {
-          excludeOrganizationId: organizationId,
-        })
+        await this.organizationRepository.nameExists(
+          nextName,
+          databaseSession,
+          {
+            excludeOrganizationId: organizationId,
+          },
+        )
       ) {
         throw new AppError(
           "An organization with this name already exists.",
@@ -144,8 +199,9 @@ export class OrganizationService {
     const updatedOrganization = await this.organizationRepository.update(
       organizationId,
       {
-        name: normalizedName,
-        mission: normalizedMission,
+        name: nextName,
+        mission: nextMission,
+        settings: nextSettings,
         logoUrl,
       },
       databaseSession,
@@ -158,7 +214,11 @@ export class OrganizationService {
     );
 
     if (!membership) {
-      throw new AppError("Organization membership is missing.", 500, "membership_missing");
+      throw new AppError(
+        "Organization membership is missing.",
+        500,
+        "membership_missing",
+      );
     }
 
     return mapOrganizationMembership({
@@ -168,10 +228,11 @@ export class OrganizationService {
   }
 
   async getWorkspace(userId: string, organizationId: string) {
-    const authorizationContext = await this.authorizationService.canViewOrganization(
-      userId,
-      organizationId,
-    );
+    const authorizationContext =
+      await this.authorizationService.canViewOrganization(
+        userId,
+        organizationId,
+      );
     const workspace = await this.organizationRepository.findWorkspaceForUser(
       organizationId,
       userId,
@@ -179,12 +240,19 @@ export class OrganizationService {
     );
 
     if (!workspace) {
-      throw new AppError("Organization workspace not found.", 404, "organization_not_found");
+      throw new AppError(
+        "Organization workspace not found.",
+        404,
+        "organization_not_found",
+      );
     }
 
     const organizationProjects =
       authorizationContext.membership.role === "ORGANIZATION_ADMIN"
-        ? await this.projectRepository.listByOrganization(organizationId, databaseSession)
+        ? await this.projectRepository.listByOrganization(
+            organizationId,
+            databaseSession,
+          )
         : await this.projectRepository.listByOrganizationForOwner(
             organizationId,
             userId,
@@ -201,10 +269,11 @@ export class OrganizationService {
       organizationProjects.map((project) => project.id),
       databaseSession,
     );
-    const activityUploadCounts = await this.uploadMetadataRepository.countByActivityIds(
-      projectActivities.map((activity) => activity.id),
-      databaseSession,
-    );
+    const activityUploadCounts =
+      await this.uploadMetadataRepository.countByActivityIds(
+        projectActivities.map((activity) => activity.id),
+        databaseSession,
+      );
     const activityProcessingJobCounts =
       await this.processingJobRepository.countByActivityIds(
         projectActivities.map((activity) => activity.id),
@@ -251,21 +320,27 @@ export class OrganizationService {
       projects: organizationProjects.map((project) => ({
         ...project,
         ownerName: ownerNamesById.get(project.ownerId) ?? null,
-        activities: (activitiesByProjectId[project.id] ?? []).map((activity) => ({
-          ...activity,
-          projectOwnerId: project.ownerId,
-        })),
+        activities: (activitiesByProjectId[project.id] ?? []).map(
+          (activity) => ({
+            ...activity,
+            projectOwnerId: project.ownerId,
+          }),
+        ),
       })),
     });
   }
 
   async listMembers(userId: string, organizationId: string) {
-    await this.authorizationService.canManageOrganization(userId, organizationId);
-
-    const memberships = await this.organizationRepository.listMembershipsByOrganization(
+    await this.authorizationService.canManageOrganization(
+      userId,
       organizationId,
-      databaseSession,
     );
+
+    const memberships =
+      await this.organizationRepository.listMembershipsByOrganization(
+        organizationId,
+        databaseSession,
+      );
     const users = await this.userRepository.findByIds(
       [...new Set(memberships.map((membership) => membership.userId))],
       databaseSession,
@@ -293,17 +368,31 @@ export class OrganizationService {
       .filter(Boolean);
   }
 
-  async removeMember(userId: string, organizationId: string, membershipId: string) {
-    await this.authorizationService.canManageOrganization(userId, organizationId);
-
-    const memberships = await this.organizationRepository.listMembershipsByOrganization(
+  async removeMember(
+    userId: string,
+    organizationId: string,
+    membershipId: string,
+  ) {
+    await this.authorizationService.canManageOrganization(
+      userId,
       organizationId,
-      databaseSession,
     );
-    const membershipToRemove = memberships.find((membership) => membership.id === membershipId);
+
+    const memberships =
+      await this.organizationRepository.listMembershipsByOrganization(
+        organizationId,
+        databaseSession,
+      );
+    const membershipToRemove = memberships.find(
+      (membership) => membership.id === membershipId,
+    );
 
     if (!membershipToRemove) {
-      throw new AppError("Organization member not found.", 404, "organization_member_not_found");
+      throw new AppError(
+        "Organization member not found.",
+        404,
+        "organization_member_not_found",
+      );
     }
 
     if (membershipToRemove.role === "ORGANIZATION_ADMIN") {
@@ -320,7 +409,10 @@ export class OrganizationService {
       }
     }
 
-    await this.organizationRepository.deleteMembership(membershipId, databaseSession);
+    await this.organizationRepository.deleteMembership(
+      membershipId,
+      databaseSession,
+    );
 
     return {
       id: membershipToRemove.id,
@@ -337,14 +429,22 @@ export class OrganizationService {
     );
 
     if (!organization || !organization.logoUrl) {
-      throw new AppError("Organization logo not found.", 404, "organization_logo_not_found");
+      throw new AppError(
+        "Organization logo not found.",
+        404,
+        "organization_logo_not_found",
+      );
     }
 
-    const storedLogo = await this.fileStorageService.readStoredFile(organization.logoUrl);
+    const storedLogo = await this.fileStorageService.readStoredFile(
+      organization.logoUrl,
+    );
 
     return {
       buffer: storedLogo.buffer,
-      contentType: this.fileStorageService.getContentTypeForPath(organization.logoUrl),
+      contentType: this.fileStorageService.getContentTypeForPath(
+        organization.logoUrl,
+      ),
     };
   }
 
@@ -355,4 +455,79 @@ export class OrganizationService {
     );
     return membership;
   }
+}
+
+function normalizeNullableText(value: string | null | undefined) {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  if (value === null) {
+    return null;
+  }
+
+  const trimmedValue = value.trim();
+  return trimmedValue ? trimmedValue : null;
+}
+
+function normalizeOrganizationSettingsInput(
+  input:
+    | {
+        organizationName?: string;
+        legalForm?: string | null;
+        foundingYear?: number | null;
+        country?: string | null;
+        employeeCount?: number | null;
+        mission?: string | null;
+        activityAreas?: string[];
+        targetGroups?: string[];
+        operatingRegions?: string[];
+        isRecognizedNonProfit?: boolean | null;
+        taxExemptionValidFrom?: string | null;
+      }
+    | undefined,
+) {
+  if (!input) {
+    return {};
+  }
+
+  return {
+    ...(input.organizationName !== undefined
+      ? { organizationName: input.organizationName.trim() }
+      : {}),
+    ...(input.legalForm !== undefined
+      ? { legalForm: normalizeNullableText(input.legalForm) }
+      : {}),
+    ...(input.foundingYear !== undefined
+      ? { foundingYear: input.foundingYear }
+      : {}),
+    ...(input.country !== undefined
+      ? { country: normalizeNullableText(input.country) }
+      : {}),
+    ...(input.employeeCount !== undefined
+      ? { employeeCount: input.employeeCount }
+      : {}),
+    ...(input.mission !== undefined
+      ? { mission: normalizeNullableText(input.mission) }
+      : {}),
+    ...(input.activityAreas !== undefined
+      ? { activityAreas: input.activityAreas }
+      : {}),
+    ...(input.targetGroups !== undefined
+      ? { targetGroups: input.targetGroups }
+      : {}),
+    ...(input.operatingRegions !== undefined
+      ? { operatingRegions: input.operatingRegions }
+      : {}),
+    ...(input.isRecognizedNonProfit !== undefined
+      ? { isRecognizedNonProfit: input.isRecognizedNonProfit }
+      : {}),
+    ...(input.taxExemptionValidFrom !== undefined
+      ? {
+          taxExemptionValidFrom: normalizeNullableText(
+            input.taxExemptionValidFrom,
+          ),
+        }
+      : {}),
+  };
 }

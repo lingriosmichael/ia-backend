@@ -72,17 +72,23 @@ export class MongoAIExecutionRepository implements ProcessingJobRepository {
 
     return documents
       .map((document) => toPlainExecution(document))
-      .filter((document): document is AIExecutionPersistenceRecord => Boolean(document));
+      .filter((document): document is AIExecutionPersistenceRecord =>
+        Boolean(document),
+      );
   }
 
   async listRecentByProject(
     projectId: string,
     limit: number,
     _session: DatabaseSession,
-  ): Promise<Array<Pick<
-    AIExecutionPersistenceRecord,
-    "id" | "activityId" | "status" | "createdAt"
-  >>> {
+  ): Promise<
+    Array<
+      Pick<
+        AIExecutionPersistenceRecord,
+        "id" | "activityId" | "status" | "createdAt"
+      >
+    >
+  > {
     const documents = await AIExecutionMongoModel.find({ projectId })
       .sort({ createdAt: -1 })
       .limit(limit)
@@ -170,7 +176,11 @@ export class MongoAIExecutionRepository implements ProcessingJobRepository {
     const record = toPlainExecution(document);
 
     if (!record) {
-      throw new AppError("Processing job not found.", 404, "processing_job_not_found");
+      throw new AppError(
+        "Processing job not found.",
+        404,
+        "processing_job_not_found",
+      );
     }
 
     return record;

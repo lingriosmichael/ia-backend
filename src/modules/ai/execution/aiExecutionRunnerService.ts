@@ -60,7 +60,11 @@ export class AIExecutionRunnerService {
     );
 
     if (!job) {
-      throw new AppError("Processing job not found.", 404, "processing_job_not_found");
+      throw new AppError(
+        "Processing job not found.",
+        404,
+        "processing_job_not_found",
+      );
     }
 
     const payload = (job.payload as Record<string, unknown> | null) ?? null;
@@ -75,7 +79,9 @@ export class AIExecutionRunnerService {
     }
 
     const contextBlock = getExecutionPayloadContextBlock(payload);
-    const pipelineRuntime = this.pipelineRuntimeRegistry.getByKey(aiBlock.pipelineKey);
+    const pipelineRuntime = this.pipelineRuntimeRegistry.getByKey(
+      aiBlock.pipelineKey,
+    );
 
     await this.processingJobRepository.update(
       processingJobId,
@@ -136,7 +142,9 @@ export class AIExecutionRunnerService {
       );
     } catch (error) {
       const message =
-        error instanceof Error ? error.message : "AI execution failed unexpectedly.";
+        error instanceof Error
+          ? error.message
+          : "AI execution failed unexpectedly.";
 
       await this.processingJobRepository.update(
         processingJobId,

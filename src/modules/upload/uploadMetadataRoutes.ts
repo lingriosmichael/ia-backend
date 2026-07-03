@@ -4,10 +4,7 @@ import { UploadMetadataController } from "./uploadMetadataController.js";
 export async function registerUploadMetadataRoutes(
   app: FastifyInstance,
   controller: UploadMetadataController,
-  authenticate: (
-    request: FastifyRequest,
-    reply: FastifyReply,
-  ) => Promise<void>,
+  authenticate: (request: FastifyRequest, reply: FastifyReply) => Promise<void>,
 ) {
   app.get(
     "/activities/:activityId/upload-metadata",

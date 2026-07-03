@@ -1,10 +1,14 @@
-import type { OrganizationRole } from "../../shared/contracts.js";
+import type {
+  OrganizationRole,
+  OrganizationSettings,
+} from "../../shared/contracts.js";
 
 export interface OrganizationPersistenceRecord {
   id: string;
   name: string;
   mission: string | null;
   logoUrl: string | null;
+  settings: OrganizationSettings;
   createdAt: Date;
 }
 
@@ -19,11 +23,14 @@ export interface OrganizationMembershipPersistenceRecord {
 
 export interface OrganizationCreateInput {
   name: string;
+  mission?: string | null;
+  settings: OrganizationSettings;
 }
 
 export interface OrganizationUpdateInput {
-  name?: string;
-  mission?: string | null;
+  name: string;
+  mission: string | null;
+  settings: OrganizationSettings;
   logoUrl?: string | null;
 }
 

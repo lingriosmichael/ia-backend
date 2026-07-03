@@ -139,8 +139,8 @@ test("AI execution runner stores a structured artifact and completes the job", a
   assert.equal(updates[0]?.status, "processing");
   assert.equal(updates[1]?.status, "completed");
   assert.equal(
-    ((updates[1]?.payload as { artifact?: { resultRecordId?: string } })?.artifact
-      ?.resultRecordId),
+    (updates[1]?.payload as { artifact?: { resultRecordId?: string } })
+      ?.artifact?.resultRecordId,
     "result-1",
   );
 });

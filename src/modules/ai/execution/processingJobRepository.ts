@@ -18,10 +18,14 @@ export interface ProcessingJobRepository {
     projectId: string,
     limit: number,
     session: DatabaseSession,
-  ): Promise<Array<Pick<
-    AIExecutionPersistenceRecord,
-    "id" | "activityId" | "status" | "createdAt"
-  >>>;
+  ): Promise<
+    Array<
+      Pick<
+        AIExecutionPersistenceRecord,
+        "id" | "activityId" | "status" | "createdAt"
+      >
+    >
+  >;
   countByActivityIds(
     activityIds: string[],
     session: DatabaseSession,

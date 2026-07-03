@@ -41,20 +41,26 @@ export class ProjectService {
   ) {}
 
   async listForOrganization(userId: string, organizationId: string) {
-    const authorizationContext = await this.authorizationService.canViewOrganization(
-      userId,
-      organizationId,
-    );
+    const authorizationContext =
+      await this.authorizationService.canViewOrganization(
+        userId,
+        organizationId,
+      );
     const projects =
       authorizationContext.membership.role === "ORGANIZATION_ADMIN"
-        ? await this.projectRepository.listByOrganization(organizationId, databaseSession)
+        ? await this.projectRepository.listByOrganization(
+            organizationId,
+            databaseSession,
+          )
         : await this.projectRepository.listByOrganizationForOwner(
             organizationId,
             userId,
             databaseSession,
           );
 
-    const ownerNamesById = await this.getOwnerNamesById(projects.map((project) => project.ownerId));
+    const ownerNamesById = await this.getOwnerNamesById(
+      projects.map((project) => project.ownerId),
+    );
     return projects.map((project) =>
       mapProjectSummary(
         {
@@ -86,7 +92,11 @@ export class ProjectService {
     await this.authorizationService.canCreateProject(userId, organizationId);
 
     const slug = await ensureUniqueSlug(input.name, (candidate) =>
-      this.projectRepository.slugExists(organizationId, candidate, databaseSession),
+      this.projectRepository.slugExists(
+        organizationId,
+        candidate,
+        databaseSession,
+      ),
     );
 
     const project = await this.projectRepository.create(
@@ -135,10 +145,8 @@ export class ProjectService {
       status?: "planning" | "active" | "completed";
     },
   ) {
-    const { project: existingProject } = await this.authorizationService.canEditProject(
-      userId,
-      projectId,
-    );
+    const { project: existingProject } =
+      await this.authorizationService.canEditProject(userId, projectId);
 
     let slug: string | undefined;
     if (input.name && input.name.trim() !== existingProject.name) {
@@ -160,17 +168,31 @@ export class ProjectService {
       {
         name: input.name?.trim(),
         slug,
-        description: input.description === undefined ? undefined : input.description?.trim() ?? null,
-        programGoal: input.programGoal === undefined ? undefined : input.programGoal?.trim() ?? null,
-        startMonth: input.startMonth === undefined ? undefined : input.startMonth,
+        description:
+          input.description === undefined
+            ? undefined
+            : (input.description?.trim() ?? null),
+        programGoal:
+          input.programGoal === undefined
+            ? undefined
+            : (input.programGoal?.trim() ?? null),
+        startMonth:
+          input.startMonth === undefined ? undefined : input.startMonth,
         endMonth: input.endMonth === undefined ? undefined : input.endMonth,
-        country: input.country === undefined ? undefined : input.country?.trim() ?? null,
+        country:
+          input.country === undefined
+            ? undefined
+            : (input.country?.trim() ?? null),
         regionCity:
-          input.regionCity === undefined ? undefined : input.regionCity?.trim() ?? null,
+          input.regionCity === undefined
+            ? undefined
+            : (input.regionCity?.trim() ?? null),
         sdgs: input.sdgs,
         targetBeneficiaries: input.targetBeneficiaries,
         fundingSource:
-          input.fundingSource === undefined ? undefined : input.fundingSource?.trim() ?? null,
+          input.fundingSource === undefined
+            ? undefined
+            : (input.fundingSource?.trim() ?? null),
         status: input.status ? mapProjectStatus(input.status) : undefined,
       },
       databaseSession,
@@ -186,7 +208,10 @@ export class ProjectService {
   }
 
   async getById(userId: string, projectId: string) {
-    const { project } = await this.authorizationService.canViewProject(userId, projectId);
+    const { project } = await this.authorizationService.canViewProject(
+      userId,
+      projectId,
+    );
     return mapProjectSummary(
       {
         ...project,
@@ -196,49 +221,56 @@ export class ProjectService {
     );
   }
 
-  async getOverview(userId: string, projectId: string): Promise<ProjectOverview> {
-    const { project: overview } = await this.authorizationService.canViewProject(
-      userId,
-      projectId,
-    );
+  async getOverview(
+    userId: string,
+    projectId: string,
+  ): Promise<ProjectOverview> {
+    const { project: overview } =
+      await this.authorizationService.canViewProject(userId, projectId);
 
-    const pendingInsightCount = await this.processingJobRepository.countByProjectStatuses(
-      projectId,
-      ["queued", "processing"],
-      databaseSession,
-    );
-    const failedJobCount = await this.processingJobRepository.countByProjectStatuses(
-      projectId,
-      ["failed"],
-      databaseSession,
-    );
+    const pendingInsightCount =
+      await this.processingJobRepository.countByProjectStatuses(
+        projectId,
+        ["queued", "processing"],
+        databaseSession,
+      );
+    const failedJobCount =
+      await this.processingJobRepository.countByProjectStatuses(
+        projectId,
+        ["failed"],
+        databaseSession,
+      );
     const insightCount = await this.resultRepository.countByProjectStatuses(
       projectId,
       ["available"],
       databaseSession,
     );
-    const uploadMetadataCount = await this.uploadMetadataRepository.countByProject(
-      projectId,
-      databaseSession,
-    );
+    const uploadMetadataCount =
+      await this.uploadMetadataRepository.countByProject(
+        projectId,
+        databaseSession,
+      );
     const projectActivities = await this.activityRepository.listByProject(
       projectId,
       databaseSession,
     );
-    const activityUploadCounts = await this.uploadMetadataRepository.countByActivityIds(
-      projectActivities.map((activity) => activity.id),
-      databaseSession,
-    );
-    const recentUploads = await this.uploadMetadataRepository.listRecentByProject(
-      projectId,
-      8,
-      databaseSession,
-    );
-    const recentProcessingJobs = await this.processingJobRepository.listRecentByProject(
-      projectId,
-      8,
-      databaseSession,
-    );
+    const activityUploadCounts =
+      await this.uploadMetadataRepository.countByActivityIds(
+        projectActivities.map((activity) => activity.id),
+        databaseSession,
+      );
+    const recentUploads =
+      await this.uploadMetadataRepository.listRecentByProject(
+        projectId,
+        8,
+        databaseSession,
+      );
+    const recentProcessingJobs =
+      await this.processingJobRepository.listRecentByProject(
+        projectId,
+        8,
+        databaseSession,
+      );
     const activityProcessingJobCounts =
       await this.processingJobRepository.countByActivityIds(
         projectActivities.map((activity) => activity.id),
@@ -285,21 +317,19 @@ export class ProjectService {
         occurredAt: toIso(upload.createdAt),
         activityId: upload.activityId,
         activityName: upload.activityId
-          ? activityNamesById[upload.activityId] ?? null
+          ? (activityNamesById[upload.activityId] ?? null)
           : null,
       })),
       ...recentProcessingJobs
-        .filter(
-          (job) =>
-            job.status === "completed" ||
-            job.status === "failed",
-        )
+        .filter((job) => job.status === "completed" || job.status === "failed")
         .map<ProjectRecentActivityItem>((job) => ({
           id: `job-${job.id}`,
           type: job.status === "completed" ? "job_completed" : "job_failed",
           occurredAt: toIso(job.createdAt),
           activityId: job.activityId,
-          activityName: job.activityId ? activityNamesById[job.activityId] ?? null : null,
+          activityName: job.activityId
+            ? (activityNamesById[job.activityId] ?? null)
+            : null,
         })),
       ...recentResultRecords
         .filter((result) => result.status === "available")
@@ -308,13 +338,15 @@ export class ProjectService {
           type: "insight_generated",
           occurredAt: toIso(result.createdAt),
           activityId: result.activityId,
-          activityName:
-            result.activityId ? activityNamesById[result.activityId] ?? null : null,
+          activityName: result.activityId
+            ? (activityNamesById[result.activityId] ?? null)
+            : null,
         })),
     ]
       .sort(
         (left, right) =>
-          new Date(right.occurredAt).getTime() - new Date(left.occurredAt).getTime(),
+          new Date(right.occurredAt).getTime() -
+          new Date(left.occurredAt).getTime(),
       )
       .slice(0, 8);
 
@@ -370,34 +402,38 @@ export class ProjectService {
       );
     }
 
-    const storageKeys = await this.uploadMetadataRepository.listStorageKeysByProject(
-      projectId,
-      databaseSession,
-    );
-
-    const deletedProject = await this.transactionManager.runInTransaction(async (session) => {
-      const projectInTransaction = await this.projectRepository.findDeleteContext(
+    const storageKeys =
+      await this.uploadMetadataRepository.listStorageKeysByProject(
         projectId,
-        session,
+        databaseSession,
       );
 
-      if (!projectInTransaction) {
-        throw new AppError("Project not found.", 404, "project_not_found");
-      }
+    const deletedProject = await this.transactionManager.runInTransaction(
+      async (session) => {
+        const projectInTransaction =
+          await this.projectRepository.findDeleteContext(projectId, session);
 
-      if (projectInTransaction.name !== input.projectName) {
-        throw new AppError(
-          "Project name confirmation does not match.",
-          400,
-          "project_name_confirmation_mismatch",
-        );
-      }
+        if (!projectInTransaction) {
+          throw new AppError("Project not found.", 404, "project_not_found");
+        }
 
-      return this.projectRepository.delete(projectId, session);
-    });
+        if (projectInTransaction.name !== input.projectName) {
+          throw new AppError(
+            "Project name confirmation does not match.",
+            400,
+            "project_name_confirmation_mismatch",
+          );
+        }
+
+        return this.projectRepository.delete(projectId, session);
+      },
+    );
 
     try {
-      await this.uploadMetadataRepository.deleteByProject(projectId, databaseSession);
+      await this.uploadMetadataRepository.deleteByProject(
+        projectId,
+        databaseSession,
+      );
     } catch (error) {
       console.error("Failed to delete upload metadata records for project.", {
         projectId,

@@ -16,7 +16,10 @@ export class ActivityService {
   ) {}
 
   async listForProject(userId: string, projectId: string) {
-    const { project } = await this.authorizationService.canViewProject(userId, projectId);
+    const { project } = await this.authorizationService.canViewProject(
+      userId,
+      projectId,
+    );
     const activities = await this.activityRepository.listByProject(
       project.id,
       databaseSession,
@@ -107,13 +110,19 @@ export class ActivityService {
       status?: "planning" | "active" | "completed";
     },
   ) {
-    const activity = await this.activityRepository.findById(activityId, databaseSession);
+    const activity = await this.activityRepository.findById(
+      activityId,
+      databaseSession,
+    );
 
     if (!activity) {
       throw new AppError("Activity not found.", 404, "activity_not_found");
     }
 
-    const { project } = await this.authorizationService.canEditActivity(userId, activityId);
+    const { project } = await this.authorizationService.canEditActivity(
+      userId,
+      activityId,
+    );
 
     let slug: string | undefined;
     if (input.name && input.name.trim() !== activity.name) {
@@ -135,10 +144,16 @@ export class ActivityService {
       {
         name: input.name?.trim(),
         slug,
-        description: input.description === undefined ? undefined : input.description?.trim() ?? null,
+        description:
+          input.description === undefined
+            ? undefined
+            : (input.description?.trim() ?? null),
         activityType:
-          input.activityType === undefined ? undefined : input.activityType?.trim() ?? null,
-        owner: input.owner === undefined ? undefined : input.owner?.trim() ?? null,
+          input.activityType === undefined
+            ? undefined
+            : (input.activityType?.trim() ?? null),
+        owner:
+          input.owner === undefined ? undefined : (input.owner?.trim() ?? null),
         startDate:
           input.startDate === undefined
             ? undefined
@@ -152,27 +167,29 @@ export class ActivityService {
               ? new Date(input.endDate)
               : null,
         objectives:
-          input.objectives === undefined ? undefined : input.objectives?.trim() ?? null,
+          input.objectives === undefined
+            ? undefined
+            : (input.objectives?.trim() ?? null),
         expectedOutcomes:
           input.expectedOutcomes === undefined
             ? undefined
-            : input.expectedOutcomes?.trim() ?? null,
+            : (input.expectedOutcomes?.trim() ?? null),
         successIndicators:
           input.successIndicators === undefined
             ? undefined
-            : input.successIndicators?.trim() ?? null,
+            : (input.successIndicators?.trim() ?? null),
         targetAudience:
           input.targetAudience === undefined
             ? undefined
-            : input.targetAudience?.trim() ?? null,
+            : (input.targetAudience?.trim() ?? null),
         additionalContext:
           input.additionalContext === undefined
             ? undefined
-            : input.additionalContext?.trim() ?? null,
+            : (input.additionalContext?.trim() ?? null),
         beneficiaryGroup:
           input.beneficiaryGroup === undefined
             ? undefined
-            : input.beneficiaryGroup?.trim() ?? null,
+            : (input.beneficiaryGroup?.trim() ?? null),
         status: input.status ? mapActivityStatus(input.status) : undefined,
       },
       databaseSession,
@@ -188,10 +205,8 @@ export class ActivityService {
   }
 
   async getById(userId: string, activityId: string) {
-    const { activity, project } = await this.authorizationService.canViewActivity(
-      userId,
-      activityId,
-    );
+    const { activity, project } =
+      await this.authorizationService.canViewActivity(userId, activityId);
 
     return mapActivity(
       {

@@ -7,7 +7,11 @@ export type OrganizationRole = (typeof organizationRoleValues)[number];
 export const projectStatusValues = ["planning", "active", "completed"] as const;
 export type ProjectStatus = (typeof projectStatusValues)[number];
 
-export const activityStatusValues = ["planning", "active", "completed"] as const;
+export const activityStatusValues = [
+  "planning",
+  "active",
+  "completed",
+] as const;
 export type ActivityStatus = (typeof activityStatusValues)[number];
 
 export const uploadMetadataStatusValues = [
@@ -15,8 +19,7 @@ export const uploadMetadataStatusValues = [
   "uploaded",
   "archived",
 ] as const;
-export type UploadMetadataStatus =
-  (typeof uploadMetadataStatusValues)[number];
+export type UploadMetadataStatus = (typeof uploadMetadataStatusValues)[number];
 
 export const processingJobStatusValues = [
   "queued",
@@ -25,8 +28,7 @@ export const processingJobStatusValues = [
   "failed",
   "cancelled",
 ] as const;
-export type ProcessingJobStatus =
-  (typeof processingJobStatusValues)[number];
+export type ProcessingJobStatus = (typeof processingJobStatusValues)[number];
 export const aiExecutionStatusValues = processingJobStatusValues;
 export type AIExecutionStatus = ProcessingJobStatus;
 
@@ -75,6 +77,20 @@ export interface OrganizationPermissions {
   canCreateProject: boolean;
 }
 
+export interface OrganizationSettings {
+  organizationName: string;
+  legalForm: string | null;
+  foundingYear: number | null;
+  country: string | null;
+  employeeCount: number | null;
+  mission: string | null;
+  activityAreas: string[];
+  targetGroups: string[];
+  operatingRegions: string[];
+  isRecognizedNonProfit: boolean | null;
+  taxExemptionValidFrom: string | null;
+}
+
 export interface ProjectPermissions {
   canEdit: boolean;
   canDelete: boolean;
@@ -92,6 +108,7 @@ export interface OrganizationSummary {
   name: string;
   mission: string | null;
   logoUrl: string | null;
+  settings: OrganizationSettings;
   role: OrganizationRole;
   permissions: OrganizationPermissions;
   createdAt: string;

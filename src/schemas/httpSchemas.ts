@@ -15,7 +15,17 @@ const monthValueSchema = z
   .regex(/^\d{4}-\d{2}$/)
   .optional();
 const dateValueSchema = z.string().datetime({ offset: true }).optional();
-const stringArraySchema = z.array(z.string().trim().min(1).max(120)).max(20).optional();
+const dateOnlyValueSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
+const stringArraySchema = z
+  .array(z.string().trim().min(1).max(120))
+  .max(20)
+  .optional();
+const nullableTextFieldSchema = z
+  .string()
+  .trim()
+  .max(2000)
+  .nullable()
+  .optional();
 
 export const idParamSchema = z.object({
   organizationId: z.string().min(1).optional(),
@@ -56,8 +66,32 @@ export const acceptInvitationSchema = z.object({
 
 export const updateOrganizationSchema = z.object({
   name: z.string().trim().min(2).max(120).optional(),
-  mission: z.string().trim().max(2000).nullable().optional(),
-  description: z.string().trim().max(2000).nullable().optional(),
+  mission: nullableTextFieldSchema,
+  description: nullableTextFieldSchema,
+  settings: z
+    .object({
+      organizationName: z.string().trim().min(2).max(120).optional(),
+      legalForm: z.string().trim().max(120).nullable().optional(),
+      foundingYear: z.number().int().min(1800).max(3000).nullable().optional(),
+      country: z.string().trim().max(120).nullable().optional(),
+      employeeCount: z.number().int().min(0).max(1000000).nullable().optional(),
+      mission: nullableTextFieldSchema,
+      activityAreas: z
+        .array(z.string().trim().min(1).max(120))
+        .max(20)
+        .optional(),
+      targetGroups: z
+        .array(z.string().trim().min(1).max(120))
+        .max(20)
+        .optional(),
+      operatingRegions: z
+        .array(z.string().trim().min(1).max(120))
+        .max(20)
+        .optional(),
+      isRecognizedNonProfit: z.boolean().nullable().optional(),
+      taxExemptionValidFrom: dateOnlyValueSchema.nullable().optional(),
+    })
+    .optional(),
 });
 
 export const createProjectSchema = z.object({
@@ -78,12 +112,23 @@ export const updateProjectSchema = z.object({
   name: z.string().trim().min(2).max(120).optional(),
   description: z.string().trim().max(2000).nullable().optional(),
   programGoal: z.string().trim().max(2000).nullable().optional(),
-  startMonth: z.string().regex(/^\d{4}-\d{2}$/).nullable().optional(),
-  endMonth: z.string().regex(/^\d{4}-\d{2}$/).nullable().optional(),
+  startMonth: z
+    .string()
+    .regex(/^\d{4}-\d{2}$/)
+    .nullable()
+    .optional(),
+  endMonth: z
+    .string()
+    .regex(/^\d{4}-\d{2}$/)
+    .nullable()
+    .optional(),
   country: z.string().trim().max(120).nullable().optional(),
   regionCity: z.string().trim().max(120).nullable().optional(),
   sdgs: z.array(z.string().trim().min(1).max(120)).max(20).optional(),
-  targetBeneficiaries: z.array(z.string().trim().min(1).max(120)).max(20).optional(),
+  targetBeneficiaries: z
+    .array(z.string().trim().min(1).max(120))
+    .max(20)
+    .optional(),
   fundingSource: z.string().trim().max(200).nullable().optional(),
   status: z.enum(projectStatusValues).optional(),
 });

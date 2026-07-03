@@ -110,7 +110,9 @@ export class OrganizationController {
   }
 }
 
-async function parseMultipartOrganizationUpdate(request: FastifyRequest): Promise<{
+async function parseMultipartOrganizationUpdate(
+  request: FastifyRequest,
+): Promise<{
   payload: ReturnType<typeof updateOrganizationSchema.parse>;
   logoFile?: MultipartFile;
 }> {
@@ -120,7 +122,11 @@ async function parseMultipartOrganizationUpdate(request: FastifyRequest): Promis
   for await (const part of request.parts()) {
     if (part.type === "file") {
       if (part.fieldname !== "logo") {
-        throw new AppError("Unexpected file field.", 400, "unexpected_file_field");
+        throw new AppError(
+          "Unexpected file field.",
+          400,
+          "unexpected_file_field",
+        );
       }
 
       logoFile = part;
@@ -136,7 +142,94 @@ async function parseMultipartOrganizationUpdate(request: FastifyRequest): Promis
       name: fields.name,
       mission: fields.mission ?? fields.description,
       description: fields.description,
+      settings: {
+        organizationName: fields.organizationName ?? fields.name,
+        legalForm: parseNullableStringField(fields.legalForm),
+        foundingYear: parseNullableIntegerField(fields.foundingYear),
+        country: parseNullableStringField(fields.country),
+        employeeCount: parseNullableIntegerField(fields.employeeCount),
+        mission: parseNullableStringField(fields.mission ?? fields.description),
+        activityAreas: parseStringArrayField(fields.activityAreas),
+        targetGroups: parseStringArrayField(fields.targetGroups),
+        operatingRegions: parseStringArrayField(fields.operatingRegions),
+        isRecognizedNonProfit: parseNullableBooleanField(
+          fields.isRecognizedNonProfit,
+        ),
+        taxExemptionValidFrom: parseNullableStringField(
+          fields.taxExemptionValidFrom,
+        ),
+      },
     }),
     logoFile,
   };
+}
+
+function parseNullableStringField(value: string | undefined) {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  return value.trim() ? value : null;
+}
+
+function parseNullableIntegerField(value: string | undefined) {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  if (!value.trim()) {
+    return null;
+  }
+
+  const parsedValue = Number.parseInt(value, 10);
+  if (Number.isNaN(parsedValue)) {
+    throw new AppError(
+      "Expected a numeric field.",
+      400,
+      "invalid_numeric_field",
+    );
+  }
+
+  return parsedValue;
+}
+
+function parseStringArrayField(value: string | undefined) {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  if (!value.trim()) {
+    return [];
+  }
+
+  try {
+    const parsedValue = JSON.parse(value) as unknown;
+    if (!Array.isArray(parsedValue)) {
+      throw new Error("Expected array");
+    }
+
+    return parsedValue.map((entry) => String(entry));
+  } catch {
+    throw new AppError("Expected an array field.", 400, "invalid_array_field");
+  }
+}
+
+function parseNullableBooleanField(value: string | undefined) {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  if (!value.trim()) {
+    return null;
+  }
+
+  if (value === "true") {
+    return true;
+  }
+
+  if (value === "false") {
+    return false;
+  }
+
+  throw new AppError("Expected a boolean field.", 400, "invalid_boolean_field");
 }

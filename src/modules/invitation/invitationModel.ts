@@ -30,5 +30,6 @@ invitationSchema.index(
 );
 
 export type InvitationMongoDocument = InferSchemaType<typeof invitationSchema>;
-export type InvitationMongoHydratedDocument = HydratedDocument<InvitationMongoDocument>;
+export type InvitationMongoHydratedDocument =
+  HydratedDocument<InvitationMongoDocument>;
 export const InvitationMongoModel = createModel("Invitation", invitationSchema);

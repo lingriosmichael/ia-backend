@@ -22,15 +22,25 @@ export class InvitationService {
   ) {}
 
   async listForOrganization(userId: string, organizationId: string) {
-    await this.authorizationService.canManageOrganization(userId, organizationId);
+    await this.authorizationService.canManageOrganization(
+      userId,
+      organizationId,
+    );
 
     const [organization, invitations] = await Promise.all([
       this.organizationRepository.findById(organizationId, databaseSession),
-      this.invitationRepository.listByOrganization(organizationId, databaseSession),
+      this.invitationRepository.listByOrganization(
+        organizationId,
+        databaseSession,
+      ),
     ]);
 
     if (!organization) {
-      throw new AppError("Organization not found.", 404, "organization_not_found");
+      throw new AppError(
+        "Organization not found.",
+        404,
+        "organization_not_found",
+      );
     }
 
     return Promise.all(
@@ -48,7 +58,10 @@ export class InvitationService {
       role: "PROJECT_MANAGER";
     },
   ) {
-    await this.authorizationService.canManageOrganization(userId, organizationId);
+    await this.authorizationService.canManageOrganization(
+      userId,
+      organizationId,
+    );
 
     const email = input.email.trim().toLowerCase();
     const organization = await this.organizationRepository.findById(
@@ -57,14 +70,19 @@ export class InvitationService {
     );
 
     if (!organization) {
-      throw new AppError("Organization not found.", 404, "organization_not_found");
+      throw new AppError(
+        "Organization not found.",
+        404,
+        "organization_not_found",
+      );
     }
 
-    const existingInvitation = await this.invitationRepository.findPendingByEmail(
-      organizationId,
-      email,
-      databaseSession,
-    );
+    const existingInvitation =
+      await this.invitationRepository.findPendingByEmail(
+        organizationId,
+        email,
+        databaseSession,
+      );
 
     if (existingInvitation) {
       throw new AppError(
@@ -74,14 +92,18 @@ export class InvitationService {
       );
     }
 
-    const existingUser = await this.userRepository.findByEmail(email, databaseSession);
+    const existingUser = await this.userRepository.findByEmail(
+      email,
+      databaseSession,
+    );
     const acceptanceMode = existingUser ? "sign_in" : "create_account";
     if (existingUser) {
-      const existingMembership = await this.organizationRepository.findMembership(
-        existingUser.id,
-        organizationId,
-        databaseSession,
-      );
+      const existingMembership =
+        await this.organizationRepository.findMembership(
+          existingUser.id,
+          organizationId,
+          databaseSession,
+        );
 
       if (existingMembership) {
         throw new AppError(
@@ -137,7 +159,11 @@ export class InvitationService {
     );
 
     if (!organization) {
-      throw new AppError("Organization not found.", 404, "organization_not_found");
+      throw new AppError(
+        "Organization not found.",
+        404,
+        "organization_not_found",
+      );
     }
 
     return this.mapInvitationSummary(invitation, organization.name);
@@ -159,7 +185,11 @@ export class InvitationService {
     );
 
     if (!organization) {
-      throw new AppError("Organization not found.", 404, "organization_not_found");
+      throw new AppError(
+        "Organization not found.",
+        404,
+        "organization_not_found",
+      );
     }
 
     const existingUser = await this.userRepository.findByEmail(
@@ -169,7 +199,9 @@ export class InvitationService {
     const acceptanceMode = existingUser ? "sign_in" : "create_account";
 
     if (existingUser) {
-      const authenticatedEmail = input.authenticatedUserEmail?.trim().toLowerCase();
+      const authenticatedEmail = input.authenticatedUserEmail
+        ?.trim()
+        .toLowerCase();
 
       if (!input.authenticatedUserId || !authenticatedEmail) {
         throw new AppError(
@@ -210,11 +242,12 @@ export class InvitationService {
             session,
           ));
 
-        const existingMembership = await this.organizationRepository.findMembership(
-          user.id,
-          invitation.organizationId,
-          session,
-        );
+        const existingMembership =
+          await this.organizationRepository.findMembership(
+            user.id,
+            invitation.organizationId,
+            session,
+          );
 
         if (existingMembership) {
           throw new AppError(
@@ -233,7 +266,11 @@ export class InvitationService {
           session,
         );
 
-        return this.invitationRepository.markAccepted(invitation.id, user.id, session);
+        return this.invitationRepository.markAccepted(
+          invitation.id,
+          user.id,
+          session,
+        );
       },
     );
 
@@ -251,8 +288,14 @@ export class InvitationService {
   }
 
   async revoke(userId: string, organizationId: string, invitationId: string) {
-    await this.authorizationService.canManageOrganization(userId, organizationId);
-    const invitation = await this.invitationRepository.revoke(invitationId, databaseSession);
+    await this.authorizationService.canManageOrganization(
+      userId,
+      organizationId,
+    );
+    const invitation = await this.invitationRepository.revoke(
+      invitationId,
+      databaseSession,
+    );
 
     if (!invitation || invitation.organizationId !== organizationId) {
       throw new AppError("Invitation not found.", 404, "invitation_not_found");
@@ -264,14 +307,21 @@ export class InvitationService {
     );
 
     if (!organization) {
-      throw new AppError("Organization not found.", 404, "organization_not_found");
+      throw new AppError(
+        "Organization not found.",
+        404,
+        "organization_not_found",
+      );
     }
 
     return this.mapInvitationSummary(invitation, organization.name);
   }
 
   private async requireInvitation(token: string) {
-    const invitation = await this.invitationRepository.findByToken(token, databaseSession);
+    const invitation = await this.invitationRepository.findByToken(
+      token,
+      databaseSession,
+    );
 
     if (!invitation) {
       throw new AppError("Invitation not found.", 404, "invitation_not_found");

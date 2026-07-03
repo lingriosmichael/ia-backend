@@ -7,9 +7,9 @@ export interface ContextBuilder<TContext extends AIContextObject> {
   buildVariables(context: TContext): PromptVariables;
 }
 
-export class JsonContextBuilder<TContext extends AIContextObject>
-  implements ContextBuilder<TContext>
-{
+export class JsonContextBuilder<
+  TContext extends AIContextObject,
+> implements ContextBuilder<TContext> {
   constructor(readonly kind: AIContextKind) {}
 
   buildVariables(context: TContext): PromptVariables {

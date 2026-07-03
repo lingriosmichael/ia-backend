@@ -12,7 +12,12 @@ const aiArtifactSchema = new Schema(
     createdById: { type: String, required: true },
     resultType: {
       type: String,
-      enum: ["semantic_summary", "activity_snapshot", "project_snapshot", "other"],
+      enum: [
+        "semantic_summary",
+        "activity_snapshot",
+        "project_snapshot",
+        "other",
+      ],
       required: true,
     },
     status: {
@@ -29,5 +34,6 @@ const aiArtifactSchema = new Schema(
 );
 
 export type AIArtifactMongoDocument = InferSchemaType<typeof aiArtifactSchema>;
-export type AIArtifactMongoHydratedDocument = HydratedDocument<AIArtifactMongoDocument>;
+export type AIArtifactMongoHydratedDocument =
+  HydratedDocument<AIArtifactMongoDocument>;
 export const AIArtifactMongoModel = createModel("AIArtifact", aiArtifactSchema);

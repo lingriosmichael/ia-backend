@@ -1,8 +1,15 @@
 import type { ProcessingJobRecord } from "../../../shared/contracts.js";
 import type { AIPipelineKey } from "../aiTypes.js";
-import type { ChatContext, DatasetContext, ReportContext } from "../context/aiContextTypes.js";
+import type {
+  ChatContext,
+  DatasetContext,
+  ReportContext,
+} from "../context/aiContextTypes.js";
 import type { PromptVariables } from "../context/contextBuilder.js";
-import type { PipelineExecutionScheduler, PipelineExecutionStore } from "../execution/pipelineExecutionStore.js";
+import type {
+  PipelineExecutionScheduler,
+  PipelineExecutionStore,
+} from "../execution/pipelineExecutionStore.js";
 import { PromptRegistry } from "../prompts/promptRegistry.js";
 import { PromptTemplateRenderer } from "../prompts/promptTemplate.js";
 import { AIPipelineRegistry } from "../pipelines/pipelineRegistry.js";

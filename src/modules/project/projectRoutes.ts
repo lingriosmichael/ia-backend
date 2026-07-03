@@ -4,10 +4,7 @@ import { ProjectController } from "./projectController.js";
 export async function registerProjectRoutes(
   app: FastifyInstance,
   controller: ProjectController,
-  authenticate: (
-    request: FastifyRequest,
-    reply: FastifyReply,
-  ) => Promise<void>,
+  authenticate: (request: FastifyRequest, reply: FastifyReply) => Promise<void>,
 ) {
   app.get(
     "/organizations/:organizationId/projects",
@@ -19,7 +16,11 @@ export async function registerProjectRoutes(
     { preHandler: authenticate },
     controller.create.bind(controller),
   );
-  app.get("/projects/:projectId", { preHandler: authenticate }, controller.getById.bind(controller));
+  app.get(
+    "/projects/:projectId",
+    { preHandler: authenticate },
+    controller.getById.bind(controller),
+  );
   app.get(
     "/projects/:projectId/overview",
     { preHandler: authenticate },

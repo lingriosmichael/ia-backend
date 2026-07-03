@@ -28,7 +28,9 @@ function mapPipelineToResultType(
 }
 
 export class AIArtifactService {
-  constructor(private readonly aiArtifactRecordService: AIArtifactRecordService) {}
+  constructor(
+    private readonly aiArtifactRecordService: AIArtifactRecordService,
+  ) {}
 
   async createPipelineArtifact(input: {
     userId: string;

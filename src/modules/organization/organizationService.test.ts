@@ -10,6 +10,7 @@ import { FileStorageService } from "../upload/fileStorageService.js";
 import type { UploadMetadataRepository } from "../upload/uploadMetadataRepository.js";
 import type { UserRepository } from "../user/userRepository.js";
 import type { OrganizationRepository } from "./organizationRepository.js";
+import { createOrganizationSettings } from "./organizationSettings.js";
 import { OrganizationService } from "./organizationService.js";
 
 test("organization workspace enriches activity upload counts from the upload repository", async () => {
@@ -19,6 +20,9 @@ test("organization workspace enriches activity upload counts from the upload rep
       name: "Example Org",
       mission: null,
       logoUrl: null,
+      settings: createOrganizationSettings({
+        organizationName: "Example Org",
+      }),
       createdAt: new Date("2026-01-01T00:00:00.000Z"),
       memberships: [{ role: "ORGANIZATION_ADMIN" }],
     }),
@@ -137,4 +141,92 @@ test("organization workspace enriches activity upload counts from the upload rep
   assert.equal(workspace.projects[0]?.activities[0]?.uploadMetadataCount, 3);
   assert.equal(workspace.projects[0]?.activities[0]?.processingJobCount, 2);
   assert.equal(workspace.projects[0]?.activities[0]?.resultCount, 1);
+});
+
+test("organization update keeps top-level fields synchronized with organization settings", async () => {
+  let capturedUpdateInput:
+    Parameters<OrganizationRepository["update"]>[1] | undefined;
+
+  const organizationRepository = {
+    findById: async () => ({
+      id: "organization-1",
+      name: "Existing Org",
+      mission: "Existing mission",
+      logoUrl: null,
+      settings: {
+        ...createOrganizationSettings({
+          organizationName: "Existing Org",
+          mission: "Existing mission",
+        }),
+        legalForm: "Association",
+        country: "Germany",
+      },
+      createdAt: new Date("2026-01-01T00:00:00.000Z"),
+    }),
+    nameExists: async () => false,
+    update: async (
+      _organizationId: string,
+      input: Parameters<OrganizationRepository["update"]>[1],
+    ) => {
+      capturedUpdateInput = input;
+      return {
+        id: "organization-1",
+        name: input.name,
+        mission: input.mission,
+        logoUrl: null,
+        settings: input.settings,
+        createdAt: new Date("2026-01-01T00:00:00.000Z"),
+      };
+    },
+    findMembership: async () => ({
+      id: "membership-1",
+      userId: "user-1",
+      organizationId: "organization-1",
+      role: "ORGANIZATION_ADMIN",
+      createdAt: new Date("2026-01-01T00:00:00.000Z"),
+      updatedAt: new Date("2026-01-01T00:00:00.000Z"),
+    }),
+  } as unknown as OrganizationRepository;
+
+  const organizationService = new OrganizationService(
+    organizationRepository,
+    {} as FileStorageService,
+    {} as ProjectRepository,
+    {} as ActivityRepository,
+    {} as UploadMetadataRepository,
+    {} as ProcessingJobRepository,
+    {} as ResultRepository,
+    {} as TransactionManager,
+    {
+      canManageOrganization: async () => undefined,
+    } as unknown as AuthorizationService,
+    {} as UserRepository,
+  );
+
+  const updatedOrganization = await organizationService.update(
+    "user-1",
+    "organization-1",
+    {
+      settings: {
+        organizationName: "Updated Org",
+        mission: "Updated mission",
+        activityAreas: ["Education", "Democracy"],
+        isRecognizedNonProfit: true,
+      },
+    },
+  );
+
+  assert.equal(capturedUpdateInput?.name, "Updated Org");
+  assert.equal(capturedUpdateInput?.mission, "Updated mission");
+  assert.equal(capturedUpdateInput?.settings.organizationName, "Updated Org");
+  assert.equal(capturedUpdateInput?.settings.mission, "Updated mission");
+  assert.deepEqual(capturedUpdateInput?.settings.activityAreas, [
+    "Education",
+    "Democracy",
+  ]);
+  assert.equal(capturedUpdateInput?.settings.legalForm, "Association");
+  assert.equal(capturedUpdateInput?.settings.country, "Germany");
+  assert.equal(updatedOrganization.name, "Updated Org");
+  assert.equal(updatedOrganization.mission, "Updated mission");
+  assert.equal(updatedOrganization.settings.isRecognizedNonProfit, true);
 });

@@ -22,10 +22,15 @@ export interface OrganizationRepository {
     input: OrganizationMembershipCreateInput,
     session: DatabaseSession,
   ): Promise<OrganizationMembershipPersistenceRecord>;
-  listForUser(userId: string, session: DatabaseSession): Promise<Array<{
-    role: OrganizationRole;
-    organization: OrganizationPersistenceRecord;
-  }>>;
+  listForUser(
+    userId: string,
+    session: DatabaseSession,
+  ): Promise<
+    Array<{
+      role: OrganizationRole;
+      organization: OrganizationPersistenceRecord;
+    }>
+  >;
   findMembership(
     userId: string,
     organizationId: string,
@@ -57,6 +62,7 @@ export interface OrganizationRepository {
     name: string;
     mission: string | null;
     logoUrl: string | null;
+    settings: OrganizationPersistenceRecord["settings"];
     createdAt: Date;
     memberships: Array<{ role: OrganizationRole }>;
   } | null>;

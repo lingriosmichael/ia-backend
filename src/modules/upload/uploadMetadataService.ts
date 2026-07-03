@@ -38,11 +38,20 @@ export class UploadMetadataService {
     },
   ) {
     const project = input.activityId
-      ? (await this.authorizationService.canUploadToActivity(userId, input.activityId)).project
-      : (await this.authorizationService.canEditProject(userId, projectId)).project;
+      ? (
+          await this.authorizationService.canUploadToActivity(
+            userId,
+            input.activityId,
+          )
+        ).project
+      : (await this.authorizationService.canEditProject(userId, projectId))
+          .project;
 
     if (input.activityId) {
-      const activity = await this.activityService.getById(userId, input.activityId);
+      const activity = await this.activityService.getById(
+        userId,
+        input.activityId,
+      );
       if (activity.projectId !== project.id) {
         throw new AppError(
           "The activity does not belong to the specified project.",
@@ -63,7 +72,7 @@ export class UploadMetadataService {
         sizeBytes: input.sizeBytes ?? null,
         storageKey: input.storageKey?.trim() ?? null,
       },
-        databaseSession,
+      databaseSession,
     );
 
     return mapUploadMetadata(record);
@@ -84,17 +93,30 @@ export class UploadMetadataService {
       databaseSession,
     );
     if (!existingRecord) {
-      throw new AppError("Upload metadata not found.", 404, "upload_metadata_not_found");
+      throw new AppError(
+        "Upload metadata not found.",
+        404,
+        "upload_metadata_not_found",
+      );
     }
 
-    await this.authorizationService.canEditProject(userId, existingRecord.projectId);
+    await this.authorizationService.canEditProject(
+      userId,
+      existingRecord.projectId,
+    );
 
     const updatedRecord = await this.uploadMetadataRepository.update(
       uploadMetadataId,
       {
-        contentType: input.contentType === undefined ? undefined : input.contentType?.trim() ?? null,
+        contentType:
+          input.contentType === undefined
+            ? undefined
+            : (input.contentType?.trim() ?? null),
         sizeBytes: input.sizeBytes ?? undefined,
-        storageKey: input.storageKey === undefined ? undefined : input.storageKey?.trim() ?? null,
+        storageKey:
+          input.storageKey === undefined
+            ? undefined
+            : (input.storageKey?.trim() ?? null),
         status: input.status ? mapUploadStatus(input.status) : undefined,
       },
       databaseSession,

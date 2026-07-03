@@ -47,7 +47,10 @@ test("authorization service allows organization admins to view any project", asy
     activityRepository,
   );
 
-  const context = await authorizationService.canViewProject("user-1", "project-1");
+  const context = await authorizationService.canViewProject(
+    "user-1",
+    "project-1",
+  );
 
   assert.equal(context.membership.role, "ORGANIZATION_ADMIN");
   assert.equal(context.project.id, "project-1");

@@ -4,7 +4,13 @@ import { createModel } from "../../shared/database/createModel.js";
 const userSchema = new Schema(
   {
     _id: { type: String, required: true },
-    email: { type: String, required: true, unique: true, trim: true, lowercase: true },
+    email: {
+      type: String,
+      required: true,
+      unique: true,
+      trim: true,
+      lowercase: true,
+    },
     fullName: { type: String, required: true, trim: true },
     passwordHash: { type: String, required: true },
   },

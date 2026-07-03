@@ -6,7 +6,9 @@ export class PromptRegistry {
   private readonly templatesById: Map<string, PromptTemplate>;
 
   constructor(templates: PromptTemplate[]) {
-    this.templatesById = new Map(templates.map((template) => [template.id, template]));
+    this.templatesById = new Map(
+      templates.map((template) => [template.id, template]),
+    );
   }
 
   getById(templateId: string): PromptTemplate {
@@ -33,7 +35,8 @@ export class PromptRegistry {
 
   findByPipelineKey(pipelineKey: AIPipelineKey): PromptTemplate | null {
     return (
-      this.list().find((template) => template.pipelineKey === pipelineKey) ?? null
+      this.list().find((template) => template.pipelineKey === pipelineKey) ??
+      null
     );
   }
 }

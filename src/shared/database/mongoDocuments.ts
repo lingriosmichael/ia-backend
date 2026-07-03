@@ -17,6 +17,19 @@ export interface OrganizationDocument {
   name: string;
   mission: string | null;
   logoUrl: string | null;
+  settings: {
+    organizationName: string;
+    legalForm: string | null;
+    foundingYear: number | null;
+    country: string | null;
+    employeeCount: number | null;
+    mission: string | null;
+    activityAreas: string[];
+    targetGroups: string[];
+    operatingRegions: string[];
+    isRecognizedNonProfit: boolean | null;
+    taxExemptionValidFrom: string | null;
+  } | null;
   createdAt: Date;
 }
 

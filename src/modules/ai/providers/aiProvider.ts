@@ -23,5 +23,7 @@ export interface AIProviderResponse {
 
 export interface AIProvider {
   readonly providerKey: string;
-  generateStructuredOutput(request: AIProviderRequest): Promise<AIProviderResponse>;
+  generateStructuredOutput(
+    request: AIProviderRequest,
+  ): Promise<AIProviderResponse>;
 }

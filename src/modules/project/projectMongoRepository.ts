@@ -46,7 +46,10 @@ export class MongoProjectRepository implements ProjectRepository {
     slug: string,
     _session: DatabaseSession,
   ): Promise<boolean> {
-    const count = await ProjectMongoModel.countDocuments({ organizationId, slug }).exec();
+    const count = await ProjectMongoModel.countDocuments({
+      organizationId,
+      slug,
+    }).exec();
     return count > 0;
   }
 
@@ -128,7 +131,9 @@ export class MongoProjectRepository implements ProjectRepository {
 
     return documents
       .map((document) => toProjectRecord(document))
-      .filter((document): document is ProjectPersistenceRecord => Boolean(document));
+      .filter((document): document is ProjectPersistenceRecord =>
+        Boolean(document),
+      );
   }
 
   async listByOrganizationForOwner(
@@ -142,7 +147,9 @@ export class MongoProjectRepository implements ProjectRepository {
 
     return documents
       .map((document) => toProjectRecord(document))
-      .filter((document): document is ProjectPersistenceRecord => Boolean(document));
+      .filter((document): document is ProjectPersistenceRecord =>
+        Boolean(document),
+      );
   }
 
   async delete(

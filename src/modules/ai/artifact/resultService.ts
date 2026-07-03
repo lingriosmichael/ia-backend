@@ -1,7 +1,9 @@
 import { AIArtifactRecordService } from "./aiArtifactRecordService.js";
 
 export class ResultService {
-  constructor(private readonly aiArtifactRecordService: AIArtifactRecordService) {}
+  constructor(
+    private readonly aiArtifactRecordService: AIArtifactRecordService,
+  ) {}
 
   async listByActivity(userId: string, activityId: string) {
     return this.aiArtifactRecordService.listByActivity(userId, activityId);
@@ -14,7 +16,8 @@ export class ResultService {
       activityId?: string | null;
       uploadMetadataId?: string | null;
       processingJobId?: string | null;
-      resultType: "semantic_summary" | "activity_snapshot" | "project_snapshot" | "other";
+      resultType:
+        "semantic_summary" | "activity_snapshot" | "project_snapshot" | "other";
       payload?: Record<string, unknown>;
     },
   ) {

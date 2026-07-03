@@ -74,12 +74,12 @@ export class AuthorizationService {
 
   async canViewProject(userId: string, projectId: string) {
     const project = await this.requireProject(projectId);
-    const membership = await this.requireMembership(userId, project.organizationId);
+    const membership = await this.requireMembership(
+      userId,
+      project.organizationId,
+    );
 
-    if (
-      membership.role === "PROJECT_MANAGER" &&
-      project.ownerId !== userId
-    ) {
+    if (membership.role === "PROJECT_MANAGER" && project.ownerId !== userId) {
       throw new AppError(
         "You do not have access to this project.",
         403,
@@ -108,7 +108,10 @@ export class AuthorizationService {
 
   async canViewActivity(userId: string, activityId: string) {
     const activity = await this.requireActivity(activityId);
-    const projectContext = await this.canViewProject(userId, activity.projectId);
+    const projectContext = await this.canViewProject(
+      userId,
+      activity.projectId,
+    );
 
     return {
       ...projectContext,
@@ -118,7 +121,10 @@ export class AuthorizationService {
 
   async canEditActivity(userId: string, activityId: string) {
     const activity = await this.requireActivity(activityId);
-    const projectContext = await this.canEditProject(userId, activity.projectId);
+    const projectContext = await this.canEditProject(
+      userId,
+      activity.projectId,
+    );
 
     return {
       ...projectContext,
@@ -128,7 +134,10 @@ export class AuthorizationService {
 
   async canUploadToActivity(userId: string, activityId: string) {
     const activity = await this.requireActivity(activityId);
-    const projectContext = await this.canEditProject(userId, activity.projectId);
+    const projectContext = await this.canEditProject(
+      userId,
+      activity.projectId,
+    );
 
     return {
       ...projectContext,
@@ -155,7 +164,10 @@ export class AuthorizationService {
   }
 
   private async requireProject(projectId: string) {
-    const project = await this.projectRepository.findById(projectId, databaseSession);
+    const project = await this.projectRepository.findById(
+      projectId,
+      databaseSession,
+    );
     if (!project) {
       throw new AppError("Project not found.", 404, "project_not_found");
     }
@@ -164,7 +176,10 @@ export class AuthorizationService {
   }
 
   private async requireActivity(activityId: string) {
-    const activity = await this.activityRepository.findById(activityId, databaseSession);
+    const activity = await this.activityRepository.findById(
+      activityId,
+      databaseSession,
+    );
     if (!activity) {
       throw new AppError("Activity not found.", 404, "activity_not_found");
     }

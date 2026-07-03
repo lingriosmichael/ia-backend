@@ -30,6 +30,12 @@ const aiExecutionSchema = new Schema(
   },
 );
 
-export type AIExecutionMongoDocument = InferSchemaType<typeof aiExecutionSchema>;
-export type AIExecutionMongoHydratedDocument = HydratedDocument<AIExecutionMongoDocument>;
-export const AIExecutionMongoModel = createModel("AIExecution", aiExecutionSchema);
+export type AIExecutionMongoDocument = InferSchemaType<
+  typeof aiExecutionSchema
+>;
+export type AIExecutionMongoHydratedDocument =
+  HydratedDocument<AIExecutionMongoDocument>;
+export const AIExecutionMongoModel = createModel(
+  "AIExecution",
+  aiExecutionSchema,
+);

@@ -244,8 +244,12 @@ export function createApplicationContext(config: BackendConfig) {
     organizationController: new OrganizationController(organizationService),
     projectController: new ProjectController(projectService),
     activityController: new ActivityController(activityService),
-    activityUploadController: new ActivityUploadController(activityUploadService),
-    uploadMetadataController: new UploadMetadataController(uploadMetadataService),
+    activityUploadController: new ActivityUploadController(
+      activityUploadService,
+    ),
+    uploadMetadataController: new UploadMetadataController(
+      uploadMetadataService,
+    ),
     processingJobController: new ProcessingJobController(processingJobService),
     resultController: new ResultController(resultService),
   };

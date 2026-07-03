@@ -9,6 +9,7 @@ import {
   OrganizationMongoModel,
   type OrganizationMongoHydratedDocument,
 } from "./organizationModel.js";
+import { resolveOrganizationSettings } from "./organizationSettings.js";
 import type { OrganizationRepository } from "./organizationRepository.js";
 import type {
   OrganizationCreateInput,
@@ -18,7 +19,9 @@ import type {
   OrganizationUpdateInput,
 } from "./organizationPersistence.js";
 
-function normalizeMembershipRole(role: string): OrganizationMembershipPersistenceRecord["role"] {
+function normalizeMembershipRole(
+  role: string,
+): OrganizationMembershipPersistenceRecord["role"] {
   if (role === "owner") {
     return "ORGANIZATION_ADMIN";
   }
@@ -46,6 +49,11 @@ function toOrganizationRecord(
     name: document.name,
     mission: document.mission ?? null,
     logoUrl: document.logoUrl ?? null,
+    settings: resolveOrganizationSettings({
+      name: document.name,
+      mission: document.mission ?? null,
+      settings: document.settings ?? null,
+    }),
     createdAt: document.createdAt,
   };
 }
@@ -92,7 +100,9 @@ export class MongoOrganizationRepository implements OrganizationRepository {
   ): Promise<OrganizationPersistenceRecord> {
     const document = await OrganizationMongoModel.create({
       _id: createDocumentId(),
-      ...input,
+      name: input.name,
+      mission: input.mission ?? null,
+      settings: input.settings,
     });
     return toOrganizationRecord(document) as OrganizationPersistenceRecord;
   }
@@ -105,16 +115,20 @@ export class MongoOrganizationRepository implements OrganizationRepository {
       _id: createDocumentId(),
       ...input,
     });
-    return toMembershipRecord(document) as OrganizationMembershipPersistenceRecord;
+    return toMembershipRecord(
+      document,
+    ) as OrganizationMembershipPersistenceRecord;
   }
 
   async listForUser(
     userId: string,
     _session: DatabaseSession,
-  ): Promise<Array<{
-    role: OrganizationMembershipPersistenceRecord["role"];
-    organization: OrganizationPersistenceRecord;
-  }>> {
+  ): Promise<
+    Array<{
+      role: OrganizationMembershipPersistenceRecord["role"];
+      organization: OrganizationPersistenceRecord;
+    }>
+  > {
     const membershipDocuments = await MembershipMongoModel.find({ userId })
       .sort({ createdAt: -1 })
       .exec();
@@ -138,7 +152,8 @@ export class MongoOrganizationRepository implements OrganizationRepository {
 
     return membershipDocuments
       .map((membership) => {
-        const organization = organizationsById.get(membership.organizationId) ?? null;
+        const organization =
+          organizationsById.get(membership.organizationId) ?? null;
         if (!organization) {
           return null;
         }
@@ -181,7 +196,9 @@ export class MongoOrganizationRepository implements OrganizationRepository {
 
     return documents
       .map((document) => toMembershipRecord(document))
-      .filter((document): document is OrganizationMembershipPersistenceRecord => Boolean(document));
+      .filter((document): document is OrganizationMembershipPersistenceRecord =>
+        Boolean(document),
+      );
   }
 
   async deleteMembership(
@@ -195,7 +212,8 @@ export class MongoOrganizationRepository implements OrganizationRepository {
     organizationId: string,
     _session: DatabaseSession,
   ): Promise<OrganizationPersistenceRecord | null> {
-    const document = await OrganizationMongoModel.findById(organizationId).exec();
+    const document =
+      await OrganizationMongoModel.findById(organizationId).exec();
     return toOrganizationRecord(document);
   }
 
@@ -207,7 +225,12 @@ export class MongoOrganizationRepository implements OrganizationRepository {
     const document = await OrganizationMongoModel.findByIdAndUpdate(
       organizationId,
       {
-        $set: input,
+        $set: {
+          name: input.name,
+          mission: input.mission,
+          settings: input.settings,
+          ...(input.logoUrl !== undefined ? { logoUrl: input.logoUrl } : {}),
+        },
       },
       {
         new: true,
@@ -216,7 +239,11 @@ export class MongoOrganizationRepository implements OrganizationRepository {
 
     const record = toOrganizationRecord(document);
     if (!record) {
-      throw new AppError("Organization not found.", 404, "organization_not_found");
+      throw new AppError(
+        "Organization not found.",
+        404,
+        "organization_not_found",
+      );
     }
 
     return record;
@@ -231,8 +258,11 @@ export class MongoOrganizationRepository implements OrganizationRepository {
     name: string;
     mission: string | null;
     logoUrl: string | null;
+    settings: OrganizationPersistenceRecord["settings"];
     createdAt: Date;
-    memberships: Array<{ role: OrganizationMembershipPersistenceRecord["role"] }>;
+    memberships: Array<{
+      role: OrganizationMembershipPersistenceRecord["role"];
+    }>;
   } | null> {
     const membership = await MembershipMongoModel.findOne({
       organizationId,
@@ -243,7 +273,8 @@ export class MongoOrganizationRepository implements OrganizationRepository {
       return null;
     }
 
-    const organization = await OrganizationMongoModel.findById(organizationId).exec();
+    const organization =
+      await OrganizationMongoModel.findById(organizationId).exec();
     if (!organization) {
       return null;
     }
