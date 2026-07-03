@@ -1,4 +1,5 @@
 import type { BackendConfig } from "../config/env.js";
+import { createEmailService } from "../email/createEmailService.js";
 import {
   createAuthenticateIfPresentMiddleware,
   createAuthenticateMiddleware,
@@ -62,6 +63,7 @@ import { MongoUserRepository } from "../../modules/user/userMongoRepository.js";
 
 export function createApplicationContext(config: BackendConfig) {
   const transactionManager = new NoopTransactionManager();
+  const emailService = createEmailService(config);
   const userRepository = new MongoUserRepository();
   const organizationRepository = new MongoOrganizationRepository();
   const invitationRepository = new MongoInvitationRepository();
@@ -229,6 +231,8 @@ export function createApplicationContext(config: BackendConfig) {
     userRepository,
     authorizationService,
     transactionManager,
+    emailService,
+    config.WEBAPP_URL,
   );
 
   return {

@@ -1,6 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { databaseSession } from "../../shared/database/databaseClient.js";
 import type { TransactionManager } from "../../shared/database/transactionManager.js";
+import type { EmailService } from "../../shared/email/emailService.js";
 import { AppError } from "../../shared/errors/appError.js";
 import { hashPassword } from "../../shared/utils/password.js";
 import { AuthorizationService } from "../../shared/auth/authorizationService.js";
@@ -16,6 +17,8 @@ export class InvitationService {
     private readonly userRepository: UserRepository,
     private readonly authorizationService: AuthorizationService,
     private readonly transactionManager: TransactionManager,
+    private readonly emailService: EmailService,
+    private readonly webappUrl: string,
   ) {}
 
   async listForOrganization(userId: string, organizationId: string) {
@@ -72,6 +75,7 @@ export class InvitationService {
     }
 
     const existingUser = await this.userRepository.findByEmail(email, databaseSession);
+    const acceptanceMode = existingUser ? "sign_in" : "create_account";
     if (existingUser) {
       const existingMembership = await this.organizationRepository.findMembership(
         existingUser.id,
@@ -99,10 +103,26 @@ export class InvitationService {
       databaseSession,
     );
 
+    try {
+      await this.emailService.sendOrganizationInvitation({
+        toEmail: email,
+        organizationName: organization.name,
+        acceptUrl: this.buildInvitationAcceptUrl(invitation.token),
+        acceptanceMode,
+      });
+    } catch {
+      await this.invitationRepository.revoke(invitation.id, databaseSession);
+      throw new AppError(
+        "Invitation email could not be sent. Please verify the email configuration and try again.",
+        502,
+        "invitation_delivery_failed",
+      );
+    }
+
     return {
       ...invitation,
       organizationName: organization.name,
-      acceptanceMode: existingUser ? "sign_in" : "create_account",
+      acceptanceMode,
       acceptedAt: invitation.acceptedAt?.toISOString() ?? null,
       createdAt: invitation.createdAt.toISOString(),
       updatedAt: invitation.updatedAt.toISOString(),
@@ -285,5 +305,9 @@ export class InvitationService {
       createdAt: invitation.createdAt.toISOString(),
       updatedAt: invitation.updatedAt.toISOString(),
     };
+  }
+
+  private buildInvitationAcceptUrl(token: string) {
+    return `${this.webappUrl.replace(/\/+$/, "")}/invitations/${token}/accept`;
   }
 }

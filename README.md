@@ -117,10 +117,32 @@ The default values are already provided in .env.example:
 - JWT_SECRET: secret used to sign authentication tokens
 - JWT_EXPIRES_IN: token lifetime
 - CORS_ORIGIN: allowed frontend origin
+- WEBAPP_URL: frontend base URL used in invitation links
 - PYTHON_SERVICE_URL: URL for the Python service if you use it
 - UPLOAD_DIR: where upload files are stored locally
 - MONGODB_URI: MongoDB connection string
 - MONGODB_DB_NAME: database name
+- EMAIL_PROVIDER: `disabled` or `mailersend`
+- EMAIL_FROM: verified MailerSend sender email
+- EMAIL_FROM_NAME: sender name shown in invitation emails
+- EMAIL_REPLY_TO: optional reply-to email
+- EMAIL_REPLY_TO_NAME: optional reply-to name
+- MAILERSEND_API_BASE_URL: MailerSend API base URL
+- MAILERSEND_API_TOKEN: MailerSend API token
 - AI_PROVIDER: local AI provider mode
 - AI_MODEL: AI model name
 
+## Invitation email setup
+
+Invitation emails now support MailerSend's Email API. To send real invitation emails, set:
+
+```env
+EMAIL_PROVIDER=mailersend
+WEBAPP_URL=http://localhost:8080
+EMAIL_FROM=hello@your-domain.com
+EMAIL_FROM_NAME=Impact Atlas
+MAILERSEND_API_TOKEN=your-mailersend-api-token
+```
+
+The `EMAIL_FROM` address must be a verified sender identity or belong to a verified domain in MailerSend.
+After that, organization invitations will email the acceptance link automatically.
