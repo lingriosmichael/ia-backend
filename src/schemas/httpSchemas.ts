@@ -127,10 +127,7 @@ export const updateProjectSchema = z.object({
     .optional(),
   fundingProgram: z.string().trim().max(200).nullable().optional(),
   fundingOrganization: z.string().trim().max(200).nullable().optional(),
-  targetGroups: z
-    .array(z.string().trim().min(1).max(120))
-    .max(20)
-    .optional(),
+  targetGroups: z.array(z.string().trim().min(1).max(120)).max(20).optional(),
   areaOfOperation: z.string().trim().max(2000).nullable().optional(),
   partnerships: z.string().trim().max(2000).nullable().optional(),
   sdgs: z.array(z.string().trim().min(1).max(120)).max(20).optional(),
