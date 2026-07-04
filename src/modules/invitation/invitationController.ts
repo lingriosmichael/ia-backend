@@ -45,6 +45,20 @@ export class InvitationController {
     return successResponse(invitation);
   }
 
+  async resend(request: FastifyRequest) {
+    if (!request.auth) {
+      throw new AppError("Authentication is required.", 401, "unauthorized");
+    }
+
+    const params = idParamSchema.parse(request.params);
+    const invitation = await this.invitationService.resend(
+      request.auth.userId,
+      params.organizationId!,
+      params.invitationId!,
+    );
+    return successResponse(invitation);
+  }
+
   async accept(request: FastifyRequest) {
     const params = idParamSchema.parse(request.params);
     const payload = acceptInvitationSchema.parse(request.body);

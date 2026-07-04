@@ -9,6 +9,10 @@ export interface InvitationRepository {
     input: InvitationCreateInput,
     session: DatabaseSession,
   ): Promise<InvitationPersistenceRecord>;
+  findById(
+    invitationId: string,
+    session: DatabaseSession,
+  ): Promise<InvitationPersistenceRecord | null>;
   findPendingByEmail(
     organizationId: string,
     email: string,

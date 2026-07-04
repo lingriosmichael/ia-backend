@@ -26,6 +26,26 @@ function toIso(value: Date) {
   return value.toISOString();
 }
 
+function trimNullableText(value: string | null | undefined) {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  if (value === null) {
+    return null;
+  }
+
+  return value.trim() || null;
+}
+
+function trimRequiredText(value: string) {
+  return value.trim();
+}
+
+function trimStringArray(values: string[] | undefined) {
+  return values?.map((value) => value.trim()).filter(Boolean);
+}
+
 export class ProjectService {
   constructor(
     private readonly projectRepository: ProjectRepository,
@@ -76,16 +96,22 @@ export class ProjectService {
     organizationId: string,
     input: {
       name: string;
-      description?: string;
-      programGoal?: string;
-      startMonth?: string;
-      endMonth?: string;
-      country?: string;
-      regionCity?: string;
+      startMonth: string;
+      endMonth: string;
+      fundingProgram: string;
+      fundingOrganization: string;
+      targetGroups: string[];
+      areaOfOperation: string;
+      partnerships?: string;
       sdgs?: string[];
-      targetBeneficiaries?: string[];
-      fundingSource?: string;
-      status?: "planning" | "active" | "completed";
+      impactModel: {
+        inputs: string;
+        activities: string;
+        outputs: string;
+        impact: string;
+        outcomes: string;
+      };
+      successIndicators: string;
     },
   ) {
     await this.authorizationService.canCreateProject(userId, organizationId);
@@ -94,17 +120,23 @@ export class ProjectService {
       {
         organizationId,
         ownerId: userId,
-        name: input.name.trim(),
-        description: input.description?.trim() ?? null,
-        programGoal: input.programGoal?.trim() ?? null,
-        startMonth: input.startMonth ?? null,
-        endMonth: input.endMonth ?? null,
-        country: input.country?.trim() ?? null,
-        regionCity: input.regionCity?.trim() ?? null,
+        name: trimRequiredText(input.name),
+        startMonth: input.startMonth,
+        endMonth: input.endMonth,
+        fundingProgram: trimRequiredText(input.fundingProgram),
+        fundingOrganization: trimRequiredText(input.fundingOrganization),
+        targetGroups: trimStringArray(input.targetGroups) ?? [],
+        areaOfOperation: trimRequiredText(input.areaOfOperation),
+        partnerships: input.partnerships?.trim() ?? null,
         sdgs: input.sdgs ?? [],
-        targetBeneficiaries: input.targetBeneficiaries ?? [],
-        fundingSource: input.fundingSource?.trim() ?? null,
-        status: input.status ? mapProjectStatus(input.status) : undefined,
+        impactModel: {
+          inputs: trimRequiredText(input.impactModel.inputs),
+          activities: trimRequiredText(input.impactModel.activities),
+          outputs: trimRequiredText(input.impactModel.outputs),
+          impact: trimRequiredText(input.impactModel.impact),
+          outcomes: trimRequiredText(input.impactModel.outcomes),
+        },
+        successIndicators: trimRequiredText(input.successIndicators),
       },
       databaseSession,
     );
@@ -123,15 +155,22 @@ export class ProjectService {
     projectId: string,
     input: {
       name?: string;
-      description?: string | null;
-      programGoal?: string | null;
       startMonth?: string | null;
       endMonth?: string | null;
-      country?: string | null;
-      regionCity?: string | null;
+      fundingProgram?: string | null;
+      fundingOrganization?: string | null;
+      targetGroups?: string[];
+      areaOfOperation?: string | null;
+      partnerships?: string | null;
       sdgs?: string[];
-      targetBeneficiaries?: string[];
-      fundingSource?: string | null;
+      impactModel?: {
+        inputs?: string | null;
+        activities?: string | null;
+        outputs?: string | null;
+        impact?: string | null;
+        outcomes?: string | null;
+      };
+      successIndicators?: string | null;
       status?: "planning" | "active" | "completed";
     },
   ) {
@@ -142,31 +181,25 @@ export class ProjectService {
       projectId,
       {
         name: input.name?.trim(),
-        description:
-          input.description === undefined
-            ? undefined
-            : (input.description?.trim() ?? null),
-        programGoal:
-          input.programGoal === undefined
-            ? undefined
-            : (input.programGoal?.trim() ?? null),
         startMonth:
           input.startMonth === undefined ? undefined : input.startMonth,
         endMonth: input.endMonth === undefined ? undefined : input.endMonth,
-        country:
-          input.country === undefined
-            ? undefined
-            : (input.country?.trim() ?? null),
-        regionCity:
-          input.regionCity === undefined
-            ? undefined
-            : (input.regionCity?.trim() ?? null),
+        fundingProgram: trimNullableText(input.fundingProgram),
+        fundingOrganization: trimNullableText(input.fundingOrganization),
+        targetGroups: trimStringArray(input.targetGroups),
+        areaOfOperation: trimNullableText(input.areaOfOperation),
+        partnerships: trimNullableText(input.partnerships),
         sdgs: input.sdgs,
-        targetBeneficiaries: input.targetBeneficiaries,
-        fundingSource:
-          input.fundingSource === undefined
-            ? undefined
-            : (input.fundingSource?.trim() ?? null),
+        impactModel: input.impactModel
+          ? {
+              inputs: trimNullableText(input.impactModel.inputs),
+              activities: trimNullableText(input.impactModel.activities),
+              outputs: trimNullableText(input.impactModel.outputs),
+              impact: trimNullableText(input.impactModel.impact),
+              outcomes: trimNullableText(input.impactModel.outcomes),
+            }
+          : undefined,
+        successIndicators: trimNullableText(input.successIndicators),
         status: input.status ? mapProjectStatus(input.status) : undefined,
       },
       databaseSession,

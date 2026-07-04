@@ -11,10 +11,12 @@
     "build": "tsc -p tsconfig.json",
     "start": "node dist/src/server.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "lint": "eslint . --fix && npm run typecheck",
+    "lint": "eslint . && npm run typecheck",
+    "lint:fix": "eslint . --fix && npm run typecheck",
     "lint:check": "eslint . && npm run typecheck",
+    "format": "prettier --write .",
     "test": "node --import tsx --test src/**/*.test.ts",
-    "migrate:roles": "tsx src/scripts/migrateOrganizationRoleModel.ts",
+    "migrate:roles": "tsx src/scripts/migrateOrganizationRoleModel.ts"
   },
   "dependencies": {
     "@fastify/cors": "^10.0.1",

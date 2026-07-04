@@ -169,6 +169,65 @@ export class InvitationService {
     return this.mapInvitationSummary(invitation, organization.name);
   }
 
+  async resend(userId: string, organizationId: string, invitationId: string) {
+    await this.authorizationService.canManageOrganization(
+      userId,
+      organizationId,
+    );
+
+    const invitation = await this.invitationRepository.findById(
+      invitationId,
+      databaseSession,
+    );
+
+    if (!invitation || invitation.organizationId !== organizationId) {
+      throw new AppError("Invitation not found.", 404, "invitation_not_found");
+    }
+
+    if (invitation.status !== "pending") {
+      throw new AppError(
+        "This invitation is no longer available.",
+        409,
+        "invitation_unavailable",
+      );
+    }
+
+    const organization = await this.organizationRepository.findById(
+      organizationId,
+      databaseSession,
+    );
+
+    if (!organization) {
+      throw new AppError(
+        "Organization not found.",
+        404,
+        "organization_not_found",
+      );
+    }
+
+    const existingUser = await this.userRepository.findByEmail(
+      invitation.email,
+      databaseSession,
+    );
+
+    try {
+      await this.emailService.sendOrganizationInvitation({
+        toEmail: invitation.email,
+        organizationName: organization.name,
+        acceptUrl: this.buildInvitationAcceptUrl(invitation.token),
+        acceptanceMode: existingUser ? "sign_in" : "create_account",
+      });
+    } catch {
+      throw new AppError(
+        "Invitation email could not be sent. Please verify the email configuration and try again.",
+        502,
+        "invitation_delivery_failed",
+      );
+    }
+
+    return this.mapInvitationSummary(invitation, organization.name);
+  }
+
   async accept(
     token: string,
     input: {

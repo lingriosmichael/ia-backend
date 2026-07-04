@@ -43,12 +43,20 @@ export interface ProjectContext {
   projectId: string;
   organizationId: string;
   name: string;
-  description: string | null;
-  programGoal: string | null;
-  country: string | null;
-  regionCity: string | null;
+  fundingProgram: string | null;
+  fundingOrganization: string | null;
+  areaOfOperation: string | null;
+  partnerships: string | null;
   sdgs: string[];
-  targetBeneficiaries: string[];
+  targetGroups: string[];
+  impactModel: {
+    inputs: string | null;
+    activities: string | null;
+    outputs: string | null;
+    impact: string | null;
+    outcomes: string | null;
+  };
+  successIndicators: string | null;
 }
 
 export interface OrganizationContext {

@@ -95,22 +95,26 @@ export const updateOrganizationSchema = z.object({
 
 export const createProjectSchema = z.object({
   name: z.string().trim().min(2).max(120),
-  description: z.string().trim().max(2000).optional(),
-  programGoal: z.string().trim().max(2000).optional(),
-  startMonth: monthValueSchema,
-  endMonth: monthValueSchema,
-  country: z.string().trim().max(120).optional(),
-  regionCity: z.string().trim().max(120).optional(),
+  startMonth: z.string().regex(/^\d{4}-\d{2}$/),
+  endMonth: z.string().regex(/^\d{4}-\d{2}$/),
+  fundingProgram: z.string().trim().min(2).max(200),
+  fundingOrganization: z.string().trim().min(2).max(200),
+  targetGroups: z.array(z.string().trim().min(1).max(120)).min(1).max(20),
+  areaOfOperation: z.string().trim().min(2).max(2000),
+  partnerships: z.string().trim().max(2000).optional(),
   sdgs: stringArraySchema,
-  targetBeneficiaries: stringArraySchema,
-  fundingSource: z.string().trim().max(200).optional(),
-  status: z.enum(projectStatusValues).optional(),
+  impactModel: z.object({
+    inputs: z.string().trim().min(2).max(2000),
+    activities: z.string().trim().min(2).max(2000),
+    outputs: z.string().trim().min(2).max(2000),
+    impact: z.string().trim().min(2).max(2000),
+    outcomes: z.string().trim().min(2).max(2000),
+  }),
+  successIndicators: z.string().trim().min(2).max(2000),
 });
 
 export const updateProjectSchema = z.object({
   name: z.string().trim().min(2).max(120).optional(),
-  description: z.string().trim().max(2000).nullable().optional(),
-  programGoal: z.string().trim().max(2000).nullable().optional(),
   startMonth: z
     .string()
     .regex(/^\d{4}-\d{2}$/)
@@ -121,14 +125,25 @@ export const updateProjectSchema = z.object({
     .regex(/^\d{4}-\d{2}$/)
     .nullable()
     .optional(),
-  country: z.string().trim().max(120).nullable().optional(),
-  regionCity: z.string().trim().max(120).nullable().optional(),
-  sdgs: z.array(z.string().trim().min(1).max(120)).max(20).optional(),
-  targetBeneficiaries: z
+  fundingProgram: z.string().trim().max(200).nullable().optional(),
+  fundingOrganization: z.string().trim().max(200).nullable().optional(),
+  targetGroups: z
     .array(z.string().trim().min(1).max(120))
     .max(20)
     .optional(),
-  fundingSource: z.string().trim().max(200).nullable().optional(),
+  areaOfOperation: z.string().trim().max(2000).nullable().optional(),
+  partnerships: z.string().trim().max(2000).nullable().optional(),
+  sdgs: z.array(z.string().trim().min(1).max(120)).max(20).optional(),
+  impactModel: z
+    .object({
+      inputs: z.string().trim().max(2000).nullable().optional(),
+      activities: z.string().trim().max(2000).nullable().optional(),
+      outputs: z.string().trim().max(2000).nullable().optional(),
+      impact: z.string().trim().max(2000).nullable().optional(),
+      outcomes: z.string().trim().max(2000).nullable().optional(),
+    })
+    .optional(),
+  successIndicators: z.string().trim().max(2000).nullable().optional(),
   status: z.enum(projectStatusValues).optional(),
 });
 

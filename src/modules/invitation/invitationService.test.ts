@@ -167,3 +167,72 @@ test("invitation creation revokes the invitation and fails when email delivery f
 
   assert.deepEqual(revokedInvitationIds, ["invitation-1"]);
 });
+
+test("invitation resend sends the existing acceptance link again", async () => {
+  const sentEmails: Array<{
+    toEmail: string;
+    organizationName: string;
+    acceptUrl: string;
+    acceptanceMode: "create_account" | "sign_in";
+  }> = [];
+
+  const invitationRepository = {
+    findById: async () => ({
+      id: "invitation-1",
+      organizationId: "organization-1",
+      email: "pm@example.org",
+      role: "PROJECT_MANAGER" as const,
+      token: "token-123",
+      status: "pending" as const,
+      invitedById: "user-1",
+      acceptedById: null,
+      acceptedAt: null,
+      createdAt: new Date("2026-01-01T00:00:00.000Z"),
+      updatedAt: new Date("2026-01-01T00:00:00.000Z"),
+    }),
+  } as unknown as InvitationRepository;
+
+  const organizationRepository = {
+    findById: async () => ({
+      id: "organization-1",
+      name: "Impact Atlas Foundation",
+    }),
+  } as unknown as OrganizationRepository;
+
+  const userRepository = {
+    findByEmail: async () => null,
+  } as unknown as UserRepository;
+
+  const authorizationService = {
+    canManageOrganization: async () => undefined,
+  } as unknown as AuthorizationService;
+
+  const transactionManager = {} as TransactionManager;
+
+  const emailService = {
+    sendOrganizationInvitation: async (input) => {
+      sentEmails.push(input);
+    },
+  } as EmailService;
+
+  const invitationService = new InvitationService(
+    invitationRepository,
+    organizationRepository,
+    userRepository,
+    authorizationService,
+    transactionManager,
+    emailService,
+    "http://localhost:8080/",
+  );
+
+  await invitationService.resend("user-1", "organization-1", "invitation-1");
+
+  assert.deepEqual(sentEmails, [
+    {
+      toEmail: "pm@example.org",
+      organizationName: "Impact Atlas Foundation",
+      acceptUrl: "http://localhost:8080/invitations/token-123/accept",
+      acceptanceMode: "create_account",
+    },
+  ]);
+});

@@ -113,21 +113,30 @@ export interface OrganizationSummary {
   createdAt: string;
 }
 
+export interface ProjectImpactModel {
+  inputs: string | null;
+  activities: string | null;
+  outputs: string | null;
+  impact: string | null;
+  outcomes: string | null;
+}
+
 export interface ProjectSummary {
   id: string;
   organizationId: string;
   ownerId: string;
   ownerName: string | null;
   name: string;
-  description: string | null;
-  programGoal: string | null;
   startMonth: string | null;
   endMonth: string | null;
-  country: string | null;
-  regionCity: string | null;
+  fundingProgram: string | null;
+  fundingOrganization: string | null;
+  targetGroups: string[];
+  areaOfOperation: string | null;
+  partnerships: string | null;
   sdgs: string[];
-  targetBeneficiaries: string[];
-  fundingSource: string | null;
+  impactModel: ProjectImpactModel;
+  successIndicators: string | null;
   status: ProjectStatus;
   permissions: ProjectPermissions;
   createdAt: string;
@@ -344,30 +353,42 @@ export interface UpdateOrganizationRequest {
 
 export interface CreateProjectRequest {
   name: string;
-  description?: string;
-  programGoal?: string;
-  startMonth?: string;
-  endMonth?: string;
-  country?: string;
-  regionCity?: string;
+  startMonth: string;
+  endMonth: string;
+  fundingProgram: string;
+  fundingOrganization: string;
+  targetGroups: string[];
+  areaOfOperation: string;
+  partnerships?: string;
   sdgs?: string[];
-  targetBeneficiaries?: string[];
-  fundingSource?: string;
-  status?: ProjectStatus;
+  impactModel: {
+    inputs: string;
+    activities: string;
+    outputs: string;
+    impact: string;
+    outcomes: string;
+  };
+  successIndicators: string;
 }
 
 export interface UpdateProjectRequest {
   name?: string;
-  description?: string | null;
-  programGoal?: string | null;
   startMonth?: string | null;
   endMonth?: string | null;
-  country?: string | null;
-  regionCity?: string | null;
+  fundingProgram?: string | null;
+  fundingOrganization?: string | null;
+  targetGroups?: string[];
+  areaOfOperation?: string | null;
+  partnerships?: string | null;
   sdgs?: string[];
-  targetBeneficiaries?: string[];
-  fundingSource?: string | null;
-  status?: ProjectStatus;
+  impactModel?: {
+    inputs?: string | null;
+    activities?: string | null;
+    outputs?: string | null;
+    impact?: string | null;
+    outcomes?: string | null;
+  };
+  successIndicators?: string | null;
 }
 
 export interface CreateActivityRequest {

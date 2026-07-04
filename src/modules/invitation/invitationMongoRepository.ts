@@ -46,6 +46,14 @@ export class MongoInvitationRepository implements InvitationRepository {
     return toInvitationRecord(document) as InvitationPersistenceRecord;
   }
 
+  async findById(
+    invitationId: string,
+    _session: DatabaseSession,
+  ): Promise<InvitationPersistenceRecord | null> {
+    const document = await InvitationMongoModel.findById(invitationId).exec();
+    return toInvitationRecord(document);
+  }
+
   async findPendingByEmail(
     organizationId: string,
     email: string,

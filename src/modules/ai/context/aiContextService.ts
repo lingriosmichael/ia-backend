@@ -46,12 +46,14 @@ export class AIContextService {
       projectId: project.id,
       organizationId: project.organizationId,
       name: project.name,
-      description: project.description,
-      programGoal: project.programGoal,
-      country: project.country,
-      regionCity: project.regionCity,
+      fundingProgram: project.fundingProgram,
+      fundingOrganization: project.fundingOrganization,
+      areaOfOperation: project.areaOfOperation,
+      partnerships: project.partnerships,
       sdgs: project.sdgs,
-      targetBeneficiaries: project.targetBeneficiaries,
+      targetGroups: project.targetGroups,
+      impactModel: project.impactModel,
+      successIndicators: project.successIndicators,
     };
   }
 

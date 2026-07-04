@@ -64,7 +64,7 @@ function buildAnalysisOutput(contexts: AIContextObject[]) {
     },
     metrics: {
       datasetCount: dataset ? 1 : 0,
-      beneficiarySegments: project?.targetBeneficiaries.length ?? 0,
+      beneficiarySegments: project?.targetGroups.length ?? 0,
       sdgCount: project?.sdgs.length ?? 0,
     },
     charts: [

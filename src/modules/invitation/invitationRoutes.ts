@@ -20,6 +20,11 @@ export async function registerInvitationRoutes(
     { preHandler: authenticate },
     controller.create.bind(controller),
   );
+  app.post(
+    "/organizations/:organizationId/invitations/:invitationId/resend",
+    { preHandler: authenticate },
+    controller.resend.bind(controller),
+  );
   app.delete(
     "/organizations/:organizationId/invitations/:invitationId",
     { preHandler: authenticate },

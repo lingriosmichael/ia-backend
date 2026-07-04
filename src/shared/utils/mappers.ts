@@ -169,15 +169,22 @@ export function mapProject(
     ownerId: string;
     ownerName?: string | null;
     name: string;
-    description: string | null;
-    programGoal: string | null;
     startMonth: string | null;
     endMonth: string | null;
-    country: string | null;
-    regionCity: string | null;
+    fundingProgram: string | null;
+    fundingOrganization: string | null;
+    targetGroups: string[];
+    areaOfOperation: string | null;
+    partnerships: string | null;
     sdgs: string[];
-    targetBeneficiaries: string[];
-    fundingSource: string | null;
+    impactModel: {
+      inputs: string | null;
+      activities: string | null;
+      outputs: string | null;
+      impact: string | null;
+      outcomes: string | null;
+    };
+    successIndicators: string | null;
     status: ProjectStatus | keyof typeof projectStatusMap;
     createdAt: Date;
     updatedAt: Date;
@@ -190,15 +197,16 @@ export function mapProject(
     ownerId: project.ownerId,
     ownerName: project.ownerName ?? null,
     name: project.name,
-    description: project.description,
-    programGoal: project.programGoal,
     startMonth: project.startMonth,
     endMonth: project.endMonth,
-    country: project.country,
-    regionCity: project.regionCity,
+    fundingProgram: project.fundingProgram,
+    fundingOrganization: project.fundingOrganization,
+    targetGroups: project.targetGroups,
+    areaOfOperation: project.areaOfOperation,
+    partnerships: project.partnerships,
     sdgs: project.sdgs,
-    targetBeneficiaries: project.targetBeneficiaries,
-    fundingSource: project.fundingSource,
+    impactModel: project.impactModel,
+    successIndicators: project.successIndicators,
     status: normalizeProjectStatus(project.status),
     permissions: mapProjectPermissions(project.ownerId, currentUserId),
     createdAt: toIso(project.createdAt),
@@ -214,15 +222,22 @@ export function mapProjectSummary(
     ownerId: string;
     ownerName?: string | null;
     name: string;
-    description: string | null;
-    programGoal: string | null;
     startMonth: string | null;
     endMonth: string | null;
-    country: string | null;
-    regionCity: string | null;
+    fundingProgram: string | null;
+    fundingOrganization: string | null;
+    targetGroups: string[];
+    areaOfOperation: string | null;
+    partnerships: string | null;
     sdgs: string[];
-    targetBeneficiaries: string[];
-    fundingSource: string | null;
+    impactModel: {
+      inputs: string | null;
+      activities: string | null;
+      outputs: string | null;
+      impact: string | null;
+      outcomes: string | null;
+    };
+    successIndicators: string | null;
     status: ProjectStatus | keyof typeof projectStatusMap;
     createdAt: Date;
     updatedAt: Date;
@@ -235,15 +250,16 @@ export function mapProjectSummary(
     ownerId: project.ownerId,
     ownerName: project.ownerName ?? null,
     name: project.name,
-    description: project.description,
-    programGoal: project.programGoal,
     startMonth: project.startMonth,
     endMonth: project.endMonth,
-    country: project.country,
-    regionCity: project.regionCity,
+    fundingProgram: project.fundingProgram,
+    fundingOrganization: project.fundingOrganization,
+    targetGroups: project.targetGroups,
+    areaOfOperation: project.areaOfOperation,
+    partnerships: project.partnerships,
     sdgs: project.sdgs,
-    targetBeneficiaries: project.targetBeneficiaries,
-    fundingSource: project.fundingSource,
+    impactModel: project.impactModel,
+    successIndicators: project.successIndicators,
     status: normalizeProjectStatus(project.status),
     permissions: mapProjectPermissions(project.ownerId, currentUserId),
     createdAt: toIso(project.createdAt),
@@ -349,15 +365,22 @@ export function mapWorkspace(record: {
     ownerId: string;
     ownerName?: string | null;
     name: string;
-    description: string | null;
-    programGoal: string | null;
     startMonth: string | null;
     endMonth: string | null;
-    country: string | null;
-    regionCity: string | null;
+    fundingProgram: string | null;
+    fundingOrganization: string | null;
+    targetGroups: string[];
+    areaOfOperation: string | null;
+    partnerships: string | null;
     sdgs: string[];
-    targetBeneficiaries: string[];
-    fundingSource: string | null;
+    impactModel: {
+      inputs: string | null;
+      activities: string | null;
+      outputs: string | null;
+      impact: string | null;
+      outcomes: string | null;
+    };
+    successIndicators: string | null;
     status: ProjectStatus | keyof typeof projectStatusMap;
     createdAt: Date;
     updatedAt: Date;
@@ -409,15 +432,16 @@ export function mapWorkspace(record: {
       ownerId: project.ownerId,
       ownerName: project.ownerName ?? null,
       name: project.name,
-      description: project.description,
-      programGoal: project.programGoal,
       startMonth: project.startMonth,
       endMonth: project.endMonth,
-      country: project.country,
-      regionCity: project.regionCity,
+      fundingProgram: project.fundingProgram,
+      fundingOrganization: project.fundingOrganization,
+      targetGroups: project.targetGroups,
+      areaOfOperation: project.areaOfOperation,
+      partnerships: project.partnerships,
       sdgs: project.sdgs,
-      targetBeneficiaries: project.targetBeneficiaries,
-      fundingSource: project.fundingSource,
+      impactModel: project.impactModel,
+      successIndicators: project.successIndicators,
       status: normalizeProjectStatus(project.status),
       permissions: mapProjectPermissions(project.ownerId, record.currentUserId),
       createdAt: toIso(project.createdAt),

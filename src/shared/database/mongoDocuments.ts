@@ -62,15 +62,23 @@ export interface ProjectDocument extends BaseDocument {
   organizationId: DocumentId;
   ownerId: DocumentId;
   name: string;
-  description: string | null;
-  programGoal: string | null;
+  projectGoal: string | null;
   startMonth: string | null;
   endMonth: string | null;
-  country: string | null;
-  regionCity: string | null;
+  fundingProgram: string | null;
+  fundingOrganization: string | null;
+  targetGroups: string[];
+  areaOfOperation: string | null;
+  partnerships: string | null;
   sdgs: string[];
-  targetBeneficiaries: string[];
-  fundingSource: string | null;
+  impactModel: {
+    inputs: string | null;
+    activities: string | null;
+    outputs: string | null;
+    impact: string | null;
+    outcomes: string | null;
+  };
+  successIndicators: string | null;
   status: "planning" | "active" | "completed";
 }
 
