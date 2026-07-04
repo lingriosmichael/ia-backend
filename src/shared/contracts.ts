@@ -107,6 +107,7 @@ export interface OrganizationSummary {
   name: string;
   mission: string | null;
   logoUrl: string | null;
+  memberCount: number | null;
   settings: OrganizationSettings;
   role: OrganizationRole;
   permissions: OrganizationPermissions;

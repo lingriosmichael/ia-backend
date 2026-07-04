@@ -238,6 +238,11 @@ export class OrganizationService {
       userId,
       databaseSession,
     );
+    const organizationMemberships =
+      await this.organizationRepository.listMembershipsByOrganization(
+        organizationId,
+        databaseSession,
+      );
 
     if (!workspace) {
       throw new AppError(
@@ -316,6 +321,7 @@ export class OrganizationService {
 
     return mapWorkspace({
       currentUserId: userId,
+      memberCount: organizationMemberships.length,
       ...workspace,
       projects: organizationProjects.map((project) => ({
         ...project,

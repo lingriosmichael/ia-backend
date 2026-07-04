@@ -142,6 +142,7 @@ export function mapOrganizationMembership(record: {
     name: string;
     mission?: string | null;
     logoUrl?: string | null;
+    memberCount?: number | null;
     settings: OrganizationSettings;
     createdAt: Date;
   };
@@ -155,6 +156,7 @@ export function mapOrganizationMembership(record: {
     logoUrl: record.organization.logoUrl
       ? `/organizations/${record.organization.id}/logo`
       : null,
+    memberCount: record.organization.memberCount ?? null,
     settings: record.organization.settings,
     role: normalizedRole,
     permissions: mapOrganizationPermissions(normalizedRole),
@@ -354,6 +356,7 @@ export function mapWorkspace(record: {
   name: string;
   mission: string | null;
   logoUrl: string | null;
+  memberCount: number;
   settings: OrganizationSettings;
   createdAt: Date;
   memberships: Array<{
@@ -421,6 +424,7 @@ export function mapWorkspace(record: {
       name: record.name,
       mission: record.mission,
       logoUrl: record.logoUrl ? `/organizations/${record.id}/logo` : null,
+      memberCount: record.memberCount,
       settings: record.settings,
       role,
       permissions: mapOrganizationPermissions(role),
