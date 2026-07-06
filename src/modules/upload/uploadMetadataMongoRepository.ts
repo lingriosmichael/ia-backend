@@ -53,7 +53,10 @@ export class MongoUploadMetadataRepository implements UploadMetadataRepository {
     activityId: string,
     _session: DatabaseSession,
   ): Promise<UploadMetadataPersistenceRecord[]> {
-    const documents = await UploadMetadataMongoModel.find({ activityId })
+    const documents = await UploadMetadataMongoModel.find({
+      activityId,
+      status: { $ne: "archived" },
+    })
       .sort({ createdAt: -1 })
       .exec();
 
@@ -82,7 +85,10 @@ export class MongoUploadMetadataRepository implements UploadMetadataRepository {
       Pick<UploadMetadataPersistenceRecord, "id" | "activityId" | "createdAt">
     >
   > {
-    const documents = await UploadMetadataMongoModel.find({ projectId })
+    const documents = await UploadMetadataMongoModel.find({
+      projectId,
+      status: { $ne: "archived" },
+    })
       .sort({ createdAt: -1 })
       .limit(limit)
       .select({
@@ -121,7 +127,10 @@ export class MongoUploadMetadataRepository implements UploadMetadataRepository {
     projectId: string,
     _session: DatabaseSession,
   ): Promise<number> {
-    return UploadMetadataMongoModel.countDocuments({ projectId }).exec();
+    return UploadMetadataMongoModel.countDocuments({
+      projectId,
+      status: { $ne: "archived" },
+    }).exec();
   }
 
   async countByActivityIds(
@@ -140,6 +149,9 @@ export class MongoUploadMetadataRepository implements UploadMetadataRepository {
         $match: {
           activityId: {
             $in: activityIds,
+          },
+          status: {
+            $ne: "archived",
           },
         },
       },

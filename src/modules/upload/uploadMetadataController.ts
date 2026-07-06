@@ -1,4 +1,4 @@
-import type { FastifyRequest } from "fastify";
+import type { FastifyReply, FastifyRequest } from "fastify";
 import { AppError } from "../../shared/errors/appError.js";
 import { successResponse } from "../../shared/http/apiResponse.js";
 import {
@@ -52,5 +52,25 @@ export class UploadMetadataController {
       payload,
     );
     return successResponse(record);
+  }
+
+  async getFile(request: FastifyRequest, reply: FastifyReply) {
+    if (!request.auth) {
+      throw new AppError("Authentication is required.", 401, "unauthorized");
+    }
+
+    const params = idParamSchema.parse(request.params);
+    const file = await this.uploadMetadataService.getFile(
+      request.auth.userId,
+      params.uploadMetadataId!,
+    );
+
+    return reply
+      .type(file.contentType)
+      .header(
+        "content-disposition",
+        `inline; filename="${encodeURIComponent(file.originalFileName)}"`,
+      )
+      .send(file.buffer);
   }
 }

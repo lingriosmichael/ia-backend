@@ -116,6 +116,7 @@ export function createApplicationContext(config: BackendConfig) {
     uploadMetadataRepository,
     activityService,
     authorizationService,
+    fileStorageService,
   );
   const aiExecutionService = new AIExecutionService(
     processingJobRepository,

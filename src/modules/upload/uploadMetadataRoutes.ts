@@ -21,4 +21,9 @@ export async function registerUploadMetadataRoutes(
     { preHandler: authenticate },
     controller.update.bind(controller),
   );
+  app.get(
+    "/upload-metadata/:uploadMetadataId/file",
+    { preHandler: authenticate },
+    controller.getFile.bind(controller),
+  );
 }

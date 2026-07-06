@@ -3,6 +3,7 @@ import { AppError } from "../../shared/errors/appError.js";
 import { AuthorizationService } from "../../shared/auth/authorizationService.js";
 import { mapUploadMetadata } from "../../shared/utils/mappers.js";
 import { ActivityService } from "../activity/activityService.js";
+import { FileStorageService } from "./fileStorageService.js";
 import type { UploadMetadataRepository } from "./uploadMetadataRepository.js";
 
 function mapUploadStatus(status: "pending" | "uploaded" | "archived") {
@@ -14,6 +15,7 @@ export class UploadMetadataService {
     private readonly uploadMetadataRepository: UploadMetadataRepository,
     private readonly activityService: ActivityService,
     private readonly authorizationService: AuthorizationService,
+    private readonly fileStorageService: FileStorageService,
   ) {}
 
   async listByActivity(userId: string, activityId: string) {
@@ -123,5 +125,34 @@ export class UploadMetadataService {
     );
 
     return mapUploadMetadata(updatedRecord);
+  }
+
+  async getFile(userId: string, uploadMetadataId: string) {
+    const record = await this.uploadMetadataRepository.findById(
+      uploadMetadataId,
+      databaseSession,
+    );
+
+    if (!record || !record.storageKey) {
+      throw new AppError(
+        "Stored file could not be found.",
+        404,
+        "file_not_found",
+      );
+    }
+
+    await this.authorizationService.canViewProject(userId, record.projectId);
+
+    const storedFile = await this.fileStorageService.readStoredFile(
+      record.storageKey,
+    );
+
+    return {
+      buffer: storedFile.buffer,
+      contentType:
+        record.contentType ??
+        this.fileStorageService.getContentTypeForPath(record.storageKey),
+      originalFileName: record.originalFileName,
+    };
   }
 }
