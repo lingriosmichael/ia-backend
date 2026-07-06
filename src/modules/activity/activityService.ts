@@ -4,6 +4,7 @@ import type { ProcessingJobRepository } from "../ai/execution/processingJobRepos
 import { AppError } from "../../shared/errors/appError.js";
 import { AuthorizationService } from "../../shared/auth/authorizationService.js";
 import { FileStorageService } from "../upload/fileStorageService.js";
+import { ProcessingResourceCleanupService } from "../processing/processingResourceCleanupService.js";
 import type { UploadMetadataRepository } from "../upload/uploadMetadataRepository.js";
 import { mapActivity } from "../../shared/utils/mappers.js";
 import type { ActivityRepository } from "./activityRepository.js";
@@ -20,6 +21,7 @@ export class ActivityService {
     private readonly fileStorageService: FileStorageService,
     private readonly processingJobRepository: ProcessingJobRepository,
     private readonly resultRepository: ResultRepository,
+    private readonly processingResourceCleanupService: ProcessingResourceCleanupService,
   ) {}
 
   async listForProject(userId: string, projectId: string) {
@@ -215,6 +217,10 @@ export class ActivityService {
     );
 
     await this.resultRepository.deleteByActivity(activityId, databaseSession);
+    await this.processingResourceCleanupService.deleteByActivityId(
+      activityId,
+      databaseSession,
+    );
     await this.processingJobRepository.deleteByActivity(
       activityId,
       databaseSession,

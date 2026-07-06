@@ -16,6 +16,11 @@ export async function registerUploadMetadataRoutes(
     { preHandler: authenticate },
     controller.delete.bind(controller),
   );
+  app.post(
+    "/evidence/:evidenceId/analyse",
+    { preHandler: authenticate },
+    controller.analyse.bind(controller),
+  );
   app.get(
     "/evidence/:evidenceId/file",
     { preHandler: authenticate },

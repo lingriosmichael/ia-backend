@@ -4,9 +4,11 @@ import { AppError } from "../../shared/errors/appError.js";
 import { AuthorizationService } from "../../shared/auth/authorizationService.js";
 import { mapUploadMetadata } from "../../shared/utils/mappers.js";
 import { ActivityService } from "../activity/activityService.js";
+import { ProcessingResourceCleanupService } from "../processing/processingResourceCleanupService.js";
 import type { ResultRepository } from "../ai/artifact/resultRepository.js";
 import type { UserRepository } from "../user/userRepository.js";
 import { FileStorageService } from "./fileStorageService.js";
+import type { UploadMetadataPersistenceRecord } from "./uploadMetadataPersistence.js";
 import type { UploadMetadataRepository } from "./uploadMetadataRepository.js";
 
 function mapUploadStatus(status: "pending" | "uploaded" | "archived") {
@@ -22,6 +24,7 @@ export class UploadMetadataService {
     private readonly userRepository: UserRepository,
     private readonly processingJobRepository: ProcessingJobRepository,
     private readonly resultRepository: ResultRepository,
+    private readonly processingResourceCleanupService: ProcessingResourceCleanupService,
   ) {}
 
   async listByActivity(userId: string, activityId: string) {
@@ -43,6 +46,7 @@ export class UploadMetadataService {
       contentType?: string;
       sizeBytes?: number;
       storageKey?: string;
+      replacesUploadMetadataId?: string | null;
     },
   ) {
     const project = input.activityId
@@ -69,12 +73,73 @@ export class UploadMetadataService {
       }
     }
 
+    let logicalEvidenceId: string | null = null;
+    let versionNumber: number | null = null;
+    let activityId = input.activityId ?? null;
+    let replacedRecord: UploadMetadataPersistenceRecord | null = null;
+
+    if (input.replacesUploadMetadataId) {
+      replacedRecord = await this.uploadMetadataRepository.findById(
+        input.replacesUploadMetadataId,
+        databaseSession,
+      );
+
+      if (!replacedRecord || replacedRecord.projectId !== project.id) {
+        throw new AppError(
+          "The evidence version to replace does not belong to this project.",
+          400,
+          "replacement_evidence_not_found",
+        );
+      }
+
+      if (replacedRecord.supersededAt) {
+        throw new AppError(
+          "Only the current evidence version can be replaced.",
+          409,
+          "replacement_evidence_already_superseded",
+        );
+      }
+
+      const activeProcessingJob =
+        await this.processingJobRepository.findActiveByUploadMetadataId(
+          replacedRecord.id,
+          databaseSession,
+        );
+
+      if (activeProcessingJob) {
+        throw new AppError(
+          "Evidence cannot be replaced while processing is still active.",
+          409,
+          "replacement_evidence_processing_in_progress",
+        );
+      }
+
+      if (
+        activityId !== null &&
+        replacedRecord.activityId !== null &&
+        activityId !== replacedRecord.activityId
+      ) {
+        throw new AppError(
+          "Evidence versions must stay attached to the same activity.",
+          400,
+          "replacement_activity_mismatch",
+        );
+      }
+
+      logicalEvidenceId = replacedRecord.logicalEvidenceId;
+      versionNumber = replacedRecord.versionNumber + 1;
+      activityId = activityId ?? replacedRecord.activityId;
+    }
+
     const record = await this.uploadMetadataRepository.create(
       {
         organizationId: project.organizationId,
         projectId: project.id,
-        activityId: input.activityId ?? null,
+        activityId,
         uploadedById: userId,
+        logicalEvidenceId,
+        versionNumber,
+        replacesUploadMetadataId: input.replacesUploadMetadataId ?? null,
         originalFileName: input.originalFileName.trim(),
         contentType: input.contentType?.trim() ?? null,
         sizeBytes: input.sizeBytes ?? null,
@@ -82,6 +147,17 @@ export class UploadMetadataService {
       },
       databaseSession,
     );
+
+    if (replacedRecord) {
+      await this.uploadMetadataRepository.update(
+        replacedRecord.id,
+        {
+          supersededAt: new Date(),
+          status: "archived",
+        },
+        databaseSession,
+      );
+    }
 
     return this.mapRecordWithUploaderName(record);
   }
@@ -93,6 +169,8 @@ export class UploadMetadataService {
       contentType?: string | null;
       sizeBytes?: number | null;
       storageKey?: string | null;
+      supersededAt?: string | null;
+      originalFileDeletedAt?: string | null;
       status?: "pending" | "uploaded" | "archived";
     },
   ) {
@@ -125,6 +203,18 @@ export class UploadMetadataService {
           input.storageKey === undefined
             ? undefined
             : (input.storageKey?.trim() ?? null),
+        supersededAt:
+          input.supersededAt === undefined
+            ? undefined
+            : input.supersededAt
+              ? new Date(input.supersededAt)
+              : null,
+        originalFileDeletedAt:
+          input.originalFileDeletedAt === undefined
+            ? undefined
+            : input.originalFileDeletedAt
+              ? new Date(input.originalFileDeletedAt)
+              : null,
         status: input.status ? mapUploadStatus(input.status) : undefined,
       },
       databaseSession,
@@ -139,7 +229,7 @@ export class UploadMetadataService {
       databaseSession,
     );
 
-    if (!record || !record.storageKey) {
+    if (!record || !record.storageKey || record.originalFileDeletedAt) {
       throw new AppError(
         "Stored file could not be found.",
         404,
@@ -178,7 +268,25 @@ export class UploadMetadataService {
 
     await this.authorizationService.canEditProject(userId, record.projectId);
 
+    const activeProcessingJob =
+      await this.processingJobRepository.findActiveByUploadMetadataId(
+        uploadMetadataId,
+        databaseSession,
+      );
+
+    if (activeProcessingJob) {
+      throw new AppError(
+        "Evidence cannot be deleted while processing is still active.",
+        409,
+        "evidence_processing_in_progress",
+      );
+    }
+
     await this.resultRepository.deleteByUploadMetadataId(
+      uploadMetadataId,
+      databaseSession,
+    );
+    await this.processingResourceCleanupService.deleteByUploadMetadataId(
       uploadMetadataId,
       databaseSession,
     );
@@ -188,7 +296,7 @@ export class UploadMetadataService {
     );
     await this.uploadMetadataRepository.deleteById(uploadMetadataId, databaseSession);
 
-    if (record.storageKey) {
+    if (record.storageKey && !record.originalFileDeletedAt) {
       await this.fileStorageService.deleteStoredFiles([record.storageKey]);
     }
 
@@ -200,20 +308,7 @@ export class UploadMetadataService {
   }
 
   private async mapRecordsWithUploaderNames(
-    records: Array<{
-      id: string;
-      organizationId: string;
-      projectId: string;
-      activityId: string | null;
-      originalFileName: string;
-      contentType: string | null;
-      sizeBytes: number | null;
-      storageKey: string | null;
-      status: "pending" | "uploaded" | "archived";
-      uploadedById: string;
-      createdAt: Date;
-      updatedAt: Date;
-    }>,
+    records: UploadMetadataPersistenceRecord[],
   ) {
     const users = await this.userRepository.findByIds(
       [...new Set(records.map((record) => record.uploadedById))],
@@ -231,20 +326,38 @@ export class UploadMetadataService {
     );
   }
 
-  private async mapRecordWithUploaderName(record: {
-    id: string;
-    organizationId: string;
-    projectId: string;
-    activityId: string | null;
-    originalFileName: string;
-    contentType: string | null;
-    sizeBytes: number | null;
-    storageKey: string | null;
-    status: "pending" | "uploaded" | "archived";
-    uploadedById: string;
-    createdAt: Date;
-    updatedAt: Date;
-  }) {
+  async deleteOriginalFileAfterPrivacySafePersistence(uploadMetadataId: string) {
+    const record = await this.uploadMetadataRepository.findById(
+      uploadMetadataId,
+      databaseSession,
+    );
+
+    if (!record) {
+      throw new AppError(
+        "Upload metadata not found.",
+        404,
+        "upload_metadata_not_found",
+      );
+    }
+
+    if (!record.storageKey || record.originalFileDeletedAt) {
+      return this.mapRecordWithUploaderName(record);
+    }
+
+    await this.fileStorageService.deleteStoredFiles([record.storageKey]);
+
+    const updatedRecord = await this.uploadMetadataRepository.update(
+      uploadMetadataId,
+      {
+        originalFileDeletedAt: new Date(),
+      },
+      databaseSession,
+    );
+
+    return this.mapRecordWithUploaderName(updatedRecord);
+  }
+
+  private async mapRecordWithUploaderName(record: UploadMetadataPersistenceRecord) {
     const uploader = await this.userRepository.findById(
       record.uploadedById,
       databaseSession,

@@ -2,6 +2,10 @@ import { databaseSession } from "../../../shared/database/databaseClient.js";
 import { AppError } from "../../../shared/errors/appError.js";
 import { AuthorizationService } from "../../../shared/auth/authorizationService.js";
 import { mapProcessingJob } from "../../../shared/utils/mappers.js";
+import type {
+  ProcessingJobStatus,
+  ProcessingJobType,
+} from "../../../shared/contracts.js";
 import type { UploadMetadataRepository } from "../../upload/uploadMetadataRepository.js";
 import type { ProcessingJobRepository } from "./processingJobRepository.js";
 
@@ -27,7 +31,7 @@ export class AIExecutionService {
     input: {
       activityId?: string | null;
       uploadMetadataId?: string | null;
-      jobType: "semantic_ingestion" | "manual_review" | "export" | "other";
+      jobType: ProcessingJobType;
       payload?: Record<string, unknown>;
     },
   ) {
@@ -86,7 +90,7 @@ export class AIExecutionService {
     userId: string,
     processingJobId: string,
     input: {
-      status?: "queued" | "processing" | "completed" | "failed" | "cancelled";
+      status?: ProcessingJobStatus;
       payload?: Record<string, unknown> | null;
       errorMessage?: string | null;
       startedAt?: string | null;

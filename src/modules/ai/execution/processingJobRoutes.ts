@@ -11,15 +11,15 @@ export async function registerProcessingJobRoutes(
     { preHandler: authenticate },
     controller.listByActivity.bind(controller),
   );
-  app.post(
-    "/projects/:projectId/jobs",
-    { preHandler: authenticate },
-    controller.create.bind(controller),
-  );
   app.get(
     "/jobs/:processingJobId",
     { preHandler: authenticate },
     controller.getById.bind(controller),
+  );
+  app.post(
+    "/jobs/:processingJobId/sync",
+    { preHandler: authenticate },
+    controller.sync.bind(controller),
   );
   app.patch(
     "/jobs/:processingJobId",

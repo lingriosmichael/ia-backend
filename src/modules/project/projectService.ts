@@ -13,6 +13,7 @@ import type { UploadMetadataRepository } from "../upload/uploadMetadataRepositor
 import type { ProcessingJobRepository } from "../ai/execution/processingJobRepository.js";
 import type { ResultRepository } from "../ai/artifact/resultRepository.js";
 import type { UserRepository } from "../user/userRepository.js";
+import { ProcessingResourceCleanupService } from "../processing/processingResourceCleanupService.js";
 import type {
   ProjectOverview,
   ProjectRecentActivityItem,
@@ -57,6 +58,7 @@ export class ProjectService {
     private readonly resultRepository: ResultRepository,
     private readonly transactionManager: TransactionManager,
     private readonly userRepository: UserRepository,
+    private readonly processingResourceCleanupService: ProcessingResourceCleanupService,
   ) {}
 
   async listForOrganization(userId: string, organizationId: string) {
@@ -234,24 +236,6 @@ export class ProjectService {
   ): Promise<ProjectOverview> {
     const { project: overview } =
       await this.authorizationService.canViewProject(userId, projectId);
-
-    const pendingInsightCount =
-      await this.processingJobRepository.countByProjectStatuses(
-        projectId,
-        ["queued", "processing"],
-        databaseSession,
-      );
-    const failedJobCount =
-      await this.processingJobRepository.countByProjectStatuses(
-        projectId,
-        ["failed"],
-        databaseSession,
-      );
-    const insightCount = await this.resultRepository.countByProjectStatuses(
-      projectId,
-      ["available"],
-      databaseSession,
-    );
     const uploadMetadataCount =
       await this.uploadMetadataRepository.countByProject(
         projectId,
@@ -272,26 +256,6 @@ export class ProjectService {
         8,
         databaseSession,
       );
-    const recentProcessingJobs =
-      await this.processingJobRepository.listRecentByProject(
-        projectId,
-        8,
-        databaseSession,
-      );
-    const activityProcessingJobCounts =
-      await this.processingJobRepository.countByActivityIds(
-        projectActivities.map((activity) => activity.id),
-        databaseSession,
-      );
-    const recentResultRecords = await this.resultRepository.listRecentByProject(
-      projectId,
-      8,
-      databaseSession,
-    );
-    const activityResultCounts = await this.resultRepository.countByActivityIds(
-      projectActivities.map((activity) => activity.id),
-      databaseSession,
-    );
     const activityNamesById = Object.fromEntries(
       projectActivities.map((activity) => [activity.id, activity.name]),
     );
@@ -303,8 +267,8 @@ export class ProjectService {
           projectOwnerId: overview.ownerId,
           _count: {
             uploadMetadata: activityUploadCounts[activity.id] ?? 0,
-            processingJobs: activityProcessingJobCounts[activity.id] ?? 0,
-            resultRecords: activityResultCounts[activity.id] ?? 0,
+            processingJobs: 0,
+            resultRecords: 0,
           },
         },
         userId,
@@ -326,28 +290,6 @@ export class ProjectService {
         activityName: upload.activityId
           ? (activityNamesById[upload.activityId] ?? null)
           : null,
-      })),
-      ...recentProcessingJobs
-        .filter((job) => job.status === "completed" || job.status === "failed")
-        .map<ProjectRecentActivityItem>((job) => ({
-          id: `job-${job.id}`,
-          type: job.status === "completed" ? "job_completed" : "job_failed",
-          occurredAt: toIso(job.createdAt),
-          activityId: job.activityId,
-          activityName: job.activityId
-            ? (activityNamesById[job.activityId] ?? null)
-            : null,
-        })),
-      ...recentResultRecords
-        .filter((result) => result.status === "available")
-        .map<ProjectRecentActivityItem>((result) => ({
-          id: `result-${result.id}`,
-          type: "insight_generated",
-          occurredAt: toIso(result.createdAt),
-          activityId: result.activityId,
-          activityName: result.activityId
-            ? (activityNamesById[result.activityId] ?? null)
-            : null,
         })),
     ]
       .sort(
@@ -372,9 +314,9 @@ export class ProjectService {
         activitiesWithDatasetsCount: activities.filter(
           (activity) => activity.uploadMetadataCount > 0,
         ).length,
-        insightCount,
-        pendingInsightCount,
-        failedJobCount,
+        insightCount: 0,
+        pendingInsightCount: 0,
+        failedJobCount: 0,
         lastUploadAt: recentUploads[0]
           ? toIso(recentUploads[0].createdAt)
           : null,
@@ -435,6 +377,18 @@ export class ProjectService {
         return this.projectRepository.delete(projectId, session);
       },
     );
+
+    try {
+      await this.processingResourceCleanupService.deleteByProjectId(
+        projectId,
+        databaseSession,
+      );
+    } catch (error) {
+      console.error("Failed to delete processing resource records for project.", {
+        projectId,
+        error,
+      });
+    }
 
     try {
       await this.uploadMetadataRepository.deleteByProject(

@@ -20,7 +20,7 @@ test("AI execution runner stores a structured artifact and completes the job", a
       activityId: "activity-1",
       uploadMetadataId: "upload-1",
       triggeredById: "user-1",
-      jobType: "semantic_ingestion",
+      jobType: "dataset_interpretation",
       status: "queued",
       payload: {
         ai: {
@@ -44,7 +44,7 @@ test("AI execution runner stores a structured artifact and completes the job", a
         activityId: "activity-1",
         uploadMetadataId: "upload-1",
         triggeredById: "user-1",
-        jobType: "semantic_ingestion",
+        jobType: "dataset_interpretation",
         status: "completed",
         payload: input.payload ?? null,
         errorMessage: null,

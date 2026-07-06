@@ -11,12 +11,30 @@ const aiExecutionSchema = new Schema(
     triggeredById: { type: String, required: true },
     jobType: {
       type: String,
-      enum: ["semantic_ingestion", "manual_review", "export", "other"],
+      enum: [
+        "evidence_processing",
+        "dataset_interpretation",
+        "dataset_review",
+        "metrics_generation",
+        "dashboard_generation",
+        "insight_generation",
+        "report_generation",
+        "chat",
+        "other",
+      ],
       required: true,
     },
     status: {
       type: String,
-      enum: ["queued", "processing", "completed", "failed", "cancelled"],
+      enum: [
+        "queued",
+        "processing",
+        "awaiting_privacy_review",
+        "transforming",
+        "completed",
+        "failed",
+        "cancelled",
+      ],
       default: "queued",
     },
     payload: { type: Schema.Types.Mixed, default: null },
@@ -35,7 +53,8 @@ export type AIExecutionMongoDocument = InferSchemaType<
 >;
 export type AIExecutionMongoHydratedDocument =
   HydratedDocument<AIExecutionMongoDocument>;
-export const AIExecutionMongoModel = createModel(
-  "AIExecution",
+export const ProcessingJobMongoModel = createModel(
+  "ProcessingJob",
   aiExecutionSchema,
 );
+export const AIExecutionMongoModel = ProcessingJobMongoModel;

@@ -105,35 +105,91 @@ export interface UploadDocument extends BaseDocument {
   projectId: DocumentId;
   activityId: DocumentId | null;
   uploadedById: DocumentId;
+  logicalEvidenceId: DocumentId;
+  versionNumber: number;
+  replacesUploadMetadataId: DocumentId | null;
+  supersededAt: Date | null;
   originalFileName: string;
   contentType: string | null;
   sizeBytes: number | null;
   storageKey: string | null;
+  originalFileDeletedAt: Date | null;
   status: "pending" | "uploaded" | "archived";
 }
 
-export interface AIExecutionDocument extends BaseDocument {
+export interface ProcessingJobDocument extends BaseDocument {
   organizationId: DocumentId;
   projectId: DocumentId;
   activityId: DocumentId | null;
-  uploadId: DocumentId | null;
+  uploadMetadataId: DocumentId | null;
   triggeredById: DocumentId;
-  pipeline:
-    | "interpret_dataset"
-    | "review_dataset"
-    | "generate_metrics"
-    | "generate_dashboard"
-    | "generate_insights"
-    | "generate_report"
-    | "chat";
-  status: "queued" | "processing" | "completed" | "failed" | "cancelled";
-  input: Record<string, unknown> | null;
-  output: Record<string, unknown> | null;
+  jobType:
+    | "evidence_processing"
+    | "dataset_interpretation"
+    | "dataset_review"
+    | "metrics_generation"
+    | "dashboard_generation"
+    | "insight_generation"
+    | "report_generation"
+    | "chat"
+    | "other";
+  status:
+    | "queued"
+    | "processing"
+    | "awaiting_privacy_review"
+    | "transforming"
+    | "completed"
+    | "failed"
+    | "cancelled";
+  payload: Record<string, unknown> | null;
   errorMessage: string | null;
-  providerKey: string | null;
-  promptVersion: string | null;
   startedAt: Date | null;
   completedAt: Date | null;
+}
+export type AIExecutionDocument = ProcessingJobDocument;
+
+export interface ParsedRepresentationDocument extends BaseDocument {
+  organizationId: DocumentId;
+  projectId: DocumentId;
+  activityId: DocumentId | null;
+  uploadMetadataId: DocumentId;
+  processingJobId: DocumentId;
+  fileType: "spreadsheet" | "document" | "unknown";
+  payload: Record<string, unknown>;
+}
+
+export interface PrivacyReviewDocument extends BaseDocument {
+  organizationId: DocumentId;
+  projectId: DocumentId;
+  activityId: DocumentId | null;
+  uploadMetadataId: DocumentId;
+  processingJobId: DocumentId;
+  status: "pending" | "approved" | "rejected";
+  findings: Record<string, unknown>;
+  decisions: Record<string, unknown> | null;
+  approvedById: DocumentId | null;
+  approvedAt: Date | null;
+}
+
+export interface PrivacySafeRepresentationDocument extends BaseDocument {
+  organizationId: DocumentId;
+  projectId: DocumentId;
+  activityId: DocumentId | null;
+  uploadMetadataId: DocumentId;
+  processingJobId: DocumentId;
+  privacyReviewId: DocumentId;
+  parsedRepresentationId: DocumentId;
+  payload: Record<string, unknown>;
+}
+
+export interface EntityMappingDocument extends BaseDocument {
+  organizationId: DocumentId;
+  projectId: DocumentId;
+  activityId: DocumentId | null;
+  uploadMetadataId: DocumentId;
+  processingJobId: DocumentId;
+  entityType: string;
+  payload: Record<string, unknown>;
 }
 
 export interface DatasetInterpretationDocument extends BaseDocument {

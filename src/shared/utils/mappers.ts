@@ -5,14 +5,14 @@ import type {
   OrganizationSettings,
   AIArtifactStatus,
   AIArtifactType,
-  AIExecutionStatus,
-  AIExecutionType,
   AuthResponse,
   OrganizationPermissions,
   OrganizationSummary,
   OrganizationRole,
   OrganizationWorkspace,
+  ProcessingJobStatus,
   ProjectPermissions,
+  ProcessingJobType,
   ProcessingJobRecord,
   ProjectStatus,
   ProjectSummary,
@@ -462,10 +462,15 @@ export function mapUploadMetadata(record: {
   organizationId: string;
   projectId: string;
   activityId: string | null;
+  logicalEvidenceId: string;
+  versionNumber: number;
+  replacesUploadMetadataId: string | null;
+  supersededAt: Date | null;
   originalFileName: string;
   contentType: string | null;
   sizeBytes: number | null;
   storageKey: string | null;
+  originalFileDeletedAt: Date | null;
   status: UploadMetadataStatus;
   uploadedById: string;
   uploadedByName?: string | null;
@@ -477,10 +482,17 @@ export function mapUploadMetadata(record: {
     organizationId: record.organizationId,
     projectId: record.projectId,
     activityId: record.activityId,
+    logicalEvidenceId: record.logicalEvidenceId,
+    versionNumber: record.versionNumber,
+    replacesUploadMetadataId: record.replacesUploadMetadataId,
+    supersededAt: record.supersededAt ? toIso(record.supersededAt) : null,
     originalFileName: record.originalFileName,
     contentType: record.contentType,
     sizeBytes: record.sizeBytes,
     storageKey: record.storageKey,
+    originalFileDeletedAt: record.originalFileDeletedAt
+      ? toIso(record.originalFileDeletedAt)
+      : null,
     status: record.status,
     uploadedById: record.uploadedById,
     uploadedByName: record.uploadedByName ?? null,
@@ -495,8 +507,8 @@ export function mapProcessingJob(record: {
   projectId: string;
   activityId: string | null;
   uploadMetadataId: string | null;
-  jobType: AIExecutionType;
-  status: AIExecutionStatus;
+  jobType: ProcessingJobType;
+  status: ProcessingJobStatus;
   triggeredById: string;
   payload: unknown;
   errorMessage: string | null;

@@ -2,7 +2,6 @@ import type { FastifyRequest } from "fastify";
 import { AppError } from "../../../shared/errors/appError.js";
 import { successResponse } from "../../../shared/http/apiResponse.js";
 import {
-  createProcessingJobSchema,
   idParamSchema,
   updateProcessingJobSchema,
 } from "../../../schemas/httpSchemas.js";
@@ -24,21 +23,6 @@ export class ProcessingJobController {
     return successResponse(jobs);
   }
 
-  async create(request: FastifyRequest) {
-    if (!request.auth) {
-      throw new AppError("Authentication is required.", 401, "unauthorized");
-    }
-
-    const params = idParamSchema.parse(request.params);
-    const payload = createProcessingJobSchema.parse(request.body);
-    const job = await this.processingJobService.create(
-      request.auth.userId,
-      params.projectId!,
-      payload,
-    );
-    return successResponse(job);
-  }
-
   async getById(request: FastifyRequest) {
     if (!request.auth) {
       throw new AppError("Authentication is required.", 401, "unauthorized");
@@ -46,6 +30,19 @@ export class ProcessingJobController {
 
     const params = idParamSchema.parse(request.params);
     const job = await this.processingJobService.getById(
+      request.auth.userId,
+      params.processingJobId!,
+    );
+    return successResponse(job);
+  }
+
+  async sync(request: FastifyRequest) {
+    if (!request.auth) {
+      throw new AppError("Authentication is required.", 401, "unauthorized");
+    }
+
+    const params = idParamSchema.parse(request.params);
+    const job = await this.processingJobService.sync(
       request.auth.userId,
       params.processingJobId!,
     );

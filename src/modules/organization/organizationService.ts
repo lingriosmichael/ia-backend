@@ -279,15 +279,6 @@ export class OrganizationService {
         projectActivities.map((activity) => activity.id),
         databaseSession,
       );
-    const activityProcessingJobCounts =
-      await this.processingJobRepository.countByActivityIds(
-        projectActivities.map((activity) => activity.id),
-        databaseSession,
-      );
-    const activityResultCounts = await this.resultRepository.countByActivityIds(
-      projectActivities.map((activity) => activity.id),
-      databaseSession,
-    );
     const activitiesByProjectId = projectActivities.reduce<
       Record<
         string,
@@ -306,8 +297,8 @@ export class OrganizationService {
         ...activity,
         _count: {
           uploadMetadata: activityUploadCounts[activity.id] ?? 0,
-          processingJobs: activityProcessingJobCounts[activity.id] ?? 0,
-          resultRecords: activityResultCounts[activity.id] ?? 0,
+          processingJobs: 0,
+          resultRecords: 0,
         },
       };
 

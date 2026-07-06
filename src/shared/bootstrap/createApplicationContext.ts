@@ -16,8 +16,7 @@ import { AIArtifactRecordService } from "../../modules/ai/artifact/aiArtifactRec
 import { ResultService } from "../../modules/ai/artifact/resultService.js";
 import { AIContextService } from "../../modules/ai/context/aiContextService.js";
 import { AIExecutionRunnerService } from "../../modules/ai/execution/aiExecutionRunnerService.js";
-import { MongoAIExecutionRepository } from "../../modules/ai/execution/aiExecutionMongoRepository.js";
-import { AIExecutionService } from "../../modules/ai/execution/aiExecutionService.js";
+import { MongoProcessingJobRepository } from "../../modules/ai/execution/aiExecutionMongoRepository.js";
 import { MockJobRunnerService } from "../../modules/ai/execution/mockJobRunnerService.js";
 import {
   MockPipelineExecutionScheduler,
@@ -50,6 +49,9 @@ import { InvitationService } from "../../modules/invitation/invitationService.js
 import { OrganizationController } from "../../modules/organization/organizationController.js";
 import { MongoOrganizationRepository } from "../../modules/organization/organizationMongoRepository.js";
 import { OrganizationService } from "../../modules/organization/organizationService.js";
+import { EvidenceProcessingService } from "../../modules/processing/evidenceProcessingService.js";
+import { ProcessingResourceCleanupService } from "../../modules/processing/processingResourceCleanupService.js";
+import { PythonProcessingClient } from "../../modules/processing/pythonProcessingClient.js";
 import { ProjectController } from "../../modules/project/projectController.js";
 import { MongoProjectRepository } from "../../modules/project/projectMongoRepository.js";
 import { ProjectService } from "../../modules/project/projectService.js";
@@ -70,8 +72,9 @@ export function createApplicationContext(config: BackendConfig) {
   const projectRepository = new MongoProjectRepository();
   const activityRepository = new MongoActivityRepository();
   const uploadMetadataRepository = new MongoUploadMetadataRepository();
-  const processingJobRepository = new MongoAIExecutionRepository();
+  const processingJobRepository = new MongoProcessingJobRepository();
   const resultRepository = new MongoAIArtifactRepository();
+  const processingResourceCleanupService = new ProcessingResourceCleanupService();
   const authorizationService = new AuthorizationService(
     organizationRepository,
     projectRepository,
@@ -107,6 +110,7 @@ export function createApplicationContext(config: BackendConfig) {
     resultRepository,
     transactionManager,
     userRepository,
+    processingResourceCleanupService,
   );
   const activityService = new ActivityService(
     activityRepository,
@@ -115,6 +119,7 @@ export function createApplicationContext(config: BackendConfig) {
     fileStorageService,
     processingJobRepository,
     resultRepository,
+    processingResourceCleanupService,
   );
   const uploadMetadataService = new UploadMetadataService(
     uploadMetadataRepository,
@@ -124,13 +129,23 @@ export function createApplicationContext(config: BackendConfig) {
     userRepository,
     processingJobRepository,
     resultRepository,
+    processingResourceCleanupService,
   );
-  const aiExecutionService = new AIExecutionService(
+  const pythonProcessingClient = new PythonProcessingClient(
+    config.PYTHON_SERVICE_URL,
+  );
+  const processingJobService = new ProcessingJobService(
     processingJobRepository,
     uploadMetadataRepository,
     authorizationService,
+    pythonProcessingClient,
   );
-  const processingJobService = new ProcessingJobService(aiExecutionService);
+  const evidenceProcessingService = new EvidenceProcessingService(
+    processingJobRepository,
+    uploadMetadataRepository,
+    authorizationService,
+    pythonProcessingClient,
+  );
   const aiArtifactRecordService = new AIArtifactRecordService(
     resultRepository,
     uploadMetadataRepository,
@@ -215,7 +230,7 @@ export function createApplicationContext(config: BackendConfig) {
   );
   const mockJobRunnerService = new MockJobRunnerService(executionRunnerService);
   const pipelineExecutionStore = new ProcessingJobPipelineExecutionStore(
-    aiExecutionService,
+    processingJobService,
   );
   const pipelineExecutionScheduler = new MockPipelineExecutionScheduler(
     mockJobRunnerService,
@@ -256,6 +271,7 @@ export function createApplicationContext(config: BackendConfig) {
     ),
     uploadMetadataController: new UploadMetadataController(
       uploadMetadataService,
+      evidenceProcessingService,
     ),
     processingJobController: new ProcessingJobController(processingJobService),
     resultController: new ResultController(resultService),

@@ -5,6 +5,7 @@ import type { ProcessingJobRepository } from "../ai/execution/processingJobRepos
 import type { AuthorizationService } from "../../shared/auth/authorizationService.js";
 import type { UploadMetadataRepository } from "../upload/uploadMetadataRepository.js";
 import { FileStorageService } from "../upload/fileStorageService.js";
+import type { ProcessingResourceCleanupService } from "../processing/processingResourceCleanupService.js";
 import type { ActivityRepository } from "./activityRepository.js";
 import { ActivityService } from "./activityService.js";
 
@@ -102,6 +103,7 @@ test("activity getById authorizes access through the project service", async () 
     new FileStorageService("/tmp"),
     {} as ProcessingJobRepository,
     {} as ResultRepository,
+    {} as ProcessingResourceCleanupService,
   );
 
   const activity = await activityService.getById("user-1", "activity-1");

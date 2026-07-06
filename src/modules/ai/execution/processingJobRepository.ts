@@ -1,19 +1,19 @@
 import type { DatabaseSession } from "../../../shared/database/databaseClient.js";
 import type {
-  AIExecutionCreateInput,
-  AIExecutionPersistenceRecord,
-  AIExecutionUpdateInput,
+  ProcessingJobCreateInput,
+  ProcessingJobPersistenceRecord,
+  ProcessingJobUpdateInput,
 } from "../persistence/aiPersistenceTypes.js";
 
 export interface ProcessingJobRepository {
   create(
-    input: AIExecutionCreateInput,
+    input: ProcessingJobCreateInput,
     session: DatabaseSession,
-  ): Promise<AIExecutionPersistenceRecord>;
+  ): Promise<ProcessingJobPersistenceRecord>;
   listByActivity(
     activityId: string,
     session: DatabaseSession,
-  ): Promise<AIExecutionPersistenceRecord[]>;
+  ): Promise<ProcessingJobPersistenceRecord[]>;
   listRecentByProject(
     projectId: string,
     limit: number,
@@ -21,7 +21,7 @@ export interface ProcessingJobRepository {
   ): Promise<
     Array<
       Pick<
-        AIExecutionPersistenceRecord,
+        ProcessingJobPersistenceRecord,
         "id" | "activityId" | "status" | "createdAt"
       >
     >
@@ -32,9 +32,13 @@ export interface ProcessingJobRepository {
   ): Promise<Record<string, number>>;
   countByProjectStatuses(
     projectId: string,
-    statuses: AIExecutionPersistenceRecord["status"][],
+    statuses: ProcessingJobPersistenceRecord["status"][],
     session: DatabaseSession,
   ): Promise<number>;
+  findActiveByUploadMetadataId(
+    uploadMetadataId: string,
+    session: DatabaseSession,
+  ): Promise<ProcessingJobPersistenceRecord | null>;
   deleteByActivity(
     activityId: string,
     session: DatabaseSession,
@@ -46,10 +50,10 @@ export interface ProcessingJobRepository {
   findById(
     processingJobId: string,
     session: DatabaseSession,
-  ): Promise<AIExecutionPersistenceRecord | null>;
+  ): Promise<ProcessingJobPersistenceRecord | null>;
   update(
     processingJobId: string,
-    input: AIExecutionUpdateInput,
+    input: ProcessingJobUpdateInput,
     session: DatabaseSession,
-  ): Promise<AIExecutionPersistenceRecord>;
+  ): Promise<ProcessingJobPersistenceRecord>;
 }

@@ -26,6 +26,16 @@ test("organization workspace enriches activity upload counts from the upload rep
       createdAt: new Date("2026-01-01T00:00:00.000Z"),
       memberships: [{ role: "ORGANIZATION_ADMIN" }],
     }),
+    listMembershipsByOrganization: async () => [
+      {
+        id: "membership-1",
+        userId: "user-1",
+        organizationId: "organization-1",
+        role: "ORGANIZATION_ADMIN",
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      },
+    ],
   } as unknown as OrganizationRepository;
 
   const projectRepository = {
@@ -88,16 +98,8 @@ test("organization workspace enriches activity upload counts from the upload rep
       "activity-1": 3,
     }),
   } as unknown as UploadMetadataRepository;
-  const processingJobRepository = {
-    countByActivityIds: async () => ({
-      "activity-1": 2,
-    }),
-  } as unknown as ProcessingJobRepository;
-  const resultRepository = {
-    countByActivityIds: async () => ({
-      "activity-1": 1,
-    }),
-  } as unknown as ResultRepository;
+  const processingJobRepository = {} as ProcessingJobRepository;
+  const resultRepository = {} as ResultRepository;
 
   const fileStorageService = {} as FileStorageService;
   const transactionManager = {} as TransactionManager;
@@ -145,8 +147,8 @@ test("organization workspace enriches activity upload counts from the upload rep
   );
 
   assert.equal(workspace.projects[0]?.activities[0]?.uploadMetadataCount, 3);
-  assert.equal(workspace.projects[0]?.activities[0]?.processingJobCount, 2);
-  assert.equal(workspace.projects[0]?.activities[0]?.resultCount, 1);
+  assert.equal(workspace.projects[0]?.activities[0]?.processingJobCount, 0);
+  assert.equal(workspace.projects[0]?.activities[0]?.resultCount, 0);
 });
 
 test("organization update keeps top-level fields synchronized with organization settings", async () => {

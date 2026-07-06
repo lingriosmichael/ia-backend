@@ -5,16 +5,17 @@ import {
 import type { DatabaseSession } from "../../../shared/database/databaseClient.js";
 import { createDocumentId } from "../../../shared/database/documentId.js";
 import { AppError } from "../../../shared/errors/appError.js";
+import { activeProcessingJobStatusValues } from "../../../shared/contracts.js";
 import type { ProcessingJobRepository } from "./processingJobRepository.js";
 import type {
-  AIExecutionCreateInput,
-  AIExecutionPersistenceRecord,
-  AIExecutionUpdateInput,
+  ProcessingJobCreateInput,
+  ProcessingJobPersistenceRecord,
+  ProcessingJobUpdateInput,
 } from "../persistence/aiPersistenceTypes.js";
 
 function toPlainExecution(
   document: AIExecutionMongoHydratedDocument | null,
-): AIExecutionPersistenceRecord | null {
+): ProcessingJobPersistenceRecord | null {
   if (!document) {
     return null;
   }
@@ -40,24 +41,24 @@ function toPlainExecution(
   };
 }
 
-export class MongoAIExecutionRepository implements ProcessingJobRepository {
+export class MongoProcessingJobRepository implements ProcessingJobRepository {
   async create(
-    input: AIExecutionCreateInput,
+    input: ProcessingJobCreateInput,
     _session: DatabaseSession,
-  ): Promise<AIExecutionPersistenceRecord> {
+  ): Promise<ProcessingJobPersistenceRecord> {
     const document = await AIExecutionMongoModel.create({
       _id: createDocumentId(),
       ...input,
       status: "queued",
     });
 
-    return toPlainExecution(document) as AIExecutionPersistenceRecord;
+    return toPlainExecution(document) as ProcessingJobPersistenceRecord;
   }
 
   async findById(
     executionId: string,
     _session: DatabaseSession,
-  ): Promise<AIExecutionPersistenceRecord | null> {
+  ): Promise<ProcessingJobPersistenceRecord | null> {
     const document = await AIExecutionMongoModel.findById(executionId).exec();
     return toPlainExecution(document);
   }
@@ -65,14 +66,14 @@ export class MongoAIExecutionRepository implements ProcessingJobRepository {
   async listByActivity(
     activityId: string,
     _session: DatabaseSession,
-  ): Promise<AIExecutionPersistenceRecord[]> {
+  ): Promise<ProcessingJobPersistenceRecord[]> {
     const documents = await AIExecutionMongoModel.find({ activityId })
       .sort({ createdAt: -1 })
       .exec();
 
     return documents
       .map((document) => toPlainExecution(document))
-      .filter((document): document is AIExecutionPersistenceRecord =>
+      .filter((document): document is ProcessingJobPersistenceRecord =>
         Boolean(document),
       );
   }
@@ -84,7 +85,7 @@ export class MongoAIExecutionRepository implements ProcessingJobRepository {
   ): Promise<
     Array<
       Pick<
-        AIExecutionPersistenceRecord,
+        ProcessingJobPersistenceRecord,
         "id" | "activityId" | "status" | "createdAt"
       >
     >
@@ -147,7 +148,7 @@ export class MongoAIExecutionRepository implements ProcessingJobRepository {
 
   async countByProjectStatuses(
     projectId: string,
-    statuses: AIExecutionPersistenceRecord["status"][],
+    statuses: ProcessingJobPersistenceRecord["status"][],
     _session: DatabaseSession,
   ): Promise<number> {
     return AIExecutionMongoModel.countDocuments({
@@ -156,6 +157,20 @@ export class MongoAIExecutionRepository implements ProcessingJobRepository {
         $in: statuses,
       },
     }).exec();
+  }
+
+  async findActiveByUploadMetadataId(
+    uploadMetadataId: string,
+    _session: DatabaseSession,
+  ): Promise<ProcessingJobPersistenceRecord | null> {
+    const document = await AIExecutionMongoModel.findOne({
+      uploadMetadataId,
+      status: { $in: [...activeProcessingJobStatusValues] },
+    })
+      .sort({ createdAt: -1 })
+      .exec();
+
+    return toPlainExecution(document);
   }
 
   async deleteByActivity(
@@ -180,9 +195,9 @@ export class MongoAIExecutionRepository implements ProcessingJobRepository {
 
   async update(
     executionId: string,
-    input: AIExecutionUpdateInput,
+    input: ProcessingJobUpdateInput,
     _session: DatabaseSession,
-  ): Promise<AIExecutionPersistenceRecord> {
+  ): Promise<ProcessingJobPersistenceRecord> {
     const document = await AIExecutionMongoModel.findByIdAndUpdate(
       executionId,
       {
@@ -206,3 +221,5 @@ export class MongoAIExecutionRepository implements ProcessingJobRepository {
     return record;
   }
 }
+
+export const MongoAIExecutionRepository = MongoProcessingJobRepository;

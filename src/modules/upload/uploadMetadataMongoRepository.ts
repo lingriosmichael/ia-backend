@@ -25,10 +25,15 @@ function toUploadMetadataRecord(
     projectId: document.projectId,
     activityId: document.activityId ?? null,
     uploadedById: document.uploadedById,
+    logicalEvidenceId: document.logicalEvidenceId ?? document._id.toString(),
+    versionNumber: document.versionNumber ?? 1,
+    replacesUploadMetadataId: document.replacesUploadMetadataId ?? null,
+    supersededAt: document.supersededAt ?? null,
     originalFileName: document.originalFileName,
     contentType: document.contentType ?? null,
     sizeBytes: document.sizeBytes ?? null,
     storageKey: document.storageKey ?? null,
+    originalFileDeletedAt: document.originalFileDeletedAt ?? null,
     status: document.status,
     createdAt: document.createdAt,
     updatedAt: document.updatedAt,
@@ -40,9 +45,15 @@ export class MongoUploadMetadataRepository implements UploadMetadataRepository {
     input: UploadMetadataCreateInput,
     _session: DatabaseSession,
   ): Promise<UploadMetadataPersistenceRecord> {
+    const uploadMetadataId = createDocumentId();
     const document = await UploadMetadataMongoModel.create({
-      _id: createDocumentId(),
+      _id: uploadMetadataId,
       ...input,
+      logicalEvidenceId: input.logicalEvidenceId ?? uploadMetadataId,
+      versionNumber: input.versionNumber ?? 1,
+      replacesUploadMetadataId: input.replacesUploadMetadataId ?? null,
+      supersededAt: null,
+      originalFileDeletedAt: null,
       status: "pending",
     });
 
@@ -56,6 +67,7 @@ export class MongoUploadMetadataRepository implements UploadMetadataRepository {
     const documents = await UploadMetadataMongoModel.find({
       activityId,
       status: { $ne: "archived" },
+      supersededAt: null,
     })
       .sort({ createdAt: -1 })
       .exec();
@@ -88,6 +100,7 @@ export class MongoUploadMetadataRepository implements UploadMetadataRepository {
     const documents = await UploadMetadataMongoModel.find({
       projectId,
       status: { $ne: "archived" },
+      supersededAt: null,
     })
       .sort({ createdAt: -1 })
       .limit(limit)
@@ -148,6 +161,7 @@ export class MongoUploadMetadataRepository implements UploadMetadataRepository {
     return UploadMetadataMongoModel.countDocuments({
       projectId,
       status: { $ne: "archived" },
+      supersededAt: null,
     }).exec();
   }
 
@@ -171,6 +185,7 @@ export class MongoUploadMetadataRepository implements UploadMetadataRepository {
           status: {
             $ne: "archived",
           },
+          supersededAt: null,
         },
       },
       {

@@ -10,6 +10,7 @@ import type { ActivityRepository } from "../activity/activityRepository.js";
 import type { UploadMetadataRepository } from "../upload/uploadMetadataRepository.js";
 import type { ProcessingJobRepository } from "../ai/execution/processingJobRepository.js";
 import type { ResultRepository } from "../ai/artifact/resultRepository.js";
+import type { ProcessingResourceCleanupService } from "../processing/processingResourceCleanupService.js";
 import type { UserRepository } from "../user/userRepository.js";
 
 test(
@@ -97,6 +98,9 @@ test(
       ) => operation(undefined),
     } as unknown as TransactionManager;
     const userRepository = {} as UserRepository;
+    const processingResourceCleanupService = {
+      deleteByProjectId: async () => undefined,
+    } as unknown as ProcessingResourceCleanupService;
 
     const projectService = new ProjectService(
       projectRepository,
@@ -108,6 +112,7 @@ test(
       resultRepository,
       transactionManager,
       userRepository,
+      processingResourceCleanupService,
     );
 
     await assert.rejects(
@@ -213,6 +218,9 @@ test(
       ) => operation(undefined),
     } as unknown as TransactionManager;
     const userRepository = {} as UserRepository;
+    const processingResourceCleanupService = {
+      deleteByProjectId: async () => undefined,
+    } as unknown as ProcessingResourceCleanupService;
 
     const projectService = new ProjectService(
       projectRepository,
@@ -224,6 +232,7 @@ test(
       resultRepository,
       transactionManager,
       userRepository,
+      processingResourceCleanupService,
     );
 
     const deletedProject = await projectService.delete("user-1", "project-1", {
@@ -240,5 +249,124 @@ test(
       "activity-1/dataset.csv",
       "activity-1/dataset.csv",
     ]);
+  },
+);
+
+test(
+  "project overview only surfaces user-visible activity and evidence counts",
+  { concurrency: false },
+  async () => {
+    const authorizationService = {
+      canViewProject: async () => ({
+        project: {
+          id: "project-1",
+          organizationId: "organization-1",
+          ownerId: "user-1",
+          name: "Mentoring Programme 2026",
+          projectGoal: null,
+          startMonth: null,
+          endMonth: null,
+          fundingProgram: null,
+          fundingOrganization: null,
+          targetGroups: [],
+          areaOfOperation: null,
+          partnerships: null,
+          sdgs: [],
+          impactModel: {
+            inputs: null,
+            activities: null,
+            outputs: null,
+            impact: null,
+            outcomes: null,
+          },
+          successIndicators: null,
+          status: "planning",
+          createdAt: new Date("2026-01-01T00:00:00.000Z"),
+          updatedAt: new Date("2026-01-02T00:00:00.000Z"),
+        },
+      }),
+    } as unknown as AuthorizationService;
+
+    const activityRepository = {
+      listByProject: async () => [
+        {
+          id: "activity-1",
+          projectId: "project-1",
+          name: "Activity One",
+          description: null,
+          activityType: null,
+          owner: null,
+          startDate: null,
+          endDate: null,
+          objectives: null,
+          expectedOutcomes: null,
+          successIndicators: null,
+          targetAudience: null,
+          additionalContext: null,
+          beneficiaryGroup: null,
+          status: "planning",
+          createdAt: new Date("2026-01-05T00:00:00.000Z"),
+          updatedAt: new Date("2026-01-06T00:00:00.000Z"),
+        },
+      ],
+    } as unknown as ActivityRepository;
+
+    const uploadMetadataRepository = {
+      countByProject: async () => 2,
+      countByActivityIds: async () => ({
+        "activity-1": 2,
+      }),
+      listRecentByProject: async () => [
+        {
+          id: "upload-2",
+          activityId: "activity-1",
+          createdAt: new Date("2026-01-08T00:00:00.000Z"),
+        },
+        {
+          id: "upload-1",
+          activityId: "activity-1",
+          createdAt: new Date("2026-01-07T00:00:00.000Z"),
+        },
+      ],
+    } as unknown as UploadMetadataRepository;
+
+    const userRepository = {
+      findById: async () => ({
+        id: "user-1",
+        email: "owner@example.org",
+        fullName: "Project Owner",
+        passwordHash: "hash",
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      }),
+    } as unknown as UserRepository;
+
+    const projectService = new ProjectService(
+      {} as ProjectRepository,
+      authorizationService,
+      {} as FileStorageService,
+      activityRepository,
+      uploadMetadataRepository,
+      {} as ProcessingJobRepository,
+      {} as ResultRepository,
+      {} as TransactionManager,
+      userRepository,
+      {
+        deleteByProjectId: async () => undefined,
+      } as unknown as ProcessingResourceCleanupService,
+    );
+
+    const overview = await projectService.getOverview("user-1", "project-1");
+
+    assert.equal(overview.activities[0]?.uploadMetadataCount, 2);
+    assert.equal(overview.activities[0]?.processingJobCount, 0);
+    assert.equal(overview.activities[0]?.resultCount, 0);
+    assert.equal(overview.metrics.insightCount, 0);
+    assert.equal(overview.metrics.pendingInsightCount, 0);
+    assert.equal(overview.metrics.failedJobCount, 0);
+    assert.deepEqual(
+      overview.recentActivity.map((item) => item.type),
+      ["dataset_uploaded", "dataset_uploaded", "activity_created"],
+    );
   },
 );

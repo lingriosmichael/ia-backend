@@ -24,6 +24,8 @@ export type UploadMetadataStatus = (typeof uploadMetadataStatusValues)[number];
 export const processingJobStatusValues = [
   "queued",
   "processing",
+  "awaiting_privacy_review",
+  "transforming",
   "completed",
   "failed",
   "cancelled",
@@ -32,10 +34,24 @@ export type ProcessingJobStatus = (typeof processingJobStatusValues)[number];
 export const aiExecutionStatusValues = processingJobStatusValues;
 export type AIExecutionStatus = ProcessingJobStatus;
 
+export const activeProcessingJobStatusValues = [
+  "queued",
+  "processing",
+  "awaiting_privacy_review",
+  "transforming",
+] as const;
+export type ActiveProcessingJobStatus =
+  (typeof activeProcessingJobStatusValues)[number];
+
 export const processingJobTypeValues = [
-  "semantic_ingestion",
-  "manual_review",
-  "export",
+  "evidence_processing",
+  "dataset_interpretation",
+  "dataset_review",
+  "metrics_generation",
+  "dashboard_generation",
+  "insight_generation",
+  "report_generation",
+  "chat",
   "other",
 ] as const;
 export type ProcessingJobType = (typeof processingJobTypeValues)[number];
@@ -213,10 +229,15 @@ export interface UploadMetadataRecord {
   organizationId: string;
   projectId: string;
   activityId: string | null;
+  logicalEvidenceId: string;
+  versionNumber: number;
+  replacesUploadMetadataId: string | null;
+  supersededAt: string | null;
   originalFileName: string;
   contentType: string | null;
   sizeBytes: number | null;
   storageKey: string | null;
+  originalFileDeletedAt: string | null;
   status: UploadMetadataStatus;
   uploadedById: string;
   uploadedByName: string | null;
@@ -224,14 +245,14 @@ export interface UploadMetadataRecord {
   updatedAt: string;
 }
 
-export interface AIExecutionRecord {
+export interface ProcessingJobRecord {
   id: string;
   organizationId: string;
   projectId: string;
   activityId: string | null;
   uploadMetadataId: string | null;
-  jobType: AIExecutionType;
-  status: AIExecutionStatus;
+  jobType: ProcessingJobType;
+  status: ProcessingJobStatus;
   triggeredById: string;
   payload: Record<string, unknown> | null;
   errorMessage: string | null;
@@ -240,7 +261,7 @@ export interface AIExecutionRecord {
   startedAt: string | null;
   completedAt: string | null;
 }
-export type ProcessingJobRecord = AIExecutionRecord;
+export type AIExecutionRecord = ProcessingJobRecord;
 
 export interface AIArtifactRecord {
   id: string;
@@ -266,6 +287,62 @@ export interface DeleteEvidenceResponse {
   id: string;
   activityId: string | null;
   projectId: string;
+}
+
+export interface ParsedRepresentationRecord {
+  id: string;
+  organizationId: string;
+  projectId: string;
+  activityId: string | null;
+  uploadMetadataId: string;
+  processingJobId: string;
+  fileType: "spreadsheet" | "document" | "unknown";
+  payload: Record<string, unknown>;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface PrivacyReviewRecord {
+  id: string;
+  organizationId: string;
+  projectId: string;
+  activityId: string | null;
+  uploadMetadataId: string;
+  processingJobId: string;
+  status: "pending" | "approved" | "rejected";
+  findings: Record<string, unknown>;
+  decisions: Record<string, unknown> | null;
+  approvedById: string | null;
+  approvedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface PrivacySafeRepresentationRecord {
+  id: string;
+  organizationId: string;
+  projectId: string;
+  activityId: string | null;
+  uploadMetadataId: string;
+  processingJobId: string;
+  privacyReviewId: string;
+  parsedRepresentationId: string;
+  payload: Record<string, unknown>;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface EntityMappingRecord {
+  id: string;
+  organizationId: string;
+  projectId: string;
+  activityId: string | null;
+  uploadMetadataId: string;
+  processingJobId: string;
+  entityType: string;
+  payload: Record<string, unknown>;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface DeleteActivityResponse {
@@ -440,12 +517,15 @@ export interface CreateUploadMetadataRequest {
   sizeBytes?: number;
   storageKey?: string;
   activityId?: string | null;
+  replacesUploadMetadataId?: string | null;
 }
 
 export interface UpdateUploadMetadataRequest {
   contentType?: string | null;
   sizeBytes?: number | null;
   storageKey?: string | null;
+  supersededAt?: string | null;
+  originalFileDeletedAt?: string | null;
   status?: UploadMetadataStatus;
 }
 
@@ -465,6 +545,10 @@ export interface UpdateProcessingJobRequest {
   completedAt?: string | null;
 }
 export type UpdateAIExecutionRequest = UpdateProcessingJobRequest;
+
+export interface StartEvidenceAnalysisResponse {
+  job: ProcessingJobRecord;
+}
 
 export interface CreateResultRecordRequest {
   activityId?: string | null;

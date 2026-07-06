@@ -8,7 +8,7 @@ export const defaultAIPipelines: AIPipelineDefinition[] = [
     description:
       "Understands uploaded dataset structure, semantics, privacy risks, and transformation recommendations.",
     promptTemplateId: "interpretation.dataset.v1",
-    jobType: "semantic_ingestion",
+    jobType: "dataset_interpretation",
     outputKey: "dataset_interpretation",
     requiredContextKinds: ["dataset"],
   },
@@ -19,7 +19,7 @@ export const defaultAIPipelines: AIPipelineDefinition[] = [
     description:
       "Validates dataset interpretation outputs and surfaces ambiguities or missing assumptions.",
     promptTemplateId: "interpretation.review.v1",
-    jobType: "manual_review",
+    jobType: "dataset_review",
     outputKey: "dataset_review",
     requiredContextKinds: ["dataset"],
   },
@@ -30,7 +30,7 @@ export const defaultAIPipelines: AIPipelineDefinition[] = [
     description:
       "Computes KPI, trend, and chart-ready metric outputs from interpreted evidence.",
     promptTemplateId: "analysis.metrics.v1",
-    jobType: "semantic_ingestion",
+    jobType: "metrics_generation",
     outputKey: "analysis_metrics",
     requiredContextKinds: ["project", "dataset"],
   },
@@ -63,7 +63,7 @@ export const defaultAIPipelines: AIPipelineDefinition[] = [
     description:
       "Creates structured report sections for donor or executive outputs.",
     promptTemplateId: "reporting.summary.v1",
-    jobType: "export",
+    jobType: "report_generation",
     outputKey: "report_bundle",
     requiredContextKinds: ["report", "project"],
   },

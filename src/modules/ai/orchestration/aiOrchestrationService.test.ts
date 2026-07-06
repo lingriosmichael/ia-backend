@@ -76,7 +76,7 @@ test("AI orchestration queues dataset interpretation with pipeline metadata", as
 
   assert.equal(execution.id, "job-1");
   assert.equal(scheduledExecutionId, "job-1");
-  assert.equal(queuedJobType, "semantic_ingestion");
+  assert.equal(queuedJobType, "dataset_interpretation");
   assert.equal(
     (queuedPayload as { ai?: { pipelineKey?: string } } | null)?.ai
       ?.pipelineKey,

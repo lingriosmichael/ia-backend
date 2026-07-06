@@ -1,8 +1,11 @@
-import type { ProcessingJobRecord } from "../../../shared/contracts.js";
+import type {
+  ProcessingJobRecord,
+  ProcessingJobType,
+} from "../../../shared/contracts.js";
 import type { AIPipelineKey } from "../aiTypes.js";
 import type { DatasetContext } from "../context/aiContextTypes.js";
-import type { AIExecutionService } from "./aiExecutionService.js";
 import type { MockJobRunnerService } from "./mockJobRunnerService.js";
+import type { ProcessingJobService } from "./processingJobService.js";
 
 export interface QueuePipelineExecutionInput {
   userId: string;
@@ -10,7 +13,7 @@ export interface QueuePipelineExecutionInput {
   activityId?: string | null;
   uploadMetadataId?: string | null;
   pipelineKey: AIPipelineKey;
-  jobType: "semantic_ingestion" | "manual_review" | "export" | "other";
+  jobType: ProcessingJobType;
   payload?: Record<string, unknown>;
   datasetContext?: DatasetContext;
 }
@@ -26,12 +29,12 @@ export interface PipelineExecutionScheduler {
 }
 
 export class ProcessingJobPipelineExecutionStore implements PipelineExecutionStore {
-  constructor(private readonly aiExecutionService: AIExecutionService) {}
+  constructor(private readonly processingJobService: ProcessingJobService) {}
 
   async queueExecution(
     input: QueuePipelineExecutionInput,
   ): Promise<ProcessingJobRecord> {
-    return this.aiExecutionService.create(input.userId, input.projectId, {
+    return this.processingJobService.create(input.userId, input.projectId, {
       activityId: input.activityId ?? null,
       uploadMetadataId: input.uploadMetadataId ?? null,
       jobType: input.jobType,

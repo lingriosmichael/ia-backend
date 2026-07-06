@@ -1,7 +1,6 @@
 import {
   activityStatusValues,
   processingJobStatusValues,
-  processingJobTypeValues,
   projectStatusValues,
   resultRecordStatusValues,
   resultRecordTypeValues,
@@ -187,20 +186,20 @@ export const createUploadMetadataSchema = z.object({
   contentType: z.string().trim().min(1).max(255).optional(),
   sizeBytes: z.number().int().nonnegative().optional(),
   storageKey: z.string().trim().min(1).max(512).optional(),
+  replacesUploadMetadataId: z.string().min(1).nullable().optional(),
 });
 
 export const updateUploadMetadataSchema = z.object({
   contentType: z.string().trim().min(1).max(255).nullable().optional(),
   sizeBytes: z.number().int().nonnegative().nullable().optional(),
   storageKey: z.string().trim().min(1).max(512).nullable().optional(),
+  supersededAt: z.string().datetime({ offset: true }).nullable().optional(),
+  originalFileDeletedAt: z
+    .string()
+    .datetime({ offset: true })
+    .nullable()
+    .optional(),
   status: z.enum(uploadMetadataStatusValues).optional(),
-});
-
-export const createProcessingJobSchema = z.object({
-  activityId: z.string().min(1).nullable().optional(),
-  uploadMetadataId: z.string().min(1).nullable().optional(),
-  jobType: z.enum(processingJobTypeValues),
-  payload: jsonPayloadSchema.optional(),
 });
 
 export const updateProcessingJobSchema = z.object({

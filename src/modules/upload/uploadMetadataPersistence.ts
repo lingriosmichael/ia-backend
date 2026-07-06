@@ -6,10 +6,15 @@ export interface UploadMetadataPersistenceRecord {
   projectId: string;
   activityId: string | null;
   uploadedById: string;
+  logicalEvidenceId: string;
+  versionNumber: number;
+  replacesUploadMetadataId: string | null;
+  supersededAt: Date | null;
   originalFileName: string;
   contentType: string | null;
   sizeBytes: number | null;
   storageKey: string | null;
+  originalFileDeletedAt: Date | null;
   status: UploadMetadataStatus;
   createdAt: Date;
   updatedAt: Date;
@@ -20,6 +25,9 @@ export interface UploadMetadataCreateInput {
   projectId: string;
   activityId: string | null;
   uploadedById: string;
+  logicalEvidenceId?: string | null;
+  versionNumber?: number | null;
+  replacesUploadMetadataId?: string | null;
   originalFileName: string;
   contentType: string | null;
   sizeBytes: number | null;
@@ -30,5 +38,7 @@ export interface UploadMetadataUpdateInput {
   contentType?: string | null;
   sizeBytes?: number | null;
   storageKey?: string | null;
+  supersededAt?: Date | null;
+  originalFileDeletedAt?: Date | null;
   status?: UploadMetadataStatus;
 }
