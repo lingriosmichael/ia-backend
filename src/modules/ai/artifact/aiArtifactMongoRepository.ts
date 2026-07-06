@@ -156,6 +156,26 @@ export class MongoAIArtifactRepository implements ResultRepository {
     }).exec();
   }
 
+  async deleteByActivity(
+    activityId: string,
+    _session: DatabaseSession,
+  ): Promise<number> {
+    const result = await AIArtifactMongoModel.deleteMany({
+      activityId,
+    }).exec();
+    return result.deletedCount ?? 0;
+  }
+
+  async deleteByUploadMetadataId(
+    uploadMetadataId: string,
+    _session: DatabaseSession,
+  ): Promise<number> {
+    const result = await AIArtifactMongoModel.deleteMany({
+      uploadMetadataId,
+    }).exec();
+    return result.deletedCount ?? 0;
+  }
+
   async update(
     artifactId: string,
     input: AIArtifactUpdateInput,

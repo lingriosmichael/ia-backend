@@ -26,4 +26,9 @@ export async function registerActivityRoutes(
     { preHandler: authenticate },
     controller.update.bind(controller),
   );
+  app.delete(
+    "/activities/:activityId",
+    { preHandler: authenticate },
+    controller.delete.bind(controller),
+  );
 }

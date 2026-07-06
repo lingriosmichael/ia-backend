@@ -3,7 +3,14 @@ import path from "node:path";
 import type { MultipartFile } from "@fastify/multipart";
 import { AppError } from "../../shared/errors/appError.js";
 
-const supportedDatasetExtensions = new Set([".csv", ".xlsx", ".xls"]);
+const supportedDatasetExtensions = new Set([
+  ".csv",
+  ".xlsx",
+  ".xls",
+  ".pdf",
+  ".doc",
+  ".docx",
+]);
 const supportedLogoExtensions = new Set([".png", ".jpg", ".jpeg", ".webp"]);
 const supportedLogoMimeTypes = new Set([
   "image/png",
@@ -24,7 +31,7 @@ export class FileStorageService {
 
     if (!supportedDatasetExtensions.has(extension)) {
       throw new AppError(
-        "Only CSV and Excel files are supported.",
+        "Only CSV, Excel, PDF, DOC, and DOCX files are supported.",
         400,
         "unsupported_file_type",
       );
@@ -125,6 +132,30 @@ export class FileStorageService {
 
     if (extension === ".webp") {
       return "image/webp";
+    }
+
+    if (extension === ".csv") {
+      return "text/csv";
+    }
+
+    if (extension === ".xlsx") {
+      return "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+    }
+
+    if (extension === ".xls") {
+      return "application/vnd.ms-excel";
+    }
+
+    if (extension === ".pdf") {
+      return "application/pdf";
+    }
+
+    if (extension === ".doc") {
+      return "application/msword";
+    }
+
+    if (extension === ".docx") {
+      return "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
     }
 
     return "application/octet-stream";

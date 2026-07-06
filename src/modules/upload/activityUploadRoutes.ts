@@ -7,7 +7,7 @@ export async function registerActivityUploadRoutes(
   authenticate: (request: FastifyRequest, reply: FastifyReply) => Promise<void>,
 ) {
   app.post(
-    "/activities/:activityId/uploads",
+    "/activities/:activityId/evidence",
     { preHandler: authenticate },
     controller.upload.bind(controller),
   );

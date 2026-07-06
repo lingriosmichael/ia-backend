@@ -123,4 +123,12 @@ export class MongoActivityRepository implements ActivityRepository {
         Boolean(document),
       );
   }
+
+  async deleteById(
+    activityId: string,
+    _session: DatabaseSession,
+  ): Promise<ActivityPersistenceRecord | null> {
+    const document = await ActivityMongoModel.findByIdAndDelete(activityId).exec();
+    return toActivityRecord(document);
+  }
 }

@@ -31,12 +31,24 @@ export interface UploadMetadataRepository {
     projectId: string,
     session: DatabaseSession,
   ): Promise<string[]>;
+  listStorageKeysByActivity(
+    activityId: string,
+    session: DatabaseSession,
+  ): Promise<string[]>;
   countByProject(projectId: string, session: DatabaseSession): Promise<number>;
   countByActivityIds(
     activityIds: string[],
     session: DatabaseSession,
   ): Promise<Record<string, number>>;
   deleteByProject(projectId: string, session: DatabaseSession): Promise<number>;
+  deleteByActivity(
+    activityId: string,
+    session: DatabaseSession,
+  ): Promise<number>;
+  deleteById(
+    uploadMetadataId: string,
+    session: DatabaseSession,
+  ): Promise<UploadMetadataPersistenceRecord | null>;
   update(
     uploadMetadataId: string,
     input: UploadMetadataUpdateInput,

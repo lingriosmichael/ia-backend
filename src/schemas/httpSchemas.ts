@@ -33,6 +33,7 @@ export const idParamSchema = z.object({
   projectId: z.string().min(1).optional(),
   activityId: z.string().min(1).optional(),
   uploadMetadataId: z.string().min(1).optional(),
+  evidenceId: z.string().min(1).optional(),
   processingJobId: z.string().min(1).optional(),
   resultRecordId: z.string().min(1).optional(),
   invitationId: z.string().min(1).optional(),

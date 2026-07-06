@@ -111,12 +111,19 @@ export function createApplicationContext(config: BackendConfig) {
   const activityService = new ActivityService(
     activityRepository,
     authorizationService,
+    uploadMetadataRepository,
+    fileStorageService,
+    processingJobRepository,
+    resultRepository,
   );
   const uploadMetadataService = new UploadMetadataService(
     uploadMetadataRepository,
     activityService,
     authorizationService,
     fileStorageService,
+    userRepository,
+    processingJobRepository,
+    resultRepository,
   );
   const aiExecutionService = new AIExecutionService(
     processingJobRepository,
@@ -223,7 +230,6 @@ export function createApplicationContext(config: BackendConfig) {
     activityService,
     fileStorageService,
     uploadMetadataService,
-    aiOrchestrationService,
     authorizationService,
   );
   const invitationService = new InvitationService(

@@ -1,6 +1,10 @@
 import { databaseSession } from "../../shared/database/databaseClient.js";
+import type { ResultRepository } from "../ai/artifact/resultRepository.js";
+import type { ProcessingJobRepository } from "../ai/execution/processingJobRepository.js";
 import { AppError } from "../../shared/errors/appError.js";
 import { AuthorizationService } from "../../shared/auth/authorizationService.js";
+import { FileStorageService } from "../upload/fileStorageService.js";
+import type { UploadMetadataRepository } from "../upload/uploadMetadataRepository.js";
 import { mapActivity } from "../../shared/utils/mappers.js";
 import type { ActivityRepository } from "./activityRepository.js";
 
@@ -12,6 +16,10 @@ export class ActivityService {
   constructor(
     private readonly activityRepository: ActivityRepository,
     private readonly authorizationService: AuthorizationService,
+    private readonly uploadMetadataRepository: UploadMetadataRepository,
+    private readonly fileStorageService: FileStorageService,
+    private readonly processingJobRepository: ProcessingJobRepository,
+    private readonly resultRepository: ResultRepository,
   ) {}
 
   async listForProject(userId: string, projectId: string) {
@@ -193,5 +201,31 @@ export class ActivityService {
       },
       userId,
     );
+  }
+
+  async delete(userId: string, activityId: string) {
+    const { activity, project } = await this.authorizationService.canEditActivity(
+      userId,
+      activityId,
+    );
+
+    const storageKeys = await this.uploadMetadataRepository.listStorageKeysByActivity(
+      activityId,
+      databaseSession,
+    );
+
+    await this.resultRepository.deleteByActivity(activityId, databaseSession);
+    await this.processingJobRepository.deleteByActivity(
+      activityId,
+      databaseSession,
+    );
+    await this.uploadMetadataRepository.deleteByActivity(activityId, databaseSession);
+    await this.activityRepository.deleteById(activityId, databaseSession);
+    await this.fileStorageService.deleteStoredFiles(storageKeys);
+
+    return {
+      id: activity.id,
+      projectId: project.id,
+    };
   }
 }

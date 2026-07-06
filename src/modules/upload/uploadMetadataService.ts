@@ -1,8 +1,11 @@
 import { databaseSession } from "../../shared/database/databaseClient.js";
+import type { ProcessingJobRepository } from "../ai/execution/processingJobRepository.js";
 import { AppError } from "../../shared/errors/appError.js";
 import { AuthorizationService } from "../../shared/auth/authorizationService.js";
 import { mapUploadMetadata } from "../../shared/utils/mappers.js";
 import { ActivityService } from "../activity/activityService.js";
+import type { ResultRepository } from "../ai/artifact/resultRepository.js";
+import type { UserRepository } from "../user/userRepository.js";
 import { FileStorageService } from "./fileStorageService.js";
 import type { UploadMetadataRepository } from "./uploadMetadataRepository.js";
 
@@ -16,6 +19,9 @@ export class UploadMetadataService {
     private readonly activityService: ActivityService,
     private readonly authorizationService: AuthorizationService,
     private readonly fileStorageService: FileStorageService,
+    private readonly userRepository: UserRepository,
+    private readonly processingJobRepository: ProcessingJobRepository,
+    private readonly resultRepository: ResultRepository,
   ) {}
 
   async listByActivity(userId: string, activityId: string) {
@@ -25,7 +31,7 @@ export class UploadMetadataService {
       databaseSession,
     );
 
-    return records.map(mapUploadMetadata);
+    return this.mapRecordsWithUploaderNames(records);
   }
 
   async create(
@@ -77,7 +83,7 @@ export class UploadMetadataService {
       databaseSession,
     );
 
-    return mapUploadMetadata(record);
+    return this.mapRecordWithUploaderName(record);
   }
 
   async update(
@@ -124,7 +130,7 @@ export class UploadMetadataService {
       databaseSession,
     );
 
-    return mapUploadMetadata(updatedRecord);
+    return this.mapRecordWithUploaderName(updatedRecord);
   }
 
   async getFile(userId: string, uploadMetadataId: string) {
@@ -154,5 +160,99 @@ export class UploadMetadataService {
         this.fileStorageService.getContentTypeForPath(record.storageKey),
       originalFileName: record.originalFileName,
     };
+  }
+
+  async delete(userId: string, uploadMetadataId: string) {
+    const record = await this.uploadMetadataRepository.findById(
+      uploadMetadataId,
+      databaseSession,
+    );
+
+    if (!record) {
+      throw new AppError(
+        "Evidence record not found.",
+        404,
+        "evidence_not_found",
+      );
+    }
+
+    await this.authorizationService.canEditProject(userId, record.projectId);
+
+    await this.resultRepository.deleteByUploadMetadataId(
+      uploadMetadataId,
+      databaseSession,
+    );
+    await this.processingJobRepository.deleteByUploadMetadataId(
+      uploadMetadataId,
+      databaseSession,
+    );
+    await this.uploadMetadataRepository.deleteById(uploadMetadataId, databaseSession);
+
+    if (record.storageKey) {
+      await this.fileStorageService.deleteStoredFiles([record.storageKey]);
+    }
+
+    return {
+      id: record.id,
+      activityId: record.activityId,
+      projectId: record.projectId,
+    };
+  }
+
+  private async mapRecordsWithUploaderNames(
+    records: Array<{
+      id: string;
+      organizationId: string;
+      projectId: string;
+      activityId: string | null;
+      originalFileName: string;
+      contentType: string | null;
+      sizeBytes: number | null;
+      storageKey: string | null;
+      status: "pending" | "uploaded" | "archived";
+      uploadedById: string;
+      createdAt: Date;
+      updatedAt: Date;
+    }>,
+  ) {
+    const users = await this.userRepository.findByIds(
+      [...new Set(records.map((record) => record.uploadedById))],
+      databaseSession,
+    );
+    const uploaderNamesById = new Map(
+      users.map((user) => [user.id, user.fullName] as const),
+    );
+
+    return records.map((record) =>
+      mapUploadMetadata({
+        ...record,
+        uploadedByName: uploaderNamesById.get(record.uploadedById) ?? null,
+      }),
+    );
+  }
+
+  private async mapRecordWithUploaderName(record: {
+    id: string;
+    organizationId: string;
+    projectId: string;
+    activityId: string | null;
+    originalFileName: string;
+    contentType: string | null;
+    sizeBytes: number | null;
+    storageKey: string | null;
+    status: "pending" | "uploaded" | "archived";
+    uploadedById: string;
+    createdAt: Date;
+    updatedAt: Date;
+  }) {
+    const uploader = await this.userRepository.findById(
+      record.uploadedById,
+      databaseSession,
+    );
+
+    return mapUploadMetadata({
+      ...record,
+      uploadedByName: uploader?.fullName ?? null,
+    });
   }
 }

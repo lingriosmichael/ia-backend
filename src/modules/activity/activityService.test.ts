@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import type { ResultRepository } from "../ai/artifact/resultRepository.js";
+import type { ProcessingJobRepository } from "../ai/execution/processingJobRepository.js";
 import type { AuthorizationService } from "../../shared/auth/authorizationService.js";
+import type { UploadMetadataRepository } from "../upload/uploadMetadataRepository.js";
+import { FileStorageService } from "../upload/fileStorageService.js";
 import type { ActivityRepository } from "./activityRepository.js";
 import { ActivityService } from "./activityService.js";
 
@@ -94,6 +98,10 @@ test("activity getById authorizes access through the project service", async () 
   const activityService = new ActivityService(
     activityRepository,
     authorizationService,
+    {} as UploadMetadataRepository,
+    new FileStorageService("/tmp"),
+    {} as ProcessingJobRepository,
+    {} as ResultRepository,
   );
 
   const activity = await activityService.getById("user-1", "activity-1");

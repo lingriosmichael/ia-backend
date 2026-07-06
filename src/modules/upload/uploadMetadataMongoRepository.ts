@@ -123,6 +123,24 @@ export class MongoUploadMetadataRepository implements UploadMetadataRepository {
       .filter((storageKey): storageKey is string => Boolean(storageKey));
   }
 
+  async listStorageKeysByActivity(
+    activityId: string,
+    _session: DatabaseSession,
+  ): Promise<string[]> {
+    const documents = await UploadMetadataMongoModel.find({
+      activityId,
+      storageKey: { $ne: null },
+    })
+      .select({
+        storageKey: 1,
+      })
+      .exec();
+
+    return documents
+      .map((document) => document.storageKey)
+      .filter((storageKey): storageKey is string => Boolean(storageKey));
+  }
+
   async countByProject(
     projectId: string,
     _session: DatabaseSession,
@@ -181,6 +199,25 @@ export class MongoUploadMetadataRepository implements UploadMetadataRepository {
       projectId,
     }).exec();
     return result.deletedCount ?? 0;
+  }
+
+  async deleteByActivity(
+    activityId: string,
+    _session: DatabaseSession,
+  ): Promise<number> {
+    const result = await UploadMetadataMongoModel.deleteMany({
+      activityId,
+    }).exec();
+    return result.deletedCount ?? 0;
+  }
+
+  async deleteById(
+    uploadMetadataId: string,
+    _session: DatabaseSession,
+  ): Promise<UploadMetadataPersistenceRecord | null> {
+    const document =
+      await UploadMetadataMongoModel.findByIdAndDelete(uploadMetadataId).exec();
+    return toUploadMetadataRecord(document);
   }
 
   async update(

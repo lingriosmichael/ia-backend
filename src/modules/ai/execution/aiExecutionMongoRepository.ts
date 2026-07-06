@@ -158,6 +158,26 @@ export class MongoAIExecutionRepository implements ProcessingJobRepository {
     }).exec();
   }
 
+  async deleteByActivity(
+    activityId: string,
+    _session: DatabaseSession,
+  ): Promise<number> {
+    const result = await AIExecutionMongoModel.deleteMany({
+      activityId,
+    }).exec();
+    return result.deletedCount ?? 0;
+  }
+
+  async deleteByUploadMetadataId(
+    uploadMetadataId: string,
+    _session: DatabaseSession,
+  ): Promise<number> {
+    const result = await AIExecutionMongoModel.deleteMany({
+      uploadMetadataId,
+    }).exec();
+    return result.deletedCount ?? 0;
+  }
+
   async update(
     executionId: string,
     input: AIExecutionUpdateInput,

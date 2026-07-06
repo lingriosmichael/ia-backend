@@ -35,6 +35,14 @@ export interface ResultRepository {
     statuses: AIArtifactPersistenceRecord["status"][],
     session: DatabaseSession,
   ): Promise<number>;
+  deleteByActivity(
+    activityId: string,
+    session: DatabaseSession,
+  ): Promise<number>;
+  deleteByUploadMetadataId(
+    uploadMetadataId: string,
+    session: DatabaseSession,
+  ): Promise<number>;
   findById(
     resultRecordId: string,
     session: DatabaseSession,

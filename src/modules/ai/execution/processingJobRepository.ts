@@ -35,6 +35,14 @@ export interface ProcessingJobRepository {
     statuses: AIExecutionPersistenceRecord["status"][],
     session: DatabaseSession,
   ): Promise<number>;
+  deleteByActivity(
+    activityId: string,
+    session: DatabaseSession,
+  ): Promise<number>;
+  deleteByUploadMetadataId(
+    uploadMetadataId: string,
+    session: DatabaseSession,
+  ): Promise<number>;
   findById(
     processingJobId: string,
     session: DatabaseSession,

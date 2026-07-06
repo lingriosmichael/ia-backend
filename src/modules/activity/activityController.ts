@@ -66,4 +66,17 @@ export class ActivityController {
     );
     return successResponse(activity);
   }
+
+  async delete(request: FastifyRequest) {
+    if (!request.auth) {
+      throw new AppError("Authentication is required.", 401, "unauthorized");
+    }
+
+    const params = idParamSchema.parse(request.params);
+    const activity = await this.activityService.delete(
+      request.auth.userId,
+      params.activityId!,
+    );
+    return successResponse(activity);
+  }
 }

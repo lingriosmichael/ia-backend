@@ -219,6 +219,7 @@ export interface UploadMetadataRecord {
   storageKey: string | null;
   status: UploadMetadataStatus;
   uploadedById: string;
+  uploadedByName: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -259,8 +260,17 @@ export type ResultRecord = AIArtifactRecord;
 
 export interface ActivityUploadResponse {
   upload: UploadMetadataRecord;
-  execution: AIExecutionRecord;
-  job: ProcessingJobRecord;
+}
+
+export interface DeleteEvidenceResponse {
+  id: string;
+  activityId: string | null;
+  projectId: string;
+}
+
+export interface DeleteActivityResponse {
+  id: string;
+  projectId: string;
 }
 
 export interface WorkspaceActivity extends ActivitySummary {

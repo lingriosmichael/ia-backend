@@ -468,6 +468,7 @@ export function mapUploadMetadata(record: {
   storageKey: string | null;
   status: UploadMetadataStatus;
   uploadedById: string;
+  uploadedByName?: string | null;
   createdAt: Date;
   updatedAt: Date;
 }): UploadMetadataRecord {
@@ -482,6 +483,7 @@ export function mapUploadMetadata(record: {
     storageKey: record.storageKey,
     status: record.status,
     uploadedById: record.uploadedById,
+    uploadedByName: record.uploadedByName ?? null,
     createdAt: toIso(record.createdAt),
     updatedAt: toIso(record.updatedAt),
   };

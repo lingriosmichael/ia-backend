@@ -1,11 +1,7 @@
 import type { FastifyReply, FastifyRequest } from "fastify";
 import { AppError } from "../../shared/errors/appError.js";
 import { successResponse } from "../../shared/http/apiResponse.js";
-import {
-  createUploadMetadataSchema,
-  idParamSchema,
-  updateUploadMetadataSchema,
-} from "../../schemas/httpSchemas.js";
+import { idParamSchema } from "../../schemas/httpSchemas.js";
 import { UploadMetadataService } from "./uploadMetadataService.js";
 
 export class UploadMetadataController {
@@ -24,36 +20,6 @@ export class UploadMetadataController {
     return successResponse(records);
   }
 
-  async create(request: FastifyRequest) {
-    if (!request.auth) {
-      throw new AppError("Authentication is required.", 401, "unauthorized");
-    }
-
-    const params = idParamSchema.parse(request.params);
-    const payload = createUploadMetadataSchema.parse(request.body);
-    const record = await this.uploadMetadataService.create(
-      request.auth.userId,
-      params.projectId!,
-      payload,
-    );
-    return successResponse(record);
-  }
-
-  async update(request: FastifyRequest) {
-    if (!request.auth) {
-      throw new AppError("Authentication is required.", 401, "unauthorized");
-    }
-
-    const params = idParamSchema.parse(request.params);
-    const payload = updateUploadMetadataSchema.parse(request.body);
-    const record = await this.uploadMetadataService.update(
-      request.auth.userId,
-      params.uploadMetadataId!,
-      payload,
-    );
-    return successResponse(record);
-  }
-
   async getFile(request: FastifyRequest, reply: FastifyReply) {
     if (!request.auth) {
       throw new AppError("Authentication is required.", 401, "unauthorized");
@@ -62,7 +28,7 @@ export class UploadMetadataController {
     const params = idParamSchema.parse(request.params);
     const file = await this.uploadMetadataService.getFile(
       request.auth.userId,
-      params.uploadMetadataId!,
+      params.evidenceId!,
     );
 
     return reply
@@ -72,5 +38,18 @@ export class UploadMetadataController {
         `inline; filename="${encodeURIComponent(file.originalFileName)}"`,
       )
       .send(file.buffer);
+  }
+
+  async delete(request: FastifyRequest) {
+    if (!request.auth) {
+      throw new AppError("Authentication is required.", 401, "unauthorized");
+    }
+
+    const params = idParamSchema.parse(request.params);
+    const response = await this.uploadMetadataService.delete(
+      request.auth.userId,
+      params.evidenceId!,
+    );
+    return successResponse(response);
   }
 }

@@ -7,22 +7,17 @@ export async function registerUploadMetadataRoutes(
   authenticate: (request: FastifyRequest, reply: FastifyReply) => Promise<void>,
 ) {
   app.get(
-    "/activities/:activityId/upload-metadata",
+    "/activities/:activityId/evidence",
     { preHandler: authenticate },
     controller.listByActivity.bind(controller),
   );
-  app.post(
-    "/projects/:projectId/upload-metadata",
+  app.delete(
+    "/evidence/:evidenceId",
     { preHandler: authenticate },
-    controller.create.bind(controller),
-  );
-  app.patch(
-    "/upload-metadata/:uploadMetadataId",
-    { preHandler: authenticate },
-    controller.update.bind(controller),
+    controller.delete.bind(controller),
   );
   app.get(
-    "/upload-metadata/:uploadMetadataId/file",
+    "/evidence/:evidenceId/file",
     { preHandler: authenticate },
     controller.getFile.bind(controller),
   );
