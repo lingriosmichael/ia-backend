@@ -5,6 +5,7 @@ import {
   createProjectSchema,
   deleteProjectSchema,
   idParamSchema,
+  transferProjectOwnershipSchema,
   updateProjectSchema,
 } from "../../schemas/httpSchemas.js";
 import { ProjectService } from "./projectService.js";
@@ -67,6 +68,19 @@ export class ProjectController {
       auth.userId,
       params.projectId!,
       payload,
+    );
+    return successResponse(project);
+  }
+
+  async transferOwnership(request: FastifyRequest) {
+    const auth = requireAuthenticatedUser(request);
+
+    const params = idParamSchema.parse(request.params);
+    const payload = transferProjectOwnershipSchema.parse(request.body);
+    const project = await this.projectService.transferOwnership(
+      auth.userId,
+      params.projectId!,
+      payload.newOwnerId,
     );
     return successResponse(project);
   }

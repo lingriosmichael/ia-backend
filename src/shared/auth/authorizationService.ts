@@ -106,6 +106,16 @@ export class AuthorizationService {
     return context;
   }
 
+  // Deliberately narrower than canEditProject's "must be the owner" rule:
+  // canViewProject already only lets a PROJECT_MANAGER through when they
+  // own the project, so anyone who passes it is either the current owner
+  // or an ORGANIZATION_ADMIN — exactly who should be allowed to reassign
+  // ownership (e.g. an admin reassigning after the owner leaves), without
+  // granting blanket edit/delete rights over every project they don't own.
+  async canTransferProjectOwnership(userId: string, projectId: string) {
+    return this.canViewProject(userId, projectId);
+  }
+
   async canViewActivity(userId: string, activityId: string) {
     const activity = await this.requireActivity(activityId);
     const projectContext = await this.canViewProject(

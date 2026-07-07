@@ -3,13 +3,21 @@ import path from "node:path";
 import type { MultipartFile } from "@fastify/multipart";
 import { AppError } from "../../shared/errors/appError.js";
 
-const supportedDatasetExtensions = new Set([
-  ".csv",
-  ".xlsx",
-  ".xls",
-  ".pdf",
-  ".docx",
-]);
+// Mirrors the extension+MIME check already used for logo uploads below.
+// CSV/XLS in particular have more real-world MIME variance across
+// browsers/OSes than image types, so each extension allows a small set of
+// known-legitimate MIME types rather than a single canonical value.
+const supportedDatasetMimeTypesByExtension: Record<string, Set<string>> = {
+  ".csv": new Set(["text/csv", "application/vnd.ms-excel", "application/csv"]),
+  ".xlsx": new Set([
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  ]),
+  ".xls": new Set(["application/vnd.ms-excel"]),
+  ".pdf": new Set(["application/pdf"]),
+  ".docx": new Set([
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  ]),
+};
 const supportedLogoExtensions = new Set([".png", ".jpg", ".jpeg", ".webp"]);
 const supportedLogoMimeTypes = new Set([
   "image/png",
@@ -27,8 +35,9 @@ export class FileStorageService {
   async storeActivityUpload(activityId: string, file: MultipartFile) {
     const originalFileName = file.filename || "upload";
     const extension = path.extname(originalFileName).toLowerCase();
+    const allowedMimeTypes = supportedDatasetMimeTypesByExtension[extension];
 
-    if (!supportedDatasetExtensions.has(extension)) {
+    if (!allowedMimeTypes || !allowedMimeTypes.has(file.mimetype || "")) {
       throw new AppError(
         "Only CSV, Excel, PDF, and DOCX files are supported.",
         400,

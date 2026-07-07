@@ -9,6 +9,7 @@ import { AuthorizationService } from "../../shared/auth/authorizationService.js"
 import type { ProjectRepository } from "./projectRepository.js";
 import { FileStorageService } from "../upload/fileStorageService.js";
 import type { ActivityRepository } from "../activity/activityRepository.js";
+import type { OrganizationRepository } from "../organization/organizationRepository.js";
 import type { UploadMetadataRepository } from "../upload/uploadMetadataRepository.js";
 import type { UserRepository } from "../user/userRepository.js";
 import { ProcessingResourceCleanupService } from "../processing/processingResourceCleanupService.js";
@@ -55,6 +56,7 @@ export class ProjectService {
     private readonly transactionManager: TransactionManager,
     private readonly userRepository: UserRepository,
     private readonly processingResourceCleanupService: ProcessingResourceCleanupService,
+    private readonly organizationRepository: OrganizationRepository,
   ) {}
 
   async listForOrganization(userId: string, organizationId: string) {
@@ -211,6 +213,54 @@ export class ProjectService {
     );
   }
 
+  async transferOwnership(
+    userId: string,
+    projectId: string,
+    newOwnerId: string,
+  ) {
+    const { project } =
+      await this.authorizationService.canTransferProjectOwnership(
+        userId,
+        projectId,
+      );
+
+    if (newOwnerId === project.ownerId) {
+      throw new AppError(
+        "This user is already the owner of this project.",
+        400,
+        "project_owner_unchanged",
+      );
+    }
+
+    const newOwnerMembership = await this.organizationRepository.findMembership(
+      newOwnerId,
+      project.organizationId,
+      databaseSession,
+    );
+
+    if (!newOwnerMembership) {
+      throw new AppError(
+        "The new owner must be a member of this organization.",
+        400,
+        "project_owner_not_organization_member",
+      );
+    }
+
+    const updatedProject = await this.projectRepository.transferOwnership(
+      projectId,
+      newOwnerId,
+      databaseSession,
+    );
+
+    return mapProjectSummary(
+      {
+        ...updatedProject,
+        ownerName: await this.getOwnerName(updatedProject.ownerId),
+      },
+      userId,
+    );
+  }
+
   async getById(userId: string, projectId: string) {
     const { project } = await this.authorizationService.canViewProject(
       userId,
@@ -352,6 +402,12 @@ export class ProjectService {
         databaseSession,
       );
 
+    // Dependents are deleted before the project document itself, and any
+    // failure here aborts the whole operation instead of being swallowed —
+    // the project is only removed once its processing/upload records are
+    // confirmed gone, so a cleanup failure never leaves the project
+    // invisible while its data (including PII-adjacent evidence records)
+    // lingers behind.
     const deletedProject = await this.transactionManager.runInTransaction(
       async (session) => {
         const projectInTransaction =
@@ -369,37 +425,26 @@ export class ProjectService {
           );
         }
 
+        await this.processingResourceCleanupService.deleteByProjectId(
+          projectId,
+          session,
+        );
+        await this.uploadMetadataRepository.deleteByProject(
+          projectId,
+          session,
+        );
+
         return this.projectRepository.delete(projectId, session);
       },
     );
 
-    try {
-      await this.processingResourceCleanupService.deleteByProjectId(
-        projectId,
-        databaseSession,
-      );
-    } catch (error) {
-      console.error("Failed to delete processing resource records for project.", {
-        projectId,
-        error,
-      });
-    }
-
-    try {
-      await this.uploadMetadataRepository.deleteByProject(
-        projectId,
-        databaseSession,
-      );
-    } catch (error) {
-      console.error("Failed to delete upload metadata records for project.", {
-        projectId,
-        error,
-      });
-    }
-
     if (storageKeys.length > 0) {
-      // Filesystem deletion cannot participate in the database transaction,
-      // so it runs after commit once relational cleanup has succeeded.
+      // Filesystem deletion cannot participate in the database transaction.
+      // By this point every database record referencing these files is
+      // already gone, so a failure here can only leave unreferenced bytes
+      // on disk — not a dangling reference reachable through the API —
+      // which is why this step stays best-effort rather than failing the
+      // now-already-completed delete.
       try {
         await this.fileStorageService.deleteStoredFiles(storageKeys);
       } catch (error) {

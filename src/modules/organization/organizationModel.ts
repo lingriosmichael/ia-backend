@@ -34,6 +34,14 @@ const organizationSchema = new Schema(
   },
 );
 
+// Case-insensitive unique constraint via collation (strength 2), matching
+// the case-insensitive check already done in application code — this
+// closes the check-then-create race that check alone can't prevent.
+organizationSchema.index(
+  { name: 1 },
+  { unique: true, collation: { locale: "en", strength: 2 } },
+);
+
 export type OrganizationMongoDocument = InferSchemaType<
   typeof organizationSchema
 >;

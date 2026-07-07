@@ -30,7 +30,7 @@ export interface InvitationRepository {
     invitationId: string,
     acceptedById: string,
     session: DatabaseSession,
-  ): Promise<InvitationPersistenceRecord>;
+  ): Promise<InvitationPersistenceRecord | null>;
   revoke(
     invitationId: string,
     session: DatabaseSession,

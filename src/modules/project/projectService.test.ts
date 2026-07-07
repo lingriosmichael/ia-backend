@@ -7,6 +7,7 @@ import { FileStorageService } from "../upload/fileStorageService.js";
 import type { ProjectRepository } from "./projectRepository.js";
 import { ProjectService } from "./projectService.js";
 import type { ActivityRepository } from "../activity/activityRepository.js";
+import type { OrganizationRepository } from "../organization/organizationRepository.js";
 import type { UploadMetadataRepository } from "../upload/uploadMetadataRepository.js";
 import type { ProcessingResourceCleanupService } from "../processing/processingResourceCleanupService.js";
 import type { UserRepository } from "../user/userRepository.js";
@@ -107,6 +108,7 @@ test(
       transactionManager,
       userRepository,
       processingResourceCleanupService,
+      {} as unknown as OrganizationRepository,
     );
 
     await assert.rejects(
@@ -223,6 +225,7 @@ test(
       transactionManager,
       userRepository,
       processingResourceCleanupService,
+      {} as unknown as OrganizationRepository,
     );
 
     const deletedProject = await projectService.delete("user-1", "project-1", {
@@ -239,6 +242,124 @@ test(
       "activity-1/dataset.csv",
       "activity-1/dataset.csv",
     ]);
+  },
+);
+
+test(
+  "project deletion aborts and leaves the project intact if dependent cleanup fails",
+  { concurrency: false },
+  async () => {
+    let projectDeleteCalled = false;
+    let deletedStorageKeys: string[] | undefined;
+
+    const projectRepository = {
+      findDeleteContext: async () => ({
+        id: "project-1",
+        name: "Mentoring Programme 2026",
+        organizationId: "organization-1",
+      }),
+      delete: async () => {
+        projectDeleteCalled = true;
+        return {
+          id: "project-1",
+          organizationId: "organization-1",
+        };
+      },
+    } as unknown as ProjectRepository;
+
+    const authorizationService = {
+      canEditProject: async () => ({
+        membership: {
+          id: "membership-1",
+          userId: "user-1",
+          organizationId: "organization-1",
+          role: "PROJECT_MANAGER",
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        },
+        project: {
+          id: "project-1",
+          organizationId: "organization-1",
+          ownerId: "user-1",
+          name: "Mentoring Programme 2026",
+          projectGoal: null,
+          startMonth: null,
+          endMonth: null,
+          fundingProgram: null,
+          fundingOrganization: null,
+          targetGroups: [],
+          areaOfOperation: null,
+          partnerships: null,
+          sdgs: [],
+          impactModel: {
+            inputs: null,
+            activities: null,
+            outputs: null,
+            impact: null,
+            outcomes: null,
+          },
+          successIndicators: null,
+          status: "planning",
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        },
+      }),
+    } as unknown as AuthorizationService;
+
+    const fileStorageService = {
+      deleteStoredFiles: async (storageKeys: string[]) => {
+        deletedStorageKeys = storageKeys;
+      },
+    } as unknown as FileStorageService;
+
+    const uploadMetadataRepository = {
+      listStorageKeysByProject: async () => ["activity-1/dataset.csv"],
+      deleteByProject: async () => 1,
+    } as unknown as UploadMetadataRepository;
+    const activityRepository = {} as ActivityRepository;
+
+    const transactionManager = {
+      runInTransaction: async <T>(
+        operation: (session: undefined) => Promise<T>,
+      ) => operation(undefined),
+    } as unknown as TransactionManager;
+    const userRepository = {} as UserRepository;
+    const processingResourceCleanupService = {
+      deleteByProjectId: async () => {
+        throw new Error("Simulated processing cleanup failure.");
+      },
+    } as unknown as ProcessingResourceCleanupService;
+
+    const projectService = new ProjectService(
+      projectRepository,
+      authorizationService,
+      fileStorageService,
+      activityRepository,
+      uploadMetadataRepository,
+      transactionManager,
+      userRepository,
+      processingResourceCleanupService,
+      {} as unknown as OrganizationRepository,
+    );
+
+    await assert.rejects(
+      () =>
+        projectService.delete("user-1", "project-1", {
+          projectName: "Mentoring Programme 2026",
+        }),
+      /Simulated processing cleanup failure/,
+    );
+
+    assert.equal(
+      projectDeleteCalled,
+      false,
+      "the project document must not be deleted when dependent cleanup fails",
+    );
+    assert.equal(
+      deletedStorageKeys,
+      undefined,
+      "stored files must not be deleted when dependent cleanup fails",
+    );
   },
 );
 
@@ -342,6 +463,7 @@ test(
       {
         deleteByProjectId: async () => undefined,
       } as unknown as ProcessingResourceCleanupService,
+      {} as unknown as OrganizationRepository,
     );
 
     const overview = await projectService.getOverview("user-1", "project-1");

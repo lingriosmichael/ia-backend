@@ -1,6 +1,5 @@
 import type { DatabaseSession } from "../../shared/database/databaseClient.js";
 import { createDocumentId } from "../../shared/database/documentId.js";
-import { AppError } from "../../shared/errors/appError.js";
 import {
   InvitationMongoModel,
   type InvitationMongoHydratedDocument,
@@ -95,9 +94,13 @@ export class MongoInvitationRepository implements InvitationRepository {
     invitationId: string,
     acceptedById: string,
     _session: DatabaseSession,
-  ): Promise<InvitationPersistenceRecord> {
-    const document = await InvitationMongoModel.findByIdAndUpdate(
-      invitationId,
+  ): Promise<InvitationPersistenceRecord | null> {
+    // Atomic conditional update: only an invitation still "pending" can be
+    // accepted, so two concurrent accept requests for the same token can't
+    // both succeed — the second gets null and the caller turns that into a
+    // clean 409 instead of silently double-accepting.
+    const document = await InvitationMongoModel.findOneAndUpdate(
+      { _id: invitationId, status: "pending" },
       {
         $set: {
           status: "accepted",
@@ -108,12 +111,7 @@ export class MongoInvitationRepository implements InvitationRepository {
       { new: true },
     ).exec();
 
-    const record = toInvitationRecord(document);
-    if (!record) {
-      throw new AppError("Invitation not found.", 404, "invitation_not_found");
-    }
-
-    return record;
+    return toInvitationRecord(document);
   }
 
   async revoke(

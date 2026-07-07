@@ -1,6 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { databaseSession } from "../../shared/database/databaseClient.js";
 import type { TransactionManager } from "../../shared/database/transactionManager.js";
+import { isMongoDuplicateKeyError } from "../../shared/database/mongoErrors.js";
 import type { EmailService } from "../../shared/email/emailService.js";
 import { AppError } from "../../shared/errors/appError.js";
 import { hashPassword } from "../../shared/utils/password.js";
@@ -288,50 +289,77 @@ export class InvitationService {
       );
     }
 
-    const acceptedInvitation = await this.transactionManager.runInTransaction(
-      async (session) => {
-        const user =
-          existingUser ??
-          (await this.userRepository.create(
+    let acceptedInvitation: InvitationPersistenceRecord | null;
+    try {
+      acceptedInvitation = await this.transactionManager.runInTransaction(
+        async (session) => {
+          const user =
+            existingUser ??
+            (await this.userRepository.create(
+              {
+                email: invitation.email,
+                fullName: input.fullName!.trim(),
+                passwordHash: await hashPassword(input.password!),
+              },
+              session,
+            ));
+
+          const existingMembership =
+            await this.organizationRepository.findMembership(
+              user.id,
+              invitation.organizationId,
+              session,
+            );
+
+          if (existingMembership) {
+            throw new AppError(
+              "This user is already a member of the organization.",
+              409,
+              "organization_member_exists",
+            );
+          }
+
+          await this.organizationRepository.createMembership(
             {
-              email: invitation.email,
-              fullName: input.fullName!.trim(),
-              passwordHash: await hashPassword(input.password!),
+              userId: user.id,
+              organizationId: invitation.organizationId,
+              role: invitation.role,
             },
             session,
-          ));
+          );
 
-        const existingMembership =
-          await this.organizationRepository.findMembership(
+          return this.invitationRepository.markAccepted(
+            invitation.id,
             user.id,
-            invitation.organizationId,
             session,
           );
-
-        if (existingMembership) {
-          throw new AppError(
-            "This user is already a member of the organization.",
-            409,
-            "organization_member_exists",
-          );
-        }
-
-        await this.organizationRepository.createMembership(
-          {
-            userId: user.id,
-            organizationId: invitation.organizationId,
-            role: invitation.role,
-          },
-          session,
+        },
+      );
+    } catch (error) {
+      // Two concurrent accept requests for the same token can race past the
+      // pending-status read above and both reach here — the DB's unique
+      // constraints on User.email / Membership.(userId, organizationId)
+      // correctly reject the second one, but as a raw duplicate-key error.
+      // Surface that as the same clean "already accepted" response instead
+      // of an unhandled 500.
+      if (isMongoDuplicateKeyError(error)) {
+        throw new AppError(
+          "This invitation has already been accepted.",
+          409,
+          "invitation_unavailable",
         );
+      }
 
-        return this.invitationRepository.markAccepted(
-          invitation.id,
-          user.id,
-          session,
-        );
-      },
-    );
+      throw error;
+    }
+
+    if (!acceptedInvitation) {
+      throw new AppError(
+        "This invitation has already been accepted.",
+        409,
+        "invitation_unavailable",
+      );
+    }
 
     return {
       invitation: {

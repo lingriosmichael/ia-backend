@@ -1,5 +1,6 @@
 import type { DatabaseSession } from "../../shared/database/databaseClient.js";
 import { createDocumentId } from "../../shared/database/documentId.js";
+import { isMongoDuplicateKeyError } from "../../shared/database/mongoErrors.js";
 import { AppError } from "../../shared/errors/appError.js";
 import {
   MembershipMongoModel,
@@ -98,13 +99,28 @@ export class MongoOrganizationRepository implements OrganizationRepository {
     input: OrganizationCreateInput,
     _session: DatabaseSession,
   ): Promise<OrganizationPersistenceRecord> {
-    const document = await OrganizationMongoModel.create({
-      _id: createDocumentId(),
-      name: input.name,
-      mission: input.mission ?? null,
-      settings: input.settings,
-    });
-    return toOrganizationRecord(document) as OrganizationPersistenceRecord;
+    try {
+      const document = await OrganizationMongoModel.create({
+        _id: createDocumentId(),
+        name: input.name,
+        mission: input.mission ?? null,
+        settings: input.settings,
+      });
+      return toOrganizationRecord(document) as OrganizationPersistenceRecord;
+    } catch (error) {
+      // The service's own nameExists() check-then-create isn't atomic; the
+      // unique collation index on `name` is the real guard, so a race that
+      // slips past that check still lands on the same clean error here.
+      if (isMongoDuplicateKeyError(error)) {
+        throw new AppError(
+          "An organization with this name already exists.",
+          409,
+          "organization_name_exists",
+        );
+      }
+
+      throw error;
+    }
   }
 
   async createMembership(
@@ -222,20 +238,33 @@ export class MongoOrganizationRepository implements OrganizationRepository {
     input: OrganizationUpdateInput,
     _session: DatabaseSession,
   ): Promise<OrganizationPersistenceRecord> {
-    const document = await OrganizationMongoModel.findByIdAndUpdate(
-      organizationId,
-      {
-        $set: {
-          name: input.name,
-          mission: input.mission,
-          settings: input.settings,
-          ...(input.logoUrl !== undefined ? { logoUrl: input.logoUrl } : {}),
+    let document: OrganizationMongoHydratedDocument | null;
+    try {
+      document = await OrganizationMongoModel.findByIdAndUpdate(
+        organizationId,
+        {
+          $set: {
+            name: input.name,
+            mission: input.mission,
+            settings: input.settings,
+            ...(input.logoUrl !== undefined ? { logoUrl: input.logoUrl } : {}),
+          },
         },
-      },
-      {
-        new: true,
-      },
-    ).exec();
+        {
+          new: true,
+        },
+      ).exec();
+    } catch (error) {
+      if (isMongoDuplicateKeyError(error)) {
+        throw new AppError(
+          "An organization with this name already exists.",
+          409,
+          "organization_name_exists",
+        );
+      }
+
+      throw error;
+    }
 
     const record = toOrganizationRecord(document);
     if (!record) {

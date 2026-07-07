@@ -99,6 +99,7 @@ export function createApplicationContext(config: BackendConfig) {
     transactionManager,
     userRepository,
     processingResourceCleanupService,
+    organizationRepository,
   );
   const activityService = new ActivityService(
     activityRepository,

@@ -139,6 +139,10 @@ export const deleteProjectSchema = z.object({
   projectName: z.string().min(1).max(120),
 });
 
+export const transferProjectOwnershipSchema = z.object({
+  newOwnerId: z.string().min(1),
+});
+
 export const createActivitySchema = z.object({
   name: z.string().trim().min(2).max(120),
   description: z.string().trim().max(2000).optional(),

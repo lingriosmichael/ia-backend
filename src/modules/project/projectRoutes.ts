@@ -31,6 +31,11 @@ export async function registerProjectRoutes(
     { preHandler: authenticate },
     controller.update.bind(controller),
   );
+  app.post(
+    "/projects/:projectId/transfer-ownership",
+    { preHandler: authenticate },
+    controller.transferOwnership.bind(controller),
+  );
   app.delete(
     "/projects/:projectId",
     { preHandler: authenticate },

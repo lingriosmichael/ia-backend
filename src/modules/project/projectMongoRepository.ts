@@ -116,6 +116,30 @@ export class MongoProjectRepository implements ProjectRepository {
     return record;
   }
 
+  async transferOwnership(
+    projectId: string,
+    newOwnerId: string,
+    _session: DatabaseSession,
+  ): Promise<ProjectPersistenceRecord> {
+    const document = await ProjectMongoModel.findByIdAndUpdate(
+      projectId,
+      {
+        $set: { ownerId: newOwnerId },
+      },
+      {
+        new: true,
+      },
+    ).exec();
+
+    const record = toProjectRecord(document);
+
+    if (!record) {
+      throw new AppError("Project not found.", 404, "project_not_found");
+    }
+
+    return record;
+  }
+
   async listByOrganization(
     organizationId: string,
     _session: DatabaseSession,

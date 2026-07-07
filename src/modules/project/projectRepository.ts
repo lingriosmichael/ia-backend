@@ -27,6 +27,11 @@ export interface ProjectRepository {
     input: ProjectUpdateInput,
     session: DatabaseSession,
   ): Promise<ProjectPersistenceRecord>;
+  transferOwnership(
+    projectId: string,
+    newOwnerId: string,
+    session: DatabaseSession,
+  ): Promise<ProjectPersistenceRecord>;
   listByOrganization(
     organizationId: string,
     session: DatabaseSession,
