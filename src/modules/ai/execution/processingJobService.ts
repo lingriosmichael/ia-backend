@@ -2,7 +2,10 @@ import { databaseSession } from "../../../shared/database/databaseClient.js";
 import { AppError } from "../../../shared/errors/appError.js";
 import { AuthorizationService } from "../../../shared/auth/authorizationService.js";
 import { mapProcessingJob } from "../../../shared/utils/mappers.js";
-import type { ProcessingJobType, ProcessingJobStatus } from "../../../shared/contracts.js";
+import type {
+  ProcessingJobType,
+  ProcessingJobStatus,
+} from "../../../shared/contracts.js";
 import { EvidenceProcessingArtifactService } from "../../processing/evidenceProcessingArtifactService.js";
 import { PythonProcessingClient } from "../../processing/pythonProcessingClient.js";
 import type { UploadMetadataRepository } from "../../upload/uploadMetadataRepository.js";
@@ -43,7 +46,10 @@ export class ProcessingJobService {
 
     if (input.activityId) {
       const activity = (
-        await this.authorizationService.canEditActivity(userId, input.activityId)
+        await this.authorizationService.canEditActivity(
+          userId,
+          input.activityId,
+        )
       ).activity;
       if (activity.projectId !== project.id) {
         throw new AppError(
@@ -97,7 +103,10 @@ export class ProcessingJobService {
       );
     }
 
-    await this.authorizationService.canEditProject(userId, existingJob.projectId);
+    await this.authorizationService.canEditProject(
+      userId,
+      existingJob.projectId,
+    );
 
     // Atomic conditional update: only a job that is still active can be
     // cancelled, closing the race between two concurrent cancel requests
@@ -193,8 +202,8 @@ export class ProcessingJobService {
         payload: {
           ...(job.payload ?? {}),
           pythonJob: {
-            ...((job.payload?.pythonJob as Record<string, unknown> | undefined) ??
-              {}),
+            ...((job.payload?.pythonJob as
+              Record<string, unknown> | undefined) ?? {}),
             externalJobId: processorStatus.externalJobId,
             status: processorStatus.status,
             updatedAt: processorStatus.updatedAt,

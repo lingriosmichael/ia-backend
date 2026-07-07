@@ -27,6 +27,12 @@ export function createAuthenticateMiddleware(authService: AuthService) {
         "invalid_token",
       );
     }
+
+    // Every subsequent log line for this request — including the built-in
+    // access log and any error logged by the central error handler — now
+    // carries the caller's identity, so a reported problem can be traced
+    // back to the specific user and request that caused it.
+    request.log = request.log.child({ userId: request.auth.userId });
   };
 }
 
@@ -57,5 +63,11 @@ export function createAuthenticateIfPresentMiddleware(
         "invalid_token",
       );
     }
+
+    // Every subsequent log line for this request — including the built-in
+    // access log and any error logged by the central error handler — now
+    // carries the caller's identity, so a reported problem can be traced
+    // back to the specific user and request that caused it.
+    request.log = request.log.child({ userId: request.auth.userId });
   };
 }

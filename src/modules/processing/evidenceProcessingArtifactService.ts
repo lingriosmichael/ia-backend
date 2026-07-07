@@ -13,9 +13,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 
-function readFileType(
-  value: unknown,
-): "spreadsheet" | "document" | "unknown" {
+function readFileType(value: unknown): "spreadsheet" | "document" | "unknown" {
   return value === "spreadsheet" || value === "document" || value === "unknown"
     ? value
     : "unknown";
@@ -99,7 +97,9 @@ export class EvidenceProcessingArtifactService {
         activityId: job.activityId,
         uploadMetadataId: job.uploadMetadataId,
         processingJobId: job.id,
-        findings: isRecord(privacyReview.findings) ? privacyReview.findings : {},
+        findings: isRecord(privacyReview.findings)
+          ? privacyReview.findings
+          : {},
       },
       databaseSession,
     );
@@ -151,10 +151,11 @@ export class EvidenceProcessingArtifactService {
         job.id,
         databaseSession,
       );
-    const privacyReview = await this.privacyReviewRepository.findByProcessingJobId(
-      job.id,
-      databaseSession,
-    );
+    const privacyReview =
+      await this.privacyReviewRepository.findByProcessingJobId(
+        job.id,
+        databaseSession,
+      );
 
     if (!parsedRepresentation || !privacyReview) {
       throw new AppError(

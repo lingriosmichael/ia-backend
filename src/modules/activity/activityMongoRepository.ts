@@ -128,7 +128,8 @@ export class MongoActivityRepository implements ActivityRepository {
     activityId: string,
     _session: DatabaseSession,
   ): Promise<ActivityPersistenceRecord | null> {
-    const document = await ActivityMongoModel.findByIdAndDelete(activityId).exec();
+    const document =
+      await ActivityMongoModel.findByIdAndDelete(activityId).exec();
     return toActivityRecord(document);
   }
 }

@@ -32,9 +32,7 @@ function toPrivacySafeRepresentationRecord(
   };
 }
 
-export class MongoPrivacySafeRepresentationRepository
-  implements PrivacySafeRepresentationRepository
-{
+export class MongoPrivacySafeRepresentationRepository implements PrivacySafeRepresentationRepository {
   async upsertByProcessingJobId(
     input: PrivacySafeRepresentationUpsertInput,
     _session: DatabaseSession,

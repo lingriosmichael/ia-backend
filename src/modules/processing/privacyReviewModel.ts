@@ -8,7 +8,12 @@ const privacyReviewSchema = new Schema(
     projectId: { type: String, required: true, index: true },
     activityId: { type: String, default: null, index: true },
     uploadMetadataId: { type: String, required: true, index: true },
-    processingJobId: { type: String, required: true, index: true, unique: true },
+    processingJobId: {
+      type: String,
+      required: true,
+      index: true,
+      unique: true,
+    },
     status: {
       type: String,
       enum: ["pending", "approved", "rejected"],

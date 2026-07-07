@@ -13,7 +13,10 @@ export interface ParsedRepresentationRepository {
     processingJobId: string,
     session: DatabaseSession,
   ): Promise<ParsedRepresentationPersistenceRecord | null>;
-  deleteByProjectId(projectId: string, session: DatabaseSession): Promise<number>;
+  deleteByProjectId(
+    projectId: string,
+    session: DatabaseSession,
+  ): Promise<number>;
   deleteByActivityId(
     activityId: string,
     session: DatabaseSession,

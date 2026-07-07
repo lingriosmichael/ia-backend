@@ -24,7 +24,10 @@ export interface PrivacyReviewRepository {
     input: PrivacyReviewApproveInput,
     session: DatabaseSession,
   ): Promise<PrivacyReviewPersistenceRecord | null>;
-  deleteByProjectId(projectId: string, session: DatabaseSession): Promise<number>;
+  deleteByProjectId(
+    projectId: string,
+    session: DatabaseSession,
+  ): Promise<number>;
   deleteByActivityId(
     activityId: string,
     session: DatabaseSession,

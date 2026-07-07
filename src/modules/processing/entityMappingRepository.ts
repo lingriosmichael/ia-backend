@@ -17,7 +17,10 @@ export interface EntityMappingRepository {
     entries: EntityMappingReplaceEntry[],
     session: DatabaseSession,
   ): Promise<void>;
-  deleteByProjectId(projectId: string, session: DatabaseSession): Promise<number>;
+  deleteByProjectId(
+    projectId: string,
+    session: DatabaseSession,
+  ): Promise<number>;
   deleteByActivityId(
     activityId: string,
     session: DatabaseSession,

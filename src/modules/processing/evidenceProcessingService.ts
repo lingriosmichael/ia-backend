@@ -27,7 +27,11 @@ export class EvidenceProcessingService {
     );
 
     if (!uploadMetadata) {
-      throw new AppError("Evidence record not found.", 404, "evidence_not_found");
+      throw new AppError(
+        "Evidence record not found.",
+        404,
+        "evidence_not_found",
+      );
     }
 
     await this.authorizationService.canEditProject(
@@ -85,16 +89,17 @@ export class EvidenceProcessingService {
     );
 
     try {
-      const pythonJob = await this.pythonProcessingClient.startEvidenceProcessing({
-        processingJobId: queuedJob.id,
-        uploadMetadataId: uploadMetadata.id,
-        projectId: uploadMetadata.projectId,
-        activityId: uploadMetadata.activityId,
-        storageKey: uploadMetadata.storageKey,
-        originalFileName: uploadMetadata.originalFileName,
-        contentType: uploadMetadata.contentType,
-        fileBuffer: storedFile.buffer,
-      });
+      const pythonJob =
+        await this.pythonProcessingClient.startEvidenceProcessing({
+          processingJobId: queuedJob.id,
+          uploadMetadataId: uploadMetadata.id,
+          projectId: uploadMetadata.projectId,
+          activityId: uploadMetadata.activityId,
+          storageKey: uploadMetadata.storageKey,
+          originalFileName: uploadMetadata.originalFileName,
+          contentType: uploadMetadata.contentType,
+          fileBuffer: storedFile.buffer,
+        });
 
       const startedJob = await this.processingJobRepository.update(
         queuedJob.id,

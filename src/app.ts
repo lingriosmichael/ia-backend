@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import Fastify from "fastify";
 import cors from "@fastify/cors";
 import multipart from "@fastify/multipart";
@@ -22,8 +23,60 @@ import {
 import { registerErrorHandler } from "./shared/errors/errorHandler.js";
 
 export async function buildApp(config: BackendConfig) {
+  const isProduction = process.env.NODE_ENV === "production";
+
   const app = Fastify({
-    logger: false,
+    // A per-request UUID (rather than Fastify's default incrementing
+    // counter) so request IDs stay unique across restarts and can be
+    // correlated with the same request's logs at the Python service if it
+    // reflects the header back.
+    genReqId: () => randomUUID(),
+    // Fastify's built-in request/response logging doesn't pick up the
+    // authenticated userId attached in authenticate.ts (it captures its own
+    // logger reference earlier in the request lifecycle), so it's disabled
+    // in favor of the two explicit hooks below, which do.
+    disableRequestLogging: true,
+    logger: {
+      level: isProduction ? "info" : "debug",
+      // Raw JSON in production for log aggregation; pretty-printed in dev
+      // for readability at the terminal.
+      transport: isProduction
+        ? undefined
+        : { target: "pino-pretty", options: { colorize: true } },
+      redact: {
+        paths: [
+          "req.headers.authorization",
+          "req.headers.cookie",
+          "req.headers['x-internal-service-token']",
+        ],
+        censor: "[redacted]",
+      },
+    },
+  });
+
+  // Every request logs on arrival (before auth, so even a rejected or
+  // crashed request leaves a trace) and again on completion. The
+  // completion line picks up `userId` automatically once authenticate.ts
+  // has bound it to request.log, giving a full trail of who called what,
+  // when, and with what outcome — without needing to add logging to every
+  // individual route handler.
+  app.addHook("onRequest", async (request) => {
+    request.log.info(
+      { method: request.method, url: request.url },
+      "request received",
+    );
+  });
+
+  app.addHook("onResponse", async (request, reply) => {
+    request.log.info(
+      {
+        method: request.method,
+        url: request.url,
+        statusCode: reply.statusCode,
+        responseTimeMs: Math.round(reply.elapsedTime),
+      },
+      "request completed",
+    );
   });
 
   await connectMongoDatabase(config);

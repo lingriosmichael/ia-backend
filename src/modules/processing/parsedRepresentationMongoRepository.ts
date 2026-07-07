@@ -31,9 +31,7 @@ function toParsedRepresentationRecord(
   };
 }
 
-export class MongoParsedRepresentationRepository
-  implements ParsedRepresentationRepository
-{
+export class MongoParsedRepresentationRepository implements ParsedRepresentationRepository {
   async upsertByProcessingJobId(
     input: ParsedRepresentationUpsertInput,
     _session: DatabaseSession,

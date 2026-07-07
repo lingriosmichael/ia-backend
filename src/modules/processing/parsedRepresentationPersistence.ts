@@ -1,4 +1,5 @@
-export type ParsedRepresentationFileType = "spreadsheet" | "document" | "unknown";
+export type ParsedRepresentationFileType =
+  "spreadsheet" | "document" | "unknown";
 
 export interface ParsedRepresentationPersistenceRecord {
   id: string;

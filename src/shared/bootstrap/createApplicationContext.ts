@@ -56,7 +56,8 @@ export function createApplicationContext(config: BackendConfig) {
   const uploadMetadataRepository = new MongoUploadMetadataRepository();
   const processingJobRepository = new MongoProcessingJobRepository();
   const resultRepository = new MongoResultRepository();
-  const parsedRepresentationRepository = new MongoParsedRepresentationRepository();
+  const parsedRepresentationRepository =
+    new MongoParsedRepresentationRepository();
   const privacyReviewRepository = new MongoPrivacyReviewRepository();
   const privacySafeRepresentationRepository =
     new MongoPrivacySafeRepresentationRepository();
@@ -124,13 +125,14 @@ export function createApplicationContext(config: BackendConfig) {
     config.PYTHON_SERVICE_URL,
     config.PYTHON_SERVICE_SHARED_SECRET,
   );
-  const evidenceProcessingArtifactService = new EvidenceProcessingArtifactService(
-    uploadMetadataService,
-    parsedRepresentationRepository,
-    privacyReviewRepository,
-    privacySafeRepresentationRepository,
-    entityMappingRepository,
-  );
+  const evidenceProcessingArtifactService =
+    new EvidenceProcessingArtifactService(
+      uploadMetadataService,
+      parsedRepresentationRepository,
+      privacyReviewRepository,
+      privacySafeRepresentationRepository,
+      entityMappingRepository,
+    );
   const processingJobService = new ProcessingJobService(
     processingJobRepository,
     uploadMetadataRepository,

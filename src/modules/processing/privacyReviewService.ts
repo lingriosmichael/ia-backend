@@ -172,10 +172,11 @@ export class PrivacyReviewService {
     // retry — persisting "approved" first would permanently wedge the job,
     // since there is no unapprove/reset path once review.status leaves
     // "pending" (see the check above).
-    const pythonResponse = await this.pythonProcessingClient.approvePrivacyReview(
-      externalJobId,
-      decisionsToApply,
-    );
+    const pythonResponse =
+      await this.pythonProcessingClient.approvePrivacyReview(
+        externalJobId,
+        decisionsToApply,
+      );
 
     // Atomic conditional update: the earlier findByProcessingJobId check
     // above is only for a clean 404/409 error message — this is the real
@@ -201,8 +202,8 @@ export class PrivacyReviewService {
         payload: {
           ...(job.payload ?? {}),
           pythonJob: {
-            ...((job.payload?.pythonJob as Record<string, unknown> | undefined) ??
-              {}),
+            ...((job.payload?.pythonJob as
+              Record<string, unknown> | undefined) ?? {}),
             externalJobId: pythonResponse.externalJobId,
             status: pythonResponse.status,
             updatedAt: pythonResponse.updatedAt,

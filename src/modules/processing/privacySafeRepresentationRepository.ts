@@ -9,7 +9,10 @@ export interface PrivacySafeRepresentationRepository {
     input: PrivacySafeRepresentationUpsertInput,
     session: DatabaseSession,
   ): Promise<PrivacySafeRepresentationPersistenceRecord>;
-  deleteByProjectId(projectId: string, session: DatabaseSession): Promise<number>;
+  deleteByProjectId(
+    projectId: string,
+    session: DatabaseSession,
+  ): Promise<number>;
   deleteByActivityId(
     activityId: string,
     session: DatabaseSession,

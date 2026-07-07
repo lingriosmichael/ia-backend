@@ -335,7 +335,7 @@ export class ProjectService {
         activityName: upload.activityId
           ? (activityNamesById[upload.activityId] ?? null)
           : null,
-        })),
+      })),
     ]
       .sort(
         (left, right) =>
@@ -429,10 +429,7 @@ export class ProjectService {
           projectId,
           session,
         );
-        await this.uploadMetadataRepository.deleteByProject(
-          projectId,
-          session,
-        );
+        await this.uploadMetadataRepository.deleteByProject(projectId, session);
 
         return this.projectRepository.delete(projectId, session);
       },

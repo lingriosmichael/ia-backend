@@ -19,7 +19,7 @@ function isClientErrorWithStatusCode(
 }
 
 export function registerErrorHandler(app: FastifyInstance) {
-  app.setErrorHandler((error, _request, reply) => {
+  app.setErrorHandler((error, request, reply) => {
     if (error instanceof AppError) {
       return reply.code(error.statusCode).send(
         errorResponse({
@@ -51,6 +51,12 @@ export function registerErrorHandler(app: FastifyInstance) {
         }),
       );
     }
+
+    // Every other error is a genuine bug, not expected control flow — log
+    // it with the full stack (request.log already carries this request's
+    // correlation ID) since without this, an unexpected 500 previously left
+    // no server-side trace of what actually happened.
+    request.log.error({ err: error }, "Unhandled error");
 
     return reply.code(500).send(
       errorResponse({

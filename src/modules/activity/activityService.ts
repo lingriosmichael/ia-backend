@@ -206,15 +206,14 @@ export class ActivityService {
   }
 
   async delete(userId: string, activityId: string) {
-    const { activity, project } = await this.authorizationService.canEditActivity(
-      userId,
-      activityId,
-    );
+    const { activity, project } =
+      await this.authorizationService.canEditActivity(userId, activityId);
 
-    const storageKeys = await this.uploadMetadataRepository.listStorageKeysByActivity(
-      activityId,
-      databaseSession,
-    );
+    const storageKeys =
+      await this.uploadMetadataRepository.listStorageKeysByActivity(
+        activityId,
+        databaseSession,
+      );
 
     await this.resultRepository.deleteByActivity(activityId, databaseSession);
     await this.processingResourceCleanupService.deleteByActivityId(
@@ -225,7 +224,10 @@ export class ActivityService {
       activityId,
       databaseSession,
     );
-    await this.uploadMetadataRepository.deleteByActivity(activityId, databaseSession);
+    await this.uploadMetadataRepository.deleteByActivity(
+      activityId,
+      databaseSession,
+    );
     await this.activityRepository.deleteById(activityId, databaseSession);
     await this.fileStorageService.deleteStoredFiles(storageKeys);
 

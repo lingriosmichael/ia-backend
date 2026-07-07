@@ -294,7 +294,10 @@ export class UploadMetadataService {
       uploadMetadataId,
       databaseSession,
     );
-    await this.uploadMetadataRepository.deleteById(uploadMetadataId, databaseSession);
+    await this.uploadMetadataRepository.deleteById(
+      uploadMetadataId,
+      databaseSession,
+    );
 
     if (record.storageKey && !record.originalFileDeletedAt) {
       await this.fileStorageService.deleteStoredFiles([record.storageKey]);
@@ -326,7 +329,9 @@ export class UploadMetadataService {
     );
   }
 
-  async deleteOriginalFileAfterPrivacySafePersistence(uploadMetadataId: string) {
+  async deleteOriginalFileAfterPrivacySafePersistence(
+    uploadMetadataId: string,
+  ) {
     const record = await this.uploadMetadataRepository.findById(
       uploadMetadataId,
       databaseSession,
@@ -357,7 +362,9 @@ export class UploadMetadataService {
     return this.mapRecordWithUploaderName(updatedRecord);
   }
 
-  private async mapRecordWithUploaderName(record: UploadMetadataPersistenceRecord) {
+  private async mapRecordWithUploaderName(
+    record: UploadMetadataPersistenceRecord,
+  ) {
     const uploader = await this.userRepository.findById(
       record.uploadedById,
       databaseSession,
