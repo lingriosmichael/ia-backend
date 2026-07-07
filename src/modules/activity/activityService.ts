@@ -9,10 +9,6 @@ import type { UploadMetadataRepository } from "../upload/uploadMetadataRepositor
 import { mapActivity } from "../../shared/utils/mappers.js";
 import type { ActivityRepository } from "./activityRepository.js";
 
-function mapActivityStatus(status: "planning" | "active" | "completed") {
-  return status;
-}
-
 export class ActivityService {
   constructor(
     private readonly activityRepository: ActivityRepository,
@@ -55,12 +51,10 @@ export class ActivityService {
       startDate?: string;
       endDate?: string;
       objectives?: string;
-      expectedOutcomes?: string;
       successIndicators?: string;
       targetAudience?: string;
       additionalContext?: string;
-      beneficiaryGroup?: string;
-      status?: "planning" | "active" | "completed";
+      status?: "active" | "completed";
     },
   ) {
     await this.authorizationService.canEditProject(userId, projectId);
@@ -76,12 +70,10 @@ export class ActivityService {
         startDate: input.startDate ? new Date(input.startDate) : null,
         endDate: input.endDate ? new Date(input.endDate) : null,
         objectives: input.objectives?.trim() ?? null,
-        expectedOutcomes: input.expectedOutcomes?.trim() ?? null,
         successIndicators: input.successIndicators?.trim() ?? null,
         targetAudience: input.targetAudience?.trim() ?? null,
         additionalContext: input.additionalContext?.trim() ?? null,
-        beneficiaryGroup: input.beneficiaryGroup?.trim() ?? null,
-        status: input.status ? mapActivityStatus(input.status) : undefined,
+        status: input.status,
       },
       databaseSession,
     );
@@ -106,12 +98,10 @@ export class ActivityService {
       startDate?: string | null;
       endDate?: string | null;
       objectives?: string | null;
-      expectedOutcomes?: string | null;
       successIndicators?: string | null;
       targetAudience?: string | null;
       additionalContext?: string | null;
-      beneficiaryGroup?: string | null;
-      status?: "planning" | "active" | "completed";
+      status?: "active" | "completed";
     },
   ) {
     const activity = await this.activityRepository.findById(
@@ -158,10 +148,6 @@ export class ActivityService {
           input.objectives === undefined
             ? undefined
             : (input.objectives?.trim() ?? null),
-        expectedOutcomes:
-          input.expectedOutcomes === undefined
-            ? undefined
-            : (input.expectedOutcomes?.trim() ?? null),
         successIndicators:
           input.successIndicators === undefined
             ? undefined
@@ -174,11 +160,7 @@ export class ActivityService {
           input.additionalContext === undefined
             ? undefined
             : (input.additionalContext?.trim() ?? null),
-        beneficiaryGroup:
-          input.beneficiaryGroup === undefined
-            ? undefined
-            : (input.beneficiaryGroup?.trim() ?? null),
-        status: input.status ? mapActivityStatus(input.status) : undefined,
+        status: input.status,
       },
       databaseSession,
     );

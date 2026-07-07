@@ -29,11 +29,9 @@ function toActivityRecord(
     startDate: document.startDate ?? null,
     endDate: document.endDate ?? null,
     objectives: document.objectives ?? null,
-    expectedOutcomes: document.expectedOutcomes ?? null,
     successIndicators: document.successIndicators ?? null,
     targetAudience: document.targetAudience ?? null,
     additionalContext: document.additionalContext ?? null,
-    beneficiaryGroup: document.beneficiaryGroup ?? null,
     status: document.status,
     createdAt: document.createdAt,
     updatedAt: document.updatedAt,
@@ -48,7 +46,7 @@ export class MongoActivityRepository implements ActivityRepository {
     const document = await ActivityMongoModel.create({
       _id: createDocumentId(),
       ...input,
-      status: input.status ?? "planning",
+      status: input.status ?? "active",
     });
 
     return toActivityRecord(document) as ActivityPersistenceRecord;

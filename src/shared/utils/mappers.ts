@@ -41,7 +41,7 @@ const projectStatusMap = {
 } as const;
 
 const activityStatusMap = {
-  DRAFT: "planning",
+  DRAFT: "active",
   ACTIVE: "active",
   ARCHIVED: "completed",
 } as const;
@@ -79,7 +79,7 @@ function readStringArray(value: unknown): string[] {
 function normalizeActivityStatus(
   value: ActivityStatus | keyof typeof activityStatusMap,
 ): ActivityStatus {
-  return value === "planning" || value === "active" || value === "completed"
+  return value === "active" || value === "completed"
     ? value
     : activityStatusMap[value];
 }
@@ -312,11 +312,9 @@ export function mapActivity(
     startDate: Date | null;
     endDate: Date | null;
     objectives: string | null;
-    expectedOutcomes: string | null;
     successIndicators: string | null;
     targetAudience: string | null;
     additionalContext: string | null;
-    beneficiaryGroup: string | null;
     status: ActivityStatus | keyof typeof activityStatusMap;
     createdAt: Date;
     updatedAt: Date;
@@ -333,11 +331,9 @@ export function mapActivity(
     startDate: activity.startDate ? toIso(activity.startDate) : null,
     endDate: activity.endDate ? toIso(activity.endDate) : null,
     objectives: activity.objectives,
-    expectedOutcomes: activity.expectedOutcomes,
     successIndicators: activity.successIndicators,
     targetAudience: activity.targetAudience,
     additionalContext: activity.additionalContext,
-    beneficiaryGroup: activity.beneficiaryGroup,
     status: normalizeActivityStatus(activity.status),
     permissions: mapActivityPermissions(activity.projectOwnerId, currentUserId),
     createdAt: toIso(activity.createdAt),
@@ -357,11 +353,9 @@ export function mapWorkspaceActivity(
     startDate: Date | null;
     endDate: Date | null;
     objectives: string | null;
-    expectedOutcomes: string | null;
     successIndicators: string | null;
     targetAudience: string | null;
     additionalContext: string | null;
-    beneficiaryGroup: string | null;
     status: ActivityStatus | keyof typeof activityStatusMap;
     createdAt: Date;
     updatedAt: Date;
@@ -429,11 +423,9 @@ export function mapWorkspace(record: {
       startDate: Date | null;
       endDate: Date | null;
       objectives: string | null;
-      expectedOutcomes: string | null;
       successIndicators: string | null;
       targetAudience: string | null;
       additionalContext: string | null;
-      beneficiaryGroup: string | null;
       status: ActivityStatus | keyof typeof activityStatusMap;
       createdAt: Date;
       updatedAt: Date;

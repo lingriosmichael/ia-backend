@@ -13,15 +13,13 @@ const activitySchema = new Schema(
     startDate: { type: Date, default: null },
     endDate: { type: Date, default: null },
     objectives: { type: String, default: null },
-    expectedOutcomes: { type: String, default: null },
     successIndicators: { type: String, default: null },
     targetAudience: { type: String, default: null },
     additionalContext: { type: String, default: null },
-    beneficiaryGroup: { type: String, default: null },
     status: {
       type: String,
-      enum: ["planning", "active", "completed"],
-      default: "planning",
+      enum: ["active", "completed"],
+      default: "active",
     },
   },
   {

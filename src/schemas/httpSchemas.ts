@@ -151,11 +151,9 @@ export const createActivitySchema = z.object({
   startDate: dateValueSchema,
   endDate: dateValueSchema,
   objectives: z.string().trim().max(2000).optional(),
-  expectedOutcomes: z.string().trim().max(2000).optional(),
   successIndicators: z.string().trim().max(2000).optional(),
   targetAudience: z.string().trim().max(2000).optional(),
   additionalContext: z.string().trim().max(2000).optional(),
-  beneficiaryGroup: z.string().trim().max(2000).optional(),
   status: z.enum(activityStatusValues).optional(),
 });
 
@@ -167,11 +165,9 @@ export const updateActivitySchema = z.object({
   startDate: z.string().datetime({ offset: true }).nullable().optional(),
   endDate: z.string().datetime({ offset: true }).nullable().optional(),
   objectives: z.string().trim().max(2000).nullable().optional(),
-  expectedOutcomes: z.string().trim().max(2000).nullable().optional(),
   successIndicators: z.string().trim().max(2000).nullable().optional(),
   targetAudience: z.string().trim().max(2000).nullable().optional(),
   additionalContext: z.string().trim().max(2000).nullable().optional(),
-  beneficiaryGroup: z.string().trim().max(2000).nullable().optional(),
   status: z.enum(activityStatusValues).optional(),
 });
 

@@ -7,11 +7,7 @@ export type OrganizationRole = (typeof organizationRoleValues)[number];
 export const projectStatusValues = ["planning", "active", "completed"] as const;
 export type ProjectStatus = (typeof projectStatusValues)[number];
 
-export const activityStatusValues = [
-  "planning",
-  "active",
-  "completed",
-] as const;
+export const activityStatusValues = ["active", "completed"] as const;
 export type ActivityStatus = (typeof activityStatusValues)[number];
 
 export const uploadMetadataStatusValues = [
@@ -170,11 +166,9 @@ export interface ActivitySummary {
   startDate: string | null;
   endDate: string | null;
   objectives: string | null;
-  expectedOutcomes: string | null;
   successIndicators: string | null;
   targetAudience: string | null;
   additionalContext: string | null;
-  beneficiaryGroup: string | null;
   status: ActivityStatus;
   permissions: ActivityPermissions;
   createdAt: string;
@@ -520,11 +514,9 @@ export interface CreateActivityRequest {
   startDate?: string;
   endDate?: string;
   objectives?: string;
-  expectedOutcomes?: string;
   successIndicators?: string;
   targetAudience?: string;
   additionalContext?: string;
-  beneficiaryGroup?: string;
   status?: ActivityStatus;
 }
 
@@ -536,11 +528,9 @@ export interface UpdateActivityRequest {
   startDate?: string | null;
   endDate?: string | null;
   objectives?: string | null;
-  expectedOutcomes?: string | null;
   successIndicators?: string | null;
   targetAudience?: string | null;
   additionalContext?: string | null;
-  beneficiaryGroup?: string | null;
   status?: ActivityStatus;
 }
 

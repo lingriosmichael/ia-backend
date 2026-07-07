@@ -10,11 +10,9 @@ export interface ActivityPersistenceRecord {
   startDate: Date | null;
   endDate: Date | null;
   objectives: string | null;
-  expectedOutcomes: string | null;
   successIndicators: string | null;
   targetAudience: string | null;
   additionalContext: string | null;
-  beneficiaryGroup: string | null;
   status: ActivityStatus;
   createdAt: Date;
   updatedAt: Date;
@@ -30,11 +28,9 @@ export interface ActivityCreateInput {
   startDate: Date | null;
   endDate: Date | null;
   objectives: string | null;
-  expectedOutcomes: string | null;
   successIndicators: string | null;
   targetAudience: string | null;
   additionalContext: string | null;
-  beneficiaryGroup: string | null;
   status?: ActivityStatus;
 }
 
@@ -46,10 +42,8 @@ export interface ActivityUpdateInput {
   startDate?: Date | null;
   endDate?: Date | null;
   objectives?: string | null;
-  expectedOutcomes?: string | null;
   successIndicators?: string | null;
   targetAudience?: string | null;
   additionalContext?: string | null;
-  beneficiaryGroup?: string | null;
   status?: ActivityStatus;
 }
