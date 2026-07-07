@@ -6,8 +6,6 @@ const projectSchema = new Schema(
     _id: { type: String, required: true },
     organizationId: { type: String, required: true, index: true },
     ownerId: { type: String, required: true, index: true },
-    // Legacy field retained temporarily for migration compatibility.
-    createdById: { type: String, default: null },
     name: { type: String, required: true, trim: true },
     projectGoal: { type: String, default: null },
     startMonth: { type: String, default: null },
@@ -26,13 +24,6 @@ const projectSchema = new Schema(
       outcomes: { type: String, default: null },
     },
     successIndicators: { type: String, default: null },
-    // Deprecated fields retained temporarily for migration compatibility.
-    description: { type: String, default: null },
-    programGoal: { type: String, default: null },
-    country: { type: String, default: null },
-    regionCity: { type: String, default: null },
-    targetBeneficiaries: { type: [String], default: [] },
-    fundingSource: { type: String, default: null },
     status: {
       type: String,
       enum: ["planning", "active", "completed"],

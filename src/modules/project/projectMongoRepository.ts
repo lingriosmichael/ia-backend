@@ -22,7 +22,7 @@ function toProjectRecord(
   return {
     id: document._id.toString(),
     organizationId: document.organizationId,
-    ownerId: document.ownerId ?? document.createdById,
+    ownerId: document.ownerId,
     name: document.name,
     projectGoal: document.projectGoal ?? null,
     startMonth: document.startMonth ?? null,
