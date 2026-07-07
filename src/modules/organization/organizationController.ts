@@ -1,6 +1,7 @@
 import type { MultipartFile } from "@fastify/multipart";
 import type { FastifyReply, FastifyRequest } from "fastify";
 import { AppError } from "../../shared/errors/appError.js";
+import { requireAuthenticatedUser } from "../../shared/auth/requireAuthenticatedUser.js";
 import { successResponse } from "../../shared/http/apiResponse.js";
 import {
   createOrganizationSchema,
@@ -13,33 +14,27 @@ export class OrganizationController {
   constructor(private readonly organizationService: OrganizationService) {}
 
   async list(request: FastifyRequest) {
-    if (!request.auth) {
-      throw new AppError("Authentication is required.", 401, "unauthorized");
-    }
+    const auth = requireAuthenticatedUser(request);
 
     const organizations = await this.organizationService.listForUser(
-      request.auth.userId,
+      auth.userId,
     );
     return successResponse(organizations);
   }
 
   async create(request: FastifyRequest) {
-    if (!request.auth) {
-      throw new AppError("Authentication is required.", 401, "unauthorized");
-    }
+    const auth = requireAuthenticatedUser(request);
 
     const payload = createOrganizationSchema.parse(request.body);
     const organization = await this.organizationService.create(
-      request.auth.userId,
+      auth.userId,
       payload,
     );
     return successResponse(organization);
   }
 
   async update(request: FastifyRequest) {
-    if (!request.auth) {
-      throw new AppError("Authentication is required.", 401, "unauthorized");
-    }
+    const auth = requireAuthenticatedUser(request);
 
     const params = idParamSchema.parse(request.params);
     const { payload, logoFile } = request.isMultipart()
@@ -49,7 +44,7 @@ export class OrganizationController {
           logoFile: undefined,
         };
     const organization = await this.organizationService.update(
-      request.auth.userId,
+      auth.userId,
       params.organizationId!,
       {
         ...payload,
@@ -60,39 +55,33 @@ export class OrganizationController {
   }
 
   async getWorkspace(request: FastifyRequest) {
-    if (!request.auth) {
-      throw new AppError("Authentication is required.", 401, "unauthorized");
-    }
+    const auth = requireAuthenticatedUser(request);
 
     const params = idParamSchema.parse(request.params);
     const workspace = await this.organizationService.getWorkspace(
-      request.auth.userId,
+      auth.userId,
       params.organizationId!,
     );
     return successResponse(workspace);
   }
 
   async listMembers(request: FastifyRequest) {
-    if (!request.auth) {
-      throw new AppError("Authentication is required.", 401, "unauthorized");
-    }
+    const auth = requireAuthenticatedUser(request);
 
     const params = idParamSchema.parse(request.params);
     const members = await this.organizationService.listMembers(
-      request.auth.userId,
+      auth.userId,
       params.organizationId!,
     );
     return successResponse(members);
   }
 
   async removeMember(request: FastifyRequest) {
-    if (!request.auth) {
-      throw new AppError("Authentication is required.", 401, "unauthorized");
-    }
+    const auth = requireAuthenticatedUser(request);
 
     const params = idParamSchema.parse(request.params);
     const removedMember = await this.organizationService.removeMember(
-      request.auth.userId,
+      auth.userId,
       params.organizationId!,
       params.membershipId!,
     );

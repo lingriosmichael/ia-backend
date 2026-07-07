@@ -21,9 +21,9 @@ export async function registerProcessingJobRoutes(
     { preHandler: authenticate },
     controller.sync.bind(controller),
   );
-  app.patch(
-    "/jobs/:processingJobId",
+  app.post(
+    "/jobs/:processingJobId/cancel",
     { preHandler: authenticate },
-    controller.update.bind(controller),
+    controller.cancel.bind(controller),
   );
 }

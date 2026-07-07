@@ -10,36 +10,11 @@ import { ActivityController } from "../../modules/activity/activityController.js
 import { MongoActivityRepository } from "../../modules/activity/activityMongoRepository.js";
 import { ActivityService } from "../../modules/activity/activityService.js";
 import { ResultController } from "../../modules/ai/artifact/resultController.js";
-import { MongoAIArtifactRepository } from "../../modules/ai/artifact/aiArtifactMongoRepository.js";
-import { AIArtifactService } from "../../modules/ai/artifact/aiArtifactService.js";
-import { AIArtifactRecordService } from "../../modules/ai/artifact/aiArtifactRecordService.js";
-import { ResultService } from "../../modules/ai/artifact/resultService.js";
-import { AIContextService } from "../../modules/ai/context/aiContextService.js";
-import { AIExecutionRunnerService } from "../../modules/ai/execution/aiExecutionRunnerService.js";
-import { MongoProcessingJobRepository } from "../../modules/ai/execution/aiExecutionMongoRepository.js";
-import { MockJobRunnerService } from "../../modules/ai/execution/mockJobRunnerService.js";
-import {
-  MockPipelineExecutionScheduler,
-  ProcessingJobPipelineExecutionStore,
-} from "../../modules/ai/execution/pipelineExecutionStore.js";
+import { MongoResultRepository } from "../../modules/ai/artifact/resultRecordMongoRepository.js";
+import { ResultRecordService } from "../../modules/ai/artifact/resultRecordService.js";
+import { MongoProcessingJobRepository } from "../../modules/ai/execution/processingJobMongoRepository.js";
 import { ProcessingJobController } from "../../modules/ai/execution/processingJobController.js";
 import { ProcessingJobService } from "../../modules/ai/execution/processingJobService.js";
-import { AIOrchestrationService } from "../../modules/ai/orchestration/aiOrchestrationService.js";
-import { ChatPipeline } from "../../modules/ai/pipelines/chatPipeline.js";
-import { defaultAIPipelines } from "../../modules/ai/pipelines/pipelineCatalog.js";
-import { GenerateDashboardPipeline } from "../../modules/ai/pipelines/generateDashboardPipeline.js";
-import { GenerateInsightsPipeline } from "../../modules/ai/pipelines/generateInsightsPipeline.js";
-import { GenerateMetricsPipeline } from "../../modules/ai/pipelines/generateMetricsPipeline.js";
-import { GenerateReportPipeline } from "../../modules/ai/pipelines/generateReportPipeline.js";
-import { InterpretDatasetPipeline } from "../../modules/ai/pipelines/interpretDatasetPipeline.js";
-import { AIPipelineRegistry } from "../../modules/ai/pipelines/pipelineRegistry.js";
-import { AIPipelineRuntimeRegistry } from "../../modules/ai/pipelines/pipelineRuntimeRegistry.js";
-import { ReviewDatasetPipeline } from "../../modules/ai/pipelines/reviewDatasetPipeline.js";
-import { AIPromptService } from "../../modules/ai/prompts/aiPromptService.js";
-import { defaultPromptTemplates } from "../../modules/ai/prompts/promptCatalog.js";
-import { PromptRegistry } from "../../modules/ai/prompts/promptRegistry.js";
-import { MockAIProvider } from "../../modules/ai/providers/mockAiProvider.js";
-import { AIProviderRegistry } from "../../modules/ai/providers/providerRegistry.js";
 import { AuthController } from "../../modules/auth/authController.js";
 import { AuthService } from "../../modules/auth/authService.js";
 import { HealthController } from "../../modules/health/healthController.js";
@@ -49,7 +24,14 @@ import { InvitationService } from "../../modules/invitation/invitationService.js
 import { OrganizationController } from "../../modules/organization/organizationController.js";
 import { MongoOrganizationRepository } from "../../modules/organization/organizationMongoRepository.js";
 import { OrganizationService } from "../../modules/organization/organizationService.js";
+import { MongoEntityMappingRepository } from "../../modules/processing/entityMappingMongoRepository.js";
 import { EvidenceProcessingService } from "../../modules/processing/evidenceProcessingService.js";
+import { EvidenceProcessingArtifactService } from "../../modules/processing/evidenceProcessingArtifactService.js";
+import { MongoParsedRepresentationRepository } from "../../modules/processing/parsedRepresentationMongoRepository.js";
+import { PrivacyReviewController } from "../../modules/processing/privacyReviewController.js";
+import { MongoPrivacyReviewRepository } from "../../modules/processing/privacyReviewMongoRepository.js";
+import { PrivacyReviewService } from "../../modules/processing/privacyReviewService.js";
+import { MongoPrivacySafeRepresentationRepository } from "../../modules/processing/privacySafeRepresentationMongoRepository.js";
 import { ProcessingResourceCleanupService } from "../../modules/processing/processingResourceCleanupService.js";
 import { PythonProcessingClient } from "../../modules/processing/pythonProcessingClient.js";
 import { ProjectController } from "../../modules/project/projectController.js";
@@ -73,8 +55,18 @@ export function createApplicationContext(config: BackendConfig) {
   const activityRepository = new MongoActivityRepository();
   const uploadMetadataRepository = new MongoUploadMetadataRepository();
   const processingJobRepository = new MongoProcessingJobRepository();
-  const resultRepository = new MongoAIArtifactRepository();
-  const processingResourceCleanupService = new ProcessingResourceCleanupService();
+  const resultRepository = new MongoResultRepository();
+  const parsedRepresentationRepository = new MongoParsedRepresentationRepository();
+  const privacyReviewRepository = new MongoPrivacyReviewRepository();
+  const privacySafeRepresentationRepository =
+    new MongoPrivacySafeRepresentationRepository();
+  const entityMappingRepository = new MongoEntityMappingRepository();
+  const processingResourceCleanupService = new ProcessingResourceCleanupService(
+    parsedRepresentationRepository,
+    privacyReviewRepository,
+    privacySafeRepresentationRepository,
+    entityMappingRepository,
+  );
   const authorizationService = new AuthorizationService(
     organizationRepository,
     projectRepository,
@@ -94,8 +86,6 @@ export function createApplicationContext(config: BackendConfig) {
     projectRepository,
     activityRepository,
     uploadMetadataRepository,
-    processingJobRepository,
-    resultRepository,
     transactionManager,
     authorizationService,
     userRepository,
@@ -106,8 +96,6 @@ export function createApplicationContext(config: BackendConfig) {
     fileStorageService,
     activityRepository,
     uploadMetadataRepository,
-    processingJobRepository,
-    resultRepository,
     transactionManager,
     userRepository,
     processingResourceCleanupService,
@@ -133,113 +121,41 @@ export function createApplicationContext(config: BackendConfig) {
   );
   const pythonProcessingClient = new PythonProcessingClient(
     config.PYTHON_SERVICE_URL,
+    config.PYTHON_SERVICE_SHARED_SECRET,
+  );
+  const evidenceProcessingArtifactService = new EvidenceProcessingArtifactService(
+    uploadMetadataService,
+    parsedRepresentationRepository,
+    privacyReviewRepository,
+    privacySafeRepresentationRepository,
+    entityMappingRepository,
   );
   const processingJobService = new ProcessingJobService(
     processingJobRepository,
     uploadMetadataRepository,
     authorizationService,
     pythonProcessingClient,
+    evidenceProcessingArtifactService,
   );
   const evidenceProcessingService = new EvidenceProcessingService(
     processingJobRepository,
     uploadMetadataRepository,
     authorizationService,
+    fileStorageService,
     pythonProcessingClient,
   );
-  const aiArtifactRecordService = new AIArtifactRecordService(
+  const privacyReviewService = new PrivacyReviewService(
+    processingJobRepository,
+    authorizationService,
+    pythonProcessingClient,
+    privacyReviewRepository,
+    parsedRepresentationRepository,
+  );
+  const resultRecordService = new ResultRecordService(
     resultRepository,
     uploadMetadataRepository,
     processingJobRepository,
     authorizationService,
-  );
-  const resultService = new ResultService(aiArtifactRecordService);
-  const promptRegistry = new PromptRegistry(defaultPromptTemplates);
-  const promptService = new AIPromptService(promptRegistry);
-  const pipelineRegistry = new AIPipelineRegistry(defaultAIPipelines);
-  const providerRegistry = new AIProviderRegistry([new MockAIProvider()]);
-  const contextService = new AIContextService(
-    projectService,
-    activityService,
-    organizationService,
-    organizationRepository,
-    uploadMetadataRepository,
-  );
-  const artifactService = new AIArtifactService(aiArtifactRecordService);
-  const pipelineRuntimeRegistry = new AIPipelineRuntimeRegistry([
-    new InterpretDatasetPipeline(
-      pipelineRegistry.getByKey("interpret_dataset"),
-      contextService,
-      promptService,
-      providerRegistry,
-      config.AI_PROVIDER,
-      config.AI_MODEL,
-    ),
-    new ReviewDatasetPipeline(
-      pipelineRegistry.getByKey("review_dataset"),
-      contextService,
-      promptService,
-      providerRegistry,
-      config.AI_PROVIDER,
-      config.AI_MODEL,
-    ),
-    new GenerateMetricsPipeline(
-      pipelineRegistry.getByKey("generate_metrics"),
-      contextService,
-      promptService,
-      providerRegistry,
-      config.AI_PROVIDER,
-      config.AI_MODEL,
-    ),
-    new GenerateDashboardPipeline(
-      pipelineRegistry.getByKey("generate_dashboard"),
-      contextService,
-      promptService,
-      providerRegistry,
-      config.AI_PROVIDER,
-      config.AI_MODEL,
-    ),
-    new GenerateInsightsPipeline(
-      pipelineRegistry.getByKey("generate_insights"),
-      contextService,
-      promptService,
-      providerRegistry,
-      config.AI_PROVIDER,
-      config.AI_MODEL,
-    ),
-    new GenerateReportPipeline(
-      pipelineRegistry.getByKey("generate_report"),
-      contextService,
-      promptService,
-      providerRegistry,
-      config.AI_PROVIDER,
-      config.AI_MODEL,
-    ),
-    new ChatPipeline(
-      pipelineRegistry.getByKey("chat"),
-      contextService,
-      promptService,
-      providerRegistry,
-      config.AI_PROVIDER,
-      config.AI_MODEL,
-    ),
-  ]);
-  const executionRunnerService = new AIExecutionRunnerService(
-    processingJobRepository,
-    pipelineRuntimeRegistry,
-    artifactService,
-  );
-  const mockJobRunnerService = new MockJobRunnerService(executionRunnerService);
-  const pipelineExecutionStore = new ProcessingJobPipelineExecutionStore(
-    processingJobService,
-  );
-  const pipelineExecutionScheduler = new MockPipelineExecutionScheduler(
-    mockJobRunnerService,
-  );
-  const aiOrchestrationService = new AIOrchestrationService(
-    promptRegistry,
-    pipelineRegistry,
-    pipelineExecutionStore,
-    pipelineExecutionScheduler,
   );
   const activityUploadService = new ActivityUploadService(
     activityService,
@@ -274,6 +190,7 @@ export function createApplicationContext(config: BackendConfig) {
       evidenceProcessingService,
     ),
     processingJobController: new ProcessingJobController(processingJobService),
-    resultController: new ResultController(resultService),
+    privacyReviewController: new PrivacyReviewController(privacyReviewService),
+    resultController: new ResultController(resultRecordService),
   };
 }

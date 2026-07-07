@@ -1,4 +1,4 @@
-# gr_backend — API Service
+# ia_backend — API Service
 
 Stack: Node.js, TypeScript, Fastify, Mongoose, MongoDB, JWT auth.
 
@@ -60,7 +60,7 @@ testable independent of Fastify and keeps DB access in one place.
 - Consistent response shape across endpoints, e.g. `{ data }` on success,
   `{ error }` on failure — pick one and use it everywhere.
 - Version routes (`/api/v1/...`) once you have external consumers or expect
-  breaking changes; not urgent while it's just `gr_webapp` calling in.
+  breaking changes; not urgent while it's just `ia_webapp` calling in.
 
 ## Error handling
 

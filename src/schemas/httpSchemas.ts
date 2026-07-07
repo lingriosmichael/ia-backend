@@ -1,18 +1,13 @@
 import {
   activityStatusValues,
-  processingJobStatusValues,
   projectStatusValues,
   resultRecordStatusValues,
   resultRecordTypeValues,
-  uploadMetadataStatusValues,
 } from "../shared/contracts.js";
 import { z } from "zod";
 
 const jsonPayloadSchema = z.record(z.string(), z.unknown());
-const monthValueSchema = z
-  .string()
-  .regex(/^\d{4}-\d{2}$/)
-  .optional();
+const monthValueSchema = z.string().regex(/^\d{4}-\d{2}$/);
 const dateValueSchema = z.string().datetime({ offset: true }).optional();
 const dateOnlyValueSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
 const stringArraySchema = z
@@ -25,6 +20,10 @@ const nullableTextFieldSchema = z
   .max(2000)
   .nullable()
   .optional();
+const privacyReviewDecisionValueSchema = z.enum([
+  "exclude",
+  "continue_with_restriction",
+]);
 
 export const idParamSchema = z.object({
   organizationId: z.string().min(1).optional(),
@@ -95,8 +94,8 @@ export const updateOrganizationSchema = z.object({
 
 export const createProjectSchema = z.object({
   name: z.string().trim().min(2).max(120),
-  startMonth: z.string().regex(/^\d{4}-\d{2}$/),
-  endMonth: z.string().regex(/^\d{4}-\d{2}$/),
+  startMonth: monthValueSchema,
+  endMonth: monthValueSchema,
   fundingProgram: z.string().trim().min(2).max(200),
   fundingOrganization: z.string().trim().min(2).max(200),
   targetGroups: z.array(z.string().trim().min(1).max(120)).min(1).max(20),
@@ -115,16 +114,8 @@ export const createProjectSchema = z.object({
 
 export const updateProjectSchema = z.object({
   name: z.string().trim().min(2).max(120).optional(),
-  startMonth: z
-    .string()
-    .regex(/^\d{4}-\d{2}$/)
-    .nullable()
-    .optional(),
-  endMonth: z
-    .string()
-    .regex(/^\d{4}-\d{2}$/)
-    .nullable()
-    .optional(),
+  startMonth: monthValueSchema.nullable().optional(),
+  endMonth: monthValueSchema.nullable().optional(),
   fundingProgram: z.string().trim().max(200).nullable().optional(),
   fundingOrganization: z.string().trim().max(200).nullable().optional(),
   targetGroups: z.array(z.string().trim().min(1).max(120)).max(20).optional(),
@@ -180,34 +171,27 @@ export const updateActivitySchema = z.object({
   status: z.enum(activityStatusValues).optional(),
 });
 
-export const createUploadMetadataSchema = z.object({
-  activityId: z.string().min(1).nullable().optional(),
-  originalFileName: z.string().trim().min(1).max(255),
-  contentType: z.string().trim().min(1).max(255).optional(),
-  sizeBytes: z.number().int().nonnegative().optional(),
-  storageKey: z.string().trim().min(1).max(512).optional(),
-  replacesUploadMetadataId: z.string().min(1).nullable().optional(),
-});
-
-export const updateUploadMetadataSchema = z.object({
-  contentType: z.string().trim().min(1).max(255).nullable().optional(),
-  sizeBytes: z.number().int().nonnegative().nullable().optional(),
-  storageKey: z.string().trim().min(1).max(512).nullable().optional(),
-  supersededAt: z.string().datetime({ offset: true }).nullable().optional(),
-  originalFileDeletedAt: z
-    .string()
-    .datetime({ offset: true })
-    .nullable()
+export const approvePrivacyReviewSchema = z.object({
+  decisions: z
+    .object({
+      defaults: z
+        .object({
+          freeTextRisk: privacyReviewDecisionValueSchema.optional(),
+          specialCategoryData: privacyReviewDecisionValueSchema.optional(),
+        })
+        .optional(),
+      fieldDecisions: z
+        .array(
+          z.object({
+            field: z.string().trim().min(1).max(255),
+            entityType: z.enum(["FREE_TEXT_RISK", "SPECIAL_CATEGORY_DATA"]),
+            decision: privacyReviewDecisionValueSchema,
+          }),
+        )
+        .max(100)
+        .optional(),
+    })
     .optional(),
-  status: z.enum(uploadMetadataStatusValues).optional(),
-});
-
-export const updateProcessingJobSchema = z.object({
-  status: z.enum(processingJobStatusValues).optional(),
-  payload: jsonPayloadSchema.nullable().optional(),
-  errorMessage: z.string().trim().max(4000).nullable().optional(),
-  startedAt: z.string().datetime().nullable().optional(),
-  completedAt: z.string().datetime().nullable().optional(),
 });
 
 export const createResultRecordSchema = z.object({

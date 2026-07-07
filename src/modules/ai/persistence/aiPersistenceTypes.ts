@@ -1,8 +1,8 @@
 import type {
-  AIArtifactStatus,
-  AIArtifactType,
   ProcessingJobStatus,
   ProcessingJobType,
+  ResultRecordStatus,
+  ResultRecordType,
 } from "../../../shared/contracts.js";
 
 export type StructuredAIPayload = Record<string, unknown> | null;
@@ -45,7 +45,7 @@ export interface ProcessingJobUpdateInput {
 }
 export type AIExecutionUpdateInput = ProcessingJobUpdateInput;
 
-export interface AIArtifactPersistenceRecord {
+export interface ResultRecordPersistenceRecord {
   id: string;
   organizationId: string;
   projectId: string;
@@ -53,25 +53,25 @@ export interface AIArtifactPersistenceRecord {
   uploadMetadataId: string | null;
   processingJobId: string | null;
   createdById: string;
-  resultType: AIArtifactType;
-  status: AIArtifactStatus;
+  resultType: ResultRecordType;
+  status: ResultRecordStatus;
   payload: StructuredAIPayload;
   createdAt: Date;
   updatedAt: Date;
 }
 
-export interface AIArtifactCreateInput {
+export interface ResultRecordCreateInput {
   organizationId: string;
   projectId: string;
   activityId: string | null;
   uploadMetadataId: string | null;
   processingJobId: string | null;
   createdById: string;
-  resultType: AIArtifactType;
+  resultType: ResultRecordType;
   payload: StructuredAIPayload;
 }
 
-export interface AIArtifactUpdateInput {
-  status?: AIArtifactStatus;
+export interface ResultRecordUpdateInput {
+  status?: ResultRecordStatus;
   payload?: StructuredAIPayload;
 }

@@ -3,6 +3,7 @@ import { AppError } from "../../../shared/errors/appError.js";
 import { AuthorizationService } from "../../../shared/auth/authorizationService.js";
 import { mapProcessingJob } from "../../../shared/utils/mappers.js";
 import type { ProcessingJobType, ProcessingJobStatus } from "../../../shared/contracts.js";
+import { EvidenceProcessingArtifactService } from "../../processing/evidenceProcessingArtifactService.js";
 import { PythonProcessingClient } from "../../processing/pythonProcessingClient.js";
 import type { UploadMetadataRepository } from "../../upload/uploadMetadataRepository.js";
 import type { ProcessingJobRepository } from "./processingJobRepository.js";
@@ -13,6 +14,7 @@ export class ProcessingJobService {
     private readonly uploadMetadataRepository: UploadMetadataRepository,
     private readonly authorizationService: AuthorizationService,
     private readonly pythonProcessingClient: PythonProcessingClient,
+    private readonly evidenceProcessingArtifactService: EvidenceProcessingArtifactService,
   ) {}
 
   async listByActivity(userId: string, activityId: string) {
@@ -82,17 +84,7 @@ export class ProcessingJobService {
     return mapProcessingJob(job);
   }
 
-  async update(
-    userId: string,
-    processingJobId: string,
-    input: {
-      status?: ProcessingJobStatus;
-      payload?: Record<string, unknown> | null;
-      errorMessage?: string | null;
-      startedAt?: string | null;
-      completedAt?: string | null;
-    },
-  ) {
+  async cancel(userId: string, processingJobId: string) {
     const existingJob = await this.processingJobRepository.findById(
       processingJobId,
       databaseSession,
@@ -107,33 +99,24 @@ export class ProcessingJobService {
 
     await this.authorizationService.canEditProject(userId, existingJob.projectId);
 
-    const updatedJob = await this.processingJobRepository.update(
+    // Atomic conditional update: only a job that is still active can be
+    // cancelled, closing the race between two concurrent cancel requests
+    // (and preventing a cancel from resurrecting an already-terminal job).
+    const cancelledJob = await this.processingJobRepository.cancelIfActive(
       processingJobId,
-      {
-        status: input.status,
-        payload:
-          input.payload === undefined ? undefined : (input.payload ?? null),
-        errorMessage:
-          input.errorMessage === undefined
-            ? undefined
-            : (input.errorMessage?.trim() ?? null),
-        startedAt:
-          input.startedAt === undefined
-            ? undefined
-            : input.startedAt
-              ? new Date(input.startedAt)
-              : null,
-        completedAt:
-          input.completedAt === undefined
-            ? undefined
-            : input.completedAt
-              ? new Date(input.completedAt)
-              : null,
-      },
+      new Date(),
       databaseSession,
     );
 
-    return mapProcessingJob(updatedJob);
+    if (!cancelledJob) {
+      throw new AppError(
+        "Processing job cannot be cancelled in its current state.",
+        409,
+        "processing_job_not_cancellable",
+      );
+    }
+
+    return mapProcessingJob(cancelledJob);
   }
 
   async getById(userId: string, processingJobId: string) {
@@ -186,6 +169,12 @@ export class ProcessingJobService {
 
     const processorStatus =
       await this.pythonProcessingClient.getProcessingJobStatus(externalJobId);
+
+    await this.evidenceProcessingArtifactService.ingestProcessorArtifacts(
+      job,
+      processorStatus.details,
+      this.mapProcessorStatus(processorStatus.status),
+    );
 
     const updatedJob = await this.processingJobRepository.update(
       processingJobId,

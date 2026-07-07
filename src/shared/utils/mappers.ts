@@ -2,18 +2,23 @@ import type {
   ActivitySummary,
   ActivityStatus,
   ActivityPermissions,
-  OrganizationSettings,
   AIArtifactStatus,
   AIArtifactType,
   AuthResponse,
+  OrganizationSettings,
   OrganizationPermissions,
   OrganizationSummary,
   OrganizationRole,
   OrganizationWorkspace,
+  ParsedRepresentationPreviewRecord,
+  ParsedRepresentationRecord,
   ProcessingJobStatus,
   ProjectPermissions,
   ProcessingJobType,
   ProcessingJobRecord,
+  PrivacyReviewDecisions,
+  PrivacyReviewRecord,
+  PrivacySafeRepresentationRecord,
   ProjectStatus,
   ProjectSummary,
   ResultRecord,
@@ -43,6 +48,32 @@ const activityStatusMap = {
 
 function toIso(value: Date): string {
   return value.toISOString();
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return isRecord(value) ? value : {};
+}
+
+function asRecordArray(value: unknown): Record<string, unknown>[] {
+  return Array.isArray(value) ? value.filter(isRecord) : [];
+}
+
+function readString(value: unknown): string | null {
+  return typeof value === "string" && value.trim().length > 0 ? value : null;
+}
+
+function readNumber(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function readStringArray(value: unknown): string[] {
+  return Array.isArray(value)
+    ? value.filter((entry): entry is string => typeof entry === "string")
+    : [];
 }
 
 function normalizeActivityStatus(
@@ -560,6 +591,126 @@ export function mapResultRecord(record: {
     resultType: record.resultType,
     status: record.status,
     payload: (record.payload as Record<string, unknown> | null) ?? null,
+    createdAt: toIso(record.createdAt),
+    updatedAt: toIso(record.updatedAt),
+  };
+}
+
+export function mapParsedRepresentation(record: {
+  id: string;
+  organizationId: string;
+  projectId: string;
+  activityId: string | null;
+  uploadMetadataId: string;
+  processingJobId: string;
+  fileType: "spreadsheet" | "document" | "unknown";
+  payload: unknown;
+  createdAt: Date;
+  updatedAt: Date;
+}): ParsedRepresentationRecord {
+  return {
+    id: record.id,
+    organizationId: record.organizationId,
+    projectId: record.projectId,
+    activityId: record.activityId,
+    uploadMetadataId: record.uploadMetadataId,
+    processingJobId: record.processingJobId,
+    fileType: record.fileType,
+    payload: (record.payload as Record<string, unknown>) ?? {},
+    createdAt: toIso(record.createdAt),
+    updatedAt: toIso(record.updatedAt),
+  };
+}
+
+export function mapParsedRepresentationPreview(record: {
+  fileType: "spreadsheet" | "document" | "unknown";
+  payload: unknown;
+}): ParsedRepresentationPreviewRecord {
+  const payload = asRecord(record.payload);
+  const metadata = asRecord(payload.metadata);
+  const tables = asRecordArray(payload.tables);
+  const paragraphs = asRecordArray(payload.paragraphs);
+
+  return {
+    fileType: record.fileType,
+    sourceFileName: readString(metadata.sourceFileName),
+    extension: readString(metadata.extension),
+    contentType: readString(metadata.contentType),
+    fileSizeBytes: readNumber(metadata.fileSizeBytes),
+    tableCount: tables.length,
+    paragraphCount: paragraphs.length,
+    tables: tables.slice(0, 10).map((table, index) => ({
+      name: readString(table.name) ?? `table_${index + 1}`,
+      rowCount: readNumber(table.rowCount) ?? 0,
+      columnCount: readStringArray(table.columns).length,
+      columns: readStringArray(table.columns).slice(0, 20),
+    })),
+    paragraphs: paragraphs.slice(0, 10).map((paragraph, index) => ({
+      index: readNumber(paragraph.index) ?? index,
+      page: readNumber(paragraph.page),
+      sourceIndex: readNumber(paragraph.sourceIndex),
+      characterCount: readString(paragraph.text)?.length ?? 0,
+    })),
+  };
+}
+
+export function mapPrivacyReview(record: {
+  id: string;
+  organizationId: string;
+  projectId: string;
+  activityId: string | null;
+  uploadMetadataId: string;
+  processingJobId: string;
+  status: "pending" | "approved" | "rejected";
+  findings: unknown;
+  parsedRepresentationPreview: ParsedRepresentationPreviewRecord | null;
+  decisions: unknown;
+  approvedById: string | null;
+  approvedAt: Date | null;
+  createdAt: Date;
+  updatedAt: Date;
+}): PrivacyReviewRecord {
+  return {
+    id: record.id,
+    organizationId: record.organizationId,
+    projectId: record.projectId,
+    activityId: record.activityId,
+    uploadMetadataId: record.uploadMetadataId,
+    processingJobId: record.processingJobId,
+    status: record.status,
+    findings: (record.findings as Record<string, unknown>) ?? {},
+    parsedRepresentationPreview: record.parsedRepresentationPreview,
+    decisions: (record.decisions as PrivacyReviewDecisions | null) ?? null,
+    approvedById: record.approvedById,
+    approvedAt: record.approvedAt ? toIso(record.approvedAt) : null,
+    createdAt: toIso(record.createdAt),
+    updatedAt: toIso(record.updatedAt),
+  };
+}
+
+export function mapPrivacySafeRepresentation(record: {
+  id: string;
+  organizationId: string;
+  projectId: string;
+  activityId: string | null;
+  uploadMetadataId: string;
+  processingJobId: string;
+  privacyReviewId: string;
+  parsedRepresentationId: string;
+  payload: unknown;
+  createdAt: Date;
+  updatedAt: Date;
+}): PrivacySafeRepresentationRecord {
+  return {
+    id: record.id,
+    organizationId: record.organizationId,
+    projectId: record.projectId,
+    activityId: record.activityId,
+    uploadMetadataId: record.uploadMetadataId,
+    processingJobId: record.processingJobId,
+    privacyReviewId: record.privacyReviewId,
+    parsedRepresentationId: record.parsedRepresentationId,
+    payload: (record.payload as Record<string, unknown>) ?? {},
     createdAt: toIso(record.createdAt),
     updatedAt: toIso(record.updatedAt),
   };

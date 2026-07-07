@@ -8,7 +8,6 @@ const supportedDatasetExtensions = new Set([
   ".xlsx",
   ".xls",
   ".pdf",
-  ".doc",
   ".docx",
 ]);
 const supportedLogoExtensions = new Set([".png", ".jpg", ".jpeg", ".webp"]);
@@ -31,7 +30,7 @@ export class FileStorageService {
 
     if (!supportedDatasetExtensions.has(extension)) {
       throw new AppError(
-        "Only CSV, Excel, PDF, DOC, and DOCX files are supported.",
+        "Only CSV, Excel, PDF, and DOCX files are supported.",
         400,
         "unsupported_file_type",
       );

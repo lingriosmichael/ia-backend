@@ -56,4 +56,9 @@ export interface ProcessingJobRepository {
     input: ProcessingJobUpdateInput,
     session: DatabaseSession,
   ): Promise<ProcessingJobPersistenceRecord>;
+  cancelIfActive(
+    processingJobId: string,
+    completedAt: Date,
+    session: DatabaseSession,
+  ): Promise<ProcessingJobPersistenceRecord | null>;
 }

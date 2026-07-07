@@ -7,8 +7,6 @@ import {
   mapWorkspace,
 } from "../../shared/utils/mappers.js";
 import type { ActivityRepository } from "../activity/activityRepository.js";
-import type { ResultRepository } from "../ai/artifact/resultRepository.js";
-import type { ProcessingJobRepository } from "../ai/execution/processingJobRepository.js";
 import type { ProjectRepository } from "../project/projectRepository.js";
 import { AuthorizationService } from "../../shared/auth/authorizationService.js";
 import { FileStorageService } from "../upload/fileStorageService.js";
@@ -27,8 +25,6 @@ export class OrganizationService {
     private readonly projectRepository: ProjectRepository,
     private readonly activityRepository: ActivityRepository,
     private readonly uploadMetadataRepository: UploadMetadataRepository,
-    private readonly processingJobRepository: ProcessingJobRepository,
-    private readonly resultRepository: ResultRepository,
     private readonly transactionManager: TransactionManager,
     private readonly authorizationService: AuthorizationService,
     private readonly userRepository: UserRepository,

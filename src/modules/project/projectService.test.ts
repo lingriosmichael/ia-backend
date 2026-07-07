@@ -8,8 +8,6 @@ import type { ProjectRepository } from "./projectRepository.js";
 import { ProjectService } from "./projectService.js";
 import type { ActivityRepository } from "../activity/activityRepository.js";
 import type { UploadMetadataRepository } from "../upload/uploadMetadataRepository.js";
-import type { ProcessingJobRepository } from "../ai/execution/processingJobRepository.js";
-import type { ResultRepository } from "../ai/artifact/resultRepository.js";
 import type { ProcessingResourceCleanupService } from "../processing/processingResourceCleanupService.js";
 import type { UserRepository } from "../user/userRepository.js";
 
@@ -89,8 +87,6 @@ test(
       },
     } as unknown as UploadMetadataRepository;
     const activityRepository = {} as ActivityRepository;
-    const processingJobRepository = {} as ProcessingJobRepository;
-    const resultRepository = {} as ResultRepository;
 
     const transactionManager = {
       runInTransaction: async <T>(
@@ -108,8 +104,6 @@ test(
       fileStorageService,
       activityRepository,
       uploadMetadataRepository,
-      processingJobRepository,
-      resultRepository,
       transactionManager,
       userRepository,
       processingResourceCleanupService,
@@ -209,8 +203,6 @@ test(
       },
     } as unknown as UploadMetadataRepository;
     const activityRepository = {} as ActivityRepository;
-    const processingJobRepository = {} as ProcessingJobRepository;
-    const resultRepository = {} as ResultRepository;
 
     const transactionManager = {
       runInTransaction: async <T>(
@@ -228,8 +220,6 @@ test(
       fileStorageService,
       activityRepository,
       uploadMetadataRepository,
-      processingJobRepository,
-      resultRepository,
       transactionManager,
       userRepository,
       processingResourceCleanupService,
@@ -347,8 +337,6 @@ test(
       {} as FileStorageService,
       activityRepository,
       uploadMetadataRepository,
-      {} as ProcessingJobRepository,
-      {} as ResultRepository,
       {} as TransactionManager,
       userRepository,
       {

@@ -10,8 +10,6 @@ import type { ProjectRepository } from "./projectRepository.js";
 import { FileStorageService } from "../upload/fileStorageService.js";
 import type { ActivityRepository } from "../activity/activityRepository.js";
 import type { UploadMetadataRepository } from "../upload/uploadMetadataRepository.js";
-import type { ProcessingJobRepository } from "../ai/execution/processingJobRepository.js";
-import type { ResultRepository } from "../ai/artifact/resultRepository.js";
 import type { UserRepository } from "../user/userRepository.js";
 import { ProcessingResourceCleanupService } from "../processing/processingResourceCleanupService.js";
 import type {
@@ -54,8 +52,6 @@ export class ProjectService {
     private readonly fileStorageService: FileStorageService,
     private readonly activityRepository: ActivityRepository,
     private readonly uploadMetadataRepository: UploadMetadataRepository,
-    private readonly processingJobRepository: ProcessingJobRepository,
-    private readonly resultRepository: ResultRepository,
     private readonly transactionManager: TransactionManager,
     private readonly userRepository: UserRepository,
     private readonly processingResourceCleanupService: ProcessingResourceCleanupService,
@@ -176,8 +172,7 @@ export class ProjectService {
       status?: "planning" | "active" | "completed";
     },
   ) {
-    const { project: existingProject } =
-      await this.authorizationService.canEditProject(userId, projectId);
+    await this.authorizationService.canEditProject(userId, projectId);
 
     const updatedProject = await this.projectRepository.update(
       projectId,

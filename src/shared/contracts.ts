@@ -263,7 +263,7 @@ export interface ProcessingJobRecord {
 }
 export type AIExecutionRecord = ProcessingJobRecord;
 
-export interface AIArtifactRecord {
+export interface ResultRecord {
   id: string;
   organizationId: string;
   projectId: string;
@@ -277,7 +277,7 @@ export interface AIArtifactRecord {
   createdAt: string;
   updatedAt: string;
 }
-export type ResultRecord = AIArtifactRecord;
+export type AIArtifactRecord = ResultRecord;
 
 export interface ActivityUploadResponse {
   upload: UploadMetadataRecord;
@@ -302,6 +302,51 @@ export interface ParsedRepresentationRecord {
   updatedAt: string;
 }
 
+export const privacyReviewDecisionValueValues = [
+  "exclude",
+  "continue_with_restriction",
+] as const;
+export type PrivacyReviewDecisionValue =
+  (typeof privacyReviewDecisionValueValues)[number];
+
+export interface ParsedRepresentationPreviewTable {
+  name: string;
+  rowCount: number;
+  columnCount: number;
+  columns: string[];
+}
+
+export interface ParsedRepresentationPreviewParagraph {
+  index: number;
+  page: number | null;
+  sourceIndex: number | null;
+  characterCount: number;
+}
+
+export interface ParsedRepresentationPreviewRecord {
+  fileType: "spreadsheet" | "document" | "unknown";
+  sourceFileName: string | null;
+  extension: string | null;
+  contentType: string | null;
+  fileSizeBytes: number | null;
+  tableCount: number;
+  paragraphCount: number;
+  tables: ParsedRepresentationPreviewTable[];
+  paragraphs: ParsedRepresentationPreviewParagraph[];
+}
+
+export interface PrivacyReviewDecisions {
+  defaults?: {
+    freeTextRisk?: PrivacyReviewDecisionValue;
+    specialCategoryData?: PrivacyReviewDecisionValue;
+  };
+  fieldDecisions?: Array<{
+    field: string;
+    entityType: "FREE_TEXT_RISK" | "SPECIAL_CATEGORY_DATA";
+    decision: PrivacyReviewDecisionValue;
+  }>;
+}
+
 export interface PrivacyReviewRecord {
   id: string;
   organizationId: string;
@@ -311,7 +356,8 @@ export interface PrivacyReviewRecord {
   processingJobId: string;
   status: "pending" | "approved" | "rejected";
   findings: Record<string, unknown>;
-  decisions: Record<string, unknown> | null;
+  parsedRepresentationPreview: ParsedRepresentationPreviewRecord | null;
+  decisions: PrivacyReviewDecisions | null;
   approvedById: string | null;
   approvedAt: string | null;
   createdAt: string;
@@ -327,19 +373,6 @@ export interface PrivacySafeRepresentationRecord {
   processingJobId: string;
   privacyReviewId: string;
   parsedRepresentationId: string;
-  payload: Record<string, unknown>;
-  createdAt: string;
-  updatedAt: string;
-}
-
-export interface EntityMappingRecord {
-  id: string;
-  organizationId: string;
-  projectId: string;
-  activityId: string | null;
-  uploadMetadataId: string;
-  processingJobId: string;
-  entityType: string;
   payload: Record<string, unknown>;
   createdAt: string;
   updatedAt: string;
@@ -547,6 +580,15 @@ export interface UpdateProcessingJobRequest {
 export type UpdateAIExecutionRequest = UpdateProcessingJobRequest;
 
 export interface StartEvidenceAnalysisResponse {
+  job: ProcessingJobRecord;
+}
+
+export interface ApprovePrivacyReviewRequest {
+  decisions?: Record<string, unknown>;
+}
+
+export interface ApprovePrivacyReviewResponse {
+  review: PrivacyReviewRecord;
   job: ProcessingJobRecord;
 }
 

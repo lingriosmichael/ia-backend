@@ -1,6 +1,7 @@
 import Fastify from "fastify";
 import cors from "@fastify/cors";
 import multipart from "@fastify/multipart";
+import rateLimit from "@fastify/rate-limit";
 import { registerActivityRoutes } from "./modules/activity/activityRoutes.js";
 import { registerResultRoutes } from "./modules/ai/artifact/resultRoutes.js";
 import { registerProcessingJobRoutes } from "./modules/ai/execution/processingJobRoutes.js";
@@ -9,6 +10,7 @@ import { registerHealthRoutes } from "./modules/health/healthRoutes.js";
 import { registerInvitationRoutes } from "./modules/invitation/invitationRoutes.js";
 import { registerOrganizationRoutes } from "./modules/organization/organizationRoutes.js";
 import { registerProjectRoutes } from "./modules/project/projectRoutes.js";
+import { registerPrivacyReviewRoutes } from "./modules/processing/privacyReviewRoutes.js";
 import { registerActivityUploadRoutes } from "./modules/upload/activityUploadRoutes.js";
 import { registerUploadMetadataRoutes } from "./modules/upload/uploadMetadataRoutes.js";
 import type { BackendConfig } from "./shared/config/env.js";
@@ -39,6 +41,13 @@ export async function buildApp(config: BackendConfig) {
       fileSize: 25 * 1024 * 1024,
       files: 1,
     },
+  });
+
+  // Registered with global: false so it only applies to routes that opt in
+  // via `config: { rateLimit: {...} }` — currently just /auth/login and
+  // /auth/register (see authRoutes.ts), the credential-stuffing targets.
+  await app.register(rateLimit, {
+    global: false,
   });
 
   const context = createApplicationContext(config);
@@ -79,6 +88,11 @@ export async function buildApp(config: BackendConfig) {
   await registerProcessingJobRoutes(
     app,
     context.processingJobController,
+    context.authenticate,
+  );
+  await registerPrivacyReviewRoutes(
+    app,
+    context.privacyReviewController,
     context.authenticate,
   );
   await registerResultRoutes(

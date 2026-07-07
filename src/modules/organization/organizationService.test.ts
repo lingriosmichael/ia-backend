@@ -1,8 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { ActivityRepository } from "../activity/activityRepository.js";
-import type { ResultRepository } from "../ai/artifact/resultRepository.js";
-import type { ProcessingJobRepository } from "../ai/execution/processingJobRepository.js";
 import type { ProjectRepository } from "../project/projectRepository.js";
 import type { AuthorizationService } from "../../shared/auth/authorizationService.js";
 import type { TransactionManager } from "../../shared/database/transactionManager.js";
@@ -98,8 +96,6 @@ test("organization workspace enriches activity upload counts from the upload rep
       "activity-1": 3,
     }),
   } as unknown as UploadMetadataRepository;
-  const processingJobRepository = {} as ProcessingJobRepository;
-  const resultRepository = {} as ResultRepository;
 
   const fileStorageService = {} as FileStorageService;
   const transactionManager = {} as TransactionManager;
@@ -134,8 +130,6 @@ test("organization workspace enriches activity upload counts from the upload rep
     projectRepository,
     activityRepository,
     uploadMetadataRepository,
-    processingJobRepository,
-    resultRepository,
     transactionManager,
     authorizationService,
     userRepository,
@@ -202,8 +196,6 @@ test("organization update keeps top-level fields synchronized with organization 
     {} as ProjectRepository,
     {} as ActivityRepository,
     {} as UploadMetadataRepository,
-    {} as ProcessingJobRepository,
-    {} as ResultRepository,
     {} as TransactionManager,
     {
       canManageOrganization: async () => undefined,

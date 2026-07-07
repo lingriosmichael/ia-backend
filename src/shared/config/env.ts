@@ -11,6 +11,7 @@ const envSchema = z
     CORS_ORIGIN: z.string().min(1).default("http://localhost:8080"),
     WEBAPP_URL: z.string().url().default("http://localhost:8080"),
     PYTHON_SERVICE_URL: z.string().url().default("http://localhost:8000"),
+    PYTHON_SERVICE_SHARED_SECRET: z.string().min(16),
     UPLOAD_DIR: z.string().min(1).default("./uploads"),
     MONGODB_URI: z.string().min(1).default("mongodb://127.0.0.1:27017"),
     MONGODB_DB_NAME: z.string().min(1).default("gr_backend"),

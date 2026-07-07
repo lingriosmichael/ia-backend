@@ -4,6 +4,7 @@ import { databaseSession } from "../../shared/database/databaseClient.js";
 import { AppError } from "../../shared/errors/appError.js";
 import { mapProcessingJob } from "../../shared/utils/mappers.js";
 import type { ProcessingJobRepository } from "../ai/execution/processingJobRepository.js";
+import { FileStorageService } from "../upload/fileStorageService.js";
 import type { UploadMetadataRepository } from "../upload/uploadMetadataRepository.js";
 import { PythonProcessingClient } from "./pythonProcessingClient.js";
 
@@ -12,6 +13,7 @@ export class EvidenceProcessingService {
     private readonly processingJobRepository: ProcessingJobRepository,
     private readonly uploadMetadataRepository: UploadMetadataRepository,
     private readonly authorizationService: AuthorizationService,
+    private readonly fileStorageService: FileStorageService,
     private readonly pythonProcessingClient: PythonProcessingClient,
   ) {}
 
@@ -63,6 +65,10 @@ export class EvidenceProcessingService {
       );
     }
 
+    const storedFile = await this.fileStorageService.readStoredFile(
+      uploadMetadata.storageKey,
+    );
+
     const queuedJob = await this.processingJobRepository.create(
       {
         organizationId: uploadMetadata.organizationId,
@@ -87,6 +93,7 @@ export class EvidenceProcessingService {
         storageKey: uploadMetadata.storageKey,
         originalFileName: uploadMetadata.originalFileName,
         contentType: uploadMetadata.contentType,
+        fileBuffer: storedFile.buffer,
       });
 
       const startedJob = await this.processingJobRepository.update(

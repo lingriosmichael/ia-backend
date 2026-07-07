@@ -1,43 +1,71 @@
 import type { DatabaseSession } from "../../shared/database/databaseClient.js";
-import { EntityMappingMongoModel } from "./entityMappingModel.js";
-import { ParsedRepresentationMongoModel } from "./parsedRepresentationModel.js";
-import { PrivacyReviewMongoModel } from "./privacyReviewModel.js";
-import { PrivacySafeRepresentationMongoModel } from "./privacySafeRepresentationModel.js";
+import type { EntityMappingRepository } from "./entityMappingRepository.js";
+import type { ParsedRepresentationRepository } from "./parsedRepresentationRepository.js";
+import type { PrivacyReviewRepository } from "./privacyReviewRepository.js";
+import type { PrivacySafeRepresentationRepository } from "./privacySafeRepresentationRepository.js";
 
 export class ProcessingResourceCleanupService {
+  constructor(
+    private readonly parsedRepresentationRepository: ParsedRepresentationRepository,
+    private readonly privacyReviewRepository: PrivacyReviewRepository,
+    private readonly privacySafeRepresentationRepository: PrivacySafeRepresentationRepository,
+    private readonly entityMappingRepository: EntityMappingRepository,
+  ) {}
+
   async deleteByProjectId(
     projectId: string,
-    _session: DatabaseSession,
+    session: DatabaseSession,
   ): Promise<void> {
     await Promise.all([
-      ParsedRepresentationMongoModel.deleteMany({ projectId }).exec(),
-      PrivacyReviewMongoModel.deleteMany({ projectId }).exec(),
-      PrivacySafeRepresentationMongoModel.deleteMany({ projectId }).exec(),
-      EntityMappingMongoModel.deleteMany({ projectId }).exec(),
+      this.parsedRepresentationRepository.deleteByProjectId(projectId, session),
+      this.privacyReviewRepository.deleteByProjectId(projectId, session),
+      this.privacySafeRepresentationRepository.deleteByProjectId(
+        projectId,
+        session,
+      ),
+      this.entityMappingRepository.deleteByProjectId(projectId, session),
     ]);
   }
 
   async deleteByActivityId(
     activityId: string,
-    _session: DatabaseSession,
+    session: DatabaseSession,
   ): Promise<void> {
     await Promise.all([
-      ParsedRepresentationMongoModel.deleteMany({ activityId }).exec(),
-      PrivacyReviewMongoModel.deleteMany({ activityId }).exec(),
-      PrivacySafeRepresentationMongoModel.deleteMany({ activityId }).exec(),
-      EntityMappingMongoModel.deleteMany({ activityId }).exec(),
+      this.parsedRepresentationRepository.deleteByActivityId(
+        activityId,
+        session,
+      ),
+      this.privacyReviewRepository.deleteByActivityId(activityId, session),
+      this.privacySafeRepresentationRepository.deleteByActivityId(
+        activityId,
+        session,
+      ),
+      this.entityMappingRepository.deleteByActivityId(activityId, session),
     ]);
   }
 
   async deleteByUploadMetadataId(
     uploadMetadataId: string,
-    _session: DatabaseSession,
+    session: DatabaseSession,
   ): Promise<void> {
     await Promise.all([
-      ParsedRepresentationMongoModel.deleteMany({ uploadMetadataId }).exec(),
-      PrivacyReviewMongoModel.deleteMany({ uploadMetadataId }).exec(),
-      PrivacySafeRepresentationMongoModel.deleteMany({ uploadMetadataId }).exec(),
-      EntityMappingMongoModel.deleteMany({ uploadMetadataId }).exec(),
+      this.parsedRepresentationRepository.deleteByUploadMetadataId(
+        uploadMetadataId,
+        session,
+      ),
+      this.privacyReviewRepository.deleteByUploadMetadataId(
+        uploadMetadataId,
+        session,
+      ),
+      this.privacySafeRepresentationRepository.deleteByUploadMetadataId(
+        uploadMetadataId,
+        session,
+      ),
+      this.entityMappingRepository.deleteByUploadMetadataId(
+        uploadMetadataId,
+        session,
+      ),
     ]);
   }
 }

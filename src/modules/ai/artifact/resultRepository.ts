@@ -1,19 +1,19 @@
 import type { DatabaseSession } from "../../../shared/database/databaseClient.js";
 import type {
-  AIArtifactCreateInput,
-  AIArtifactPersistenceRecord,
-  AIArtifactUpdateInput,
+  ResultRecordCreateInput,
+  ResultRecordPersistenceRecord,
+  ResultRecordUpdateInput,
 } from "../persistence/aiPersistenceTypes.js";
 
 export interface ResultRepository {
   create(
-    input: AIArtifactCreateInput,
+    input: ResultRecordCreateInput,
     session: DatabaseSession,
-  ): Promise<AIArtifactPersistenceRecord>;
+  ): Promise<ResultRecordPersistenceRecord>;
   listByActivity(
     activityId: string,
     session: DatabaseSession,
-  ): Promise<AIArtifactPersistenceRecord[]>;
+  ): Promise<ResultRecordPersistenceRecord[]>;
   listRecentByProject(
     projectId: string,
     limit: number,
@@ -21,7 +21,7 @@ export interface ResultRepository {
   ): Promise<
     Array<
       Pick<
-        AIArtifactPersistenceRecord,
+        ResultRecordPersistenceRecord,
         "id" | "activityId" | "status" | "createdAt"
       >
     >
@@ -32,7 +32,7 @@ export interface ResultRepository {
   ): Promise<Record<string, number>>;
   countByProjectStatuses(
     projectId: string,
-    statuses: AIArtifactPersistenceRecord["status"][],
+    statuses: ResultRecordPersistenceRecord["status"][],
     session: DatabaseSession,
   ): Promise<number>;
   deleteByActivity(
@@ -46,10 +46,10 @@ export interface ResultRepository {
   findById(
     resultRecordId: string,
     session: DatabaseSession,
-  ): Promise<AIArtifactPersistenceRecord | null>;
+  ): Promise<ResultRecordPersistenceRecord | null>;
   update(
     resultRecordId: string,
-    input: AIArtifactUpdateInput,
+    input: ResultRecordUpdateInput,
     session: DatabaseSession,
-  ): Promise<AIArtifactPersistenceRecord>;
+  ): Promise<ResultRecordPersistenceRecord>;
 }
