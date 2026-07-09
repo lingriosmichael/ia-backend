@@ -187,7 +187,7 @@ export class MongoResultRepository implements ResultRepository {
         $set: input,
       },
       {
-        new: true,
+        returnDocument: "after",
       },
     ).exec();
 

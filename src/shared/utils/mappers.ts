@@ -10,6 +10,14 @@ import type {
   OrganizationSummary,
   OrganizationRole,
   OrganizationWorkspace,
+  InterpretationEntity,
+  InterpretationGoalCoverage,
+  InterpretationIndicator,
+  InterpretationQuestionKind,
+  InterpretationQuestionStatus,
+  InterpretationRelationship,
+  InterpretationResultRecord,
+  InterpretationWarning,
   ParsedRepresentationPreviewRecord,
   ParsedRepresentationRecord,
   ProcessingJobStatus,
@@ -316,6 +324,9 @@ export function mapActivity(
     targetAudience: string | null;
     additionalContext: string | null;
     status: ActivityStatus | keyof typeof activityStatusMap;
+    interpretationAcknowledgedAt: Date | null;
+    interpretationAcknowledgedById: string | null;
+    interpretationAcknowledgedByName?: string | null;
     createdAt: Date;
     updatedAt: Date;
   },
@@ -336,6 +347,12 @@ export function mapActivity(
     additionalContext: activity.additionalContext,
     status: normalizeActivityStatus(activity.status),
     permissions: mapActivityPermissions(activity.projectOwnerId, currentUserId),
+    interpretationAcknowledgedAt: activity.interpretationAcknowledgedAt
+      ? toIso(activity.interpretationAcknowledgedAt)
+      : null,
+    interpretationAcknowledgedById: activity.interpretationAcknowledgedById,
+    interpretationAcknowledgedByName:
+      activity.interpretationAcknowledgedByName ?? null,
     createdAt: toIso(activity.createdAt),
     updatedAt: toIso(activity.updatedAt),
   };
@@ -357,6 +374,9 @@ export function mapWorkspaceActivity(
     targetAudience: string | null;
     additionalContext: string | null;
     status: ActivityStatus | keyof typeof activityStatusMap;
+    interpretationAcknowledgedAt: Date | null;
+    interpretationAcknowledgedById: string | null;
+    interpretationAcknowledgedByName?: string | null;
     createdAt: Date;
     updatedAt: Date;
     _count: {
@@ -427,6 +447,9 @@ export function mapWorkspace(record: {
       targetAudience: string | null;
       additionalContext: string | null;
       status: ActivityStatus | keyof typeof activityStatusMap;
+      interpretationAcknowledgedAt: Date | null;
+      interpretationAcknowledgedById: string | null;
+      interpretationAcknowledgedByName?: string | null;
       createdAt: Date;
       updatedAt: Date;
       _count: {
@@ -703,6 +726,68 @@ export function mapPrivacySafeRepresentation(record: {
     privacyReviewId: record.privacyReviewId,
     parsedRepresentationId: record.parsedRepresentationId,
     payload: (record.payload as Record<string, unknown>) ?? {},
+    createdAt: toIso(record.createdAt),
+    updatedAt: toIso(record.updatedAt),
+  };
+}
+
+export function mapInterpretationResult(record: {
+  id: string;
+  organizationId: string;
+  projectId: string;
+  activityId: string | null;
+  uploadMetadataId: string;
+  privacySafeRepresentationId: string;
+  processingJobId: string;
+  versionNumber: number;
+  previousInterpretationResultId: string | null;
+  datasetType: string;
+  overallConfidence: number;
+  entities: InterpretationEntity[];
+  indicators: InterpretationIndicator[];
+  relationships: InterpretationRelationship[];
+  questions: Array<{
+    id: string;
+    prompt: string;
+    kind: InterpretationQuestionKind;
+    options: string[] | null;
+    status: InterpretationQuestionStatus;
+    answeredValue: string | null;
+    answeredById: string | null;
+    answeredAt: Date | null;
+  }>;
+  warnings: InterpretationWarning[];
+  goalAlignment: InterpretationGoalCoverage[];
+  createdAt: Date;
+  updatedAt: Date;
+}): InterpretationResultRecord {
+  return {
+    id: record.id,
+    organizationId: record.organizationId,
+    projectId: record.projectId,
+    activityId: record.activityId,
+    uploadMetadataId: record.uploadMetadataId,
+    privacySafeRepresentationId: record.privacySafeRepresentationId,
+    processingJobId: record.processingJobId,
+    versionNumber: record.versionNumber,
+    previousInterpretationResultId: record.previousInterpretationResultId,
+    datasetType: record.datasetType,
+    overallConfidence: record.overallConfidence,
+    entities: record.entities,
+    indicators: record.indicators,
+    relationships: record.relationships,
+    questions: record.questions.map((question) => ({
+      id: question.id,
+      prompt: question.prompt,
+      kind: question.kind,
+      options: question.options,
+      status: question.status,
+      answeredValue: question.answeredValue,
+      answeredById: question.answeredById,
+      answeredAt: question.answeredAt ? toIso(question.answeredAt) : null,
+    })),
+    warnings: record.warnings,
+    goalAlignment: record.goalAlignment,
     createdAt: toIso(record.createdAt),
     updatedAt: toIso(record.updatedAt),
   };

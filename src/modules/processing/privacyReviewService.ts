@@ -1,6 +1,8 @@
 import type {
   ApprovePrivacyReviewResponse,
   PrivacyReviewDecisions,
+  PrivacyReviewDecisionsInput,
+  PrivacyReviewFieldDecisionRecord,
   PrivacyReviewRecord,
 } from "../../shared/contracts.js";
 import { AuthorizationService } from "../../shared/auth/authorizationService.js";
@@ -26,6 +28,39 @@ function getExternalJobId(payload: Record<string, unknown> | null) {
   return typeof externalJobId === "string" && externalJobId.length > 0
     ? externalJobId
     : null;
+}
+
+interface FindingRequiringDecision {
+  field: string;
+  entityType: string;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+// review.findings is a Mixed blob on the wire (Python owns its exact shape);
+// this reads only what's needed to enforce "every finding that needs a
+// decision has one" without assuming anything else about the payload.
+function findFindingsRequiringDecision(
+  findings: Record<string, unknown>,
+): FindingRequiringDecision[] {
+  const summary = findings.summary;
+  if (!Array.isArray(summary)) {
+    return [];
+  }
+
+  return summary
+    .filter(isRecord)
+    .filter((finding) => finding.requiresDecision === true)
+    .map((finding) => ({
+      field: typeof finding.field === "string" ? finding.field : "",
+      entityType:
+        typeof finding.entityType === "string" ? finding.entityType : "",
+    }))
+    .filter(
+      (finding) => finding.field.length > 0 && finding.entityType.length > 0,
+    );
 }
 
 export class PrivacyReviewService {
@@ -101,7 +136,7 @@ export class PrivacyReviewService {
   async approve(
     userId: string,
     processingJobId: string,
-    decisions: PrivacyReviewDecisions | undefined,
+    decisions: PrivacyReviewDecisionsInput | undefined,
   ): Promise<ApprovePrivacyReviewResponse> {
     const job = await this.processingJobRepository.findById(
       processingJobId,
@@ -165,7 +200,44 @@ export class PrivacyReviewService {
     }
 
     const approvedAt = new Date();
-    const decisionsToApply = decisions ?? {};
+
+    // Stamp who decided each finding and when — never trust a
+    // client-supplied identity or timestamp for this. Built before the
+    // completeness check below so that check validates the exact set of
+    // decisions that will actually be applied.
+    const stampedFieldDecisions: PrivacyReviewFieldDecisionRecord[] = (
+      decisions?.fieldDecisions ?? []
+    ).map((fieldDecision) => ({
+      ...fieldDecision,
+      decidedById: userId,
+      decidedAt: approvedAt.toISOString(),
+    }));
+    const decisionsToApply: PrivacyReviewDecisions = {
+      fieldDecisions: stampedFieldDecisions,
+    };
+
+    // Enforced here, not just in the dialog's disabled submit button — a
+    // modified client could otherwise submit an incomplete decision set
+    // directly against this endpoint.
+    const findingsRequiringDecision = findFindingsRequiringDecision(
+      review.findings,
+    );
+    const decidedKeys = new Set(
+      stampedFieldDecisions.map(
+        (decision) => `${decision.field}::${decision.entityType}`,
+      ),
+    );
+    const unresolvedFindings = findingsRequiringDecision.filter(
+      (finding) => !decidedKeys.has(`${finding.field}::${finding.entityType}`),
+    );
+    if (unresolvedFindings.length > 0) {
+      throw new AppError(
+        "Every detected finding must be approved or rejected before continuing.",
+        400,
+        "privacy_review_decisions_incomplete",
+        { unresolvedFindings },
+      );
+    }
 
     // Call the Python service first. If this fails (network blip, Python
     // downtime), the review must stay "pending" so the user can simply

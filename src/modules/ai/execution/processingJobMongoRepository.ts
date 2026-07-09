@@ -217,7 +217,7 @@ export class MongoProcessingJobRepository implements ProcessingJobRepository {
         $set: input,
       },
       {
-        new: true,
+        returnDocument: "after",
       },
     ).exec();
 
@@ -250,7 +250,7 @@ export class MongoProcessingJobRepository implements ProcessingJobRepository {
           completedAt,
         },
       },
-      { new: true },
+      { returnDocument: "after" },
     ).exec();
 
     return toPlainProcessingJob(document);

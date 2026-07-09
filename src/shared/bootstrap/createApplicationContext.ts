@@ -1,3 +1,4 @@
+import type { FastifyBaseLogger } from "fastify";
 import type { BackendConfig } from "../config/env.js";
 import { createEmailService } from "../email/createEmailService.js";
 import {
@@ -5,6 +6,7 @@ import {
   createAuthenticateMiddleware,
 } from "../auth/authenticate.js";
 import { AuthorizationService } from "../auth/authorizationService.js";
+import { createRequireInternalServiceSecretMiddleware } from "../auth/requireInternalServiceSecret.js";
 import { NoopTransactionManager } from "../database/transactionManager.js";
 import { ActivityController } from "../../modules/activity/activityController.js";
 import { MongoActivityRepository } from "../../modules/activity/activityMongoRepository.js";
@@ -21,6 +23,10 @@ import { HealthController } from "../../modules/health/healthController.js";
 import { InvitationController } from "../../modules/invitation/invitationController.js";
 import { MongoInvitationRepository } from "../../modules/invitation/invitationMongoRepository.js";
 import { InvitationService } from "../../modules/invitation/invitationService.js";
+import { InterpretationArtifactService } from "../../modules/interpretation/interpretationArtifactService.js";
+import { InterpretationController } from "../../modules/interpretation/interpretationController.js";
+import { MongoInterpretationResultRepository } from "../../modules/interpretation/interpretationResultMongoRepository.js";
+import { InterpretationService } from "../../modules/interpretation/interpretationService.js";
 import { OrganizationController } from "../../modules/organization/organizationController.js";
 import { MongoOrganizationRepository } from "../../modules/organization/organizationMongoRepository.js";
 import { OrganizationService } from "../../modules/organization/organizationService.js";
@@ -45,7 +51,10 @@ import { UploadMetadataController } from "../../modules/upload/uploadMetadataCon
 import { UploadMetadataService } from "../../modules/upload/uploadMetadataService.js";
 import { MongoUserRepository } from "../../modules/user/userMongoRepository.js";
 
-export function createApplicationContext(config: BackendConfig) {
+export function createApplicationContext(
+  config: BackendConfig,
+  logger: FastifyBaseLogger,
+) {
   const transactionManager = new NoopTransactionManager();
   const emailService = createEmailService(config);
   const userRepository = new MongoUserRepository();
@@ -62,11 +71,14 @@ export function createApplicationContext(config: BackendConfig) {
   const privacySafeRepresentationRepository =
     new MongoPrivacySafeRepresentationRepository();
   const entityMappingRepository = new MongoEntityMappingRepository();
+  const interpretationResultRepository =
+    new MongoInterpretationResultRepository();
   const processingResourceCleanupService = new ProcessingResourceCleanupService(
     parsedRepresentationRepository,
     privacyReviewRepository,
     privacySafeRepresentationRepository,
     entityMappingRepository,
+    interpretationResultRepository,
   );
   const authorizationService = new AuthorizationService(
     organizationRepository,
@@ -133,12 +145,18 @@ export function createApplicationContext(config: BackendConfig) {
       privacySafeRepresentationRepository,
       entityMappingRepository,
     );
+  const interpretationArtifactService = new InterpretationArtifactService(
+    interpretationResultRepository,
+    activityRepository,
+  );
   const processingJobService = new ProcessingJobService(
     processingJobRepository,
     uploadMetadataRepository,
     authorizationService,
     pythonProcessingClient,
     evidenceProcessingArtifactService,
+    interpretationArtifactService,
+    logger,
   );
   const evidenceProcessingService = new EvidenceProcessingService(
     processingJobRepository,
@@ -166,6 +184,16 @@ export function createApplicationContext(config: BackendConfig) {
     uploadMetadataService,
     authorizationService,
   );
+  const interpretationService = new InterpretationService(
+    uploadMetadataRepository,
+    privacySafeRepresentationRepository,
+    interpretationResultRepository,
+    processingJobRepository,
+    activityRepository,
+    authorizationService,
+    pythonProcessingClient,
+    logger,
+  );
   const invitationService = new InvitationService(
     invitationRepository,
     organizationRepository,
@@ -179,6 +207,9 @@ export function createApplicationContext(config: BackendConfig) {
   return {
     authenticate: createAuthenticateMiddleware(authService),
     authenticateIfPresent: createAuthenticateIfPresentMiddleware(authService),
+    requireInternalServiceSecret: createRequireInternalServiceSecretMiddleware(
+      config.PYTHON_SERVICE_SHARED_SECRET,
+    ),
     healthController: new HealthController(),
     authController: new AuthController(authService),
     invitationController: new InvitationController(invitationService),
@@ -195,5 +226,8 @@ export function createApplicationContext(config: BackendConfig) {
     processingJobController: new ProcessingJobController(processingJobService),
     privacyReviewController: new PrivacyReviewController(privacyReviewService),
     resultController: new ResultController(resultRecordService),
+    interpretationController: new InterpretationController(
+      interpretationService,
+    ),
   };
 }

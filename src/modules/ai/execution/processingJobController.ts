@@ -1,7 +1,10 @@
 import type { FastifyRequest } from "fastify";
 import { requireAuthenticatedUser } from "../../../shared/auth/requireAuthenticatedUser.js";
 import { successResponse } from "../../../shared/http/apiResponse.js";
-import { idParamSchema } from "../../../schemas/httpSchemas.js";
+import {
+  idParamSchema,
+  processingJobCallbackSchema,
+} from "../../../schemas/httpSchemas.js";
 import { ProcessingJobService } from "./processingJobService.js";
 
 export class ProcessingJobController {
@@ -47,6 +50,19 @@ export class ProcessingJobController {
     const job = await this.processingJobService.cancel(
       auth.userId,
       params.processingJobId!,
+    );
+    return successResponse(job);
+  }
+
+  // No requireAuthenticatedUser here — this route is reached only by
+  // ia_python_service, gated by requireInternalServiceSecret at the route
+  // level instead of a user JWT.
+  async completeExternally(request: FastifyRequest) {
+    const params = idParamSchema.parse(request.params);
+    const payload = processingJobCallbackSchema.parse(request.body);
+    const job = await this.processingJobService.applyExternalCompletion(
+      params.processingJobId!,
+      payload,
     );
     return successResponse(job);
   }

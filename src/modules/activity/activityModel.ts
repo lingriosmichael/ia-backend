@@ -21,6 +21,8 @@ const activitySchema = new Schema(
       enum: ["active", "completed"],
       default: "active",
     },
+    interpretationAcknowledgedAt: { type: Date, default: null },
+    interpretationAcknowledgedById: { type: String, default: null },
   },
   {
     collection: "activities",

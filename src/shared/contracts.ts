@@ -171,6 +171,9 @@ export interface ActivitySummary {
   additionalContext: string | null;
   status: ActivityStatus;
   permissions: ActivityPermissions;
+  interpretationAcknowledgedAt: string | null;
+  interpretationAcknowledgedById: string | null;
+  interpretationAcknowledgedByName: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -297,8 +300,8 @@ export interface ParsedRepresentationRecord {
 }
 
 export const privacyReviewDecisionValueValues = [
-  "exclude",
-  "continue_with_restriction",
+  "approved",
+  "rejected",
 ] as const;
 export type PrivacyReviewDecisionValue =
   (typeof privacyReviewDecisionValueValues)[number];
@@ -329,16 +332,28 @@ export interface ParsedRepresentationPreviewRecord {
   paragraphs: ParsedRepresentationPreviewParagraph[];
 }
 
+// What the client sends when approving a review: which finding, which
+// choice. Never includes who/when — that's stamped server-side (see
+// PrivacyReviewFieldDecisionRecord) so it can't be spoofed by the caller.
+export interface PrivacyReviewFieldDecisionInput {
+  field: string;
+  entityType: string;
+  decision: PrivacyReviewDecisionValue;
+}
+
+// What actually gets persisted and returned — the input plus a real audit
+// trail of who made this specific finding's call and when.
+export interface PrivacyReviewFieldDecisionRecord extends PrivacyReviewFieldDecisionInput {
+  decidedById: string;
+  decidedAt: string;
+}
+
 export interface PrivacyReviewDecisions {
-  defaults?: {
-    freeTextRisk?: PrivacyReviewDecisionValue;
-    specialCategoryData?: PrivacyReviewDecisionValue;
-  };
-  fieldDecisions?: Array<{
-    field: string;
-    entityType: "FREE_TEXT_RISK" | "SPECIAL_CATEGORY_DATA";
-    decision: PrivacyReviewDecisionValue;
-  }>;
+  fieldDecisions?: PrivacyReviewFieldDecisionRecord[];
+}
+
+export interface PrivacyReviewDecisionsInput {
+  fieldDecisions?: PrivacyReviewFieldDecisionInput[];
 }
 
 export interface PrivacyReviewRecord {
@@ -370,6 +385,127 @@ export interface PrivacySafeRepresentationRecord {
   payload: Record<string, unknown>;
   createdAt: string;
   updatedAt: string;
+}
+
+export const interpretationQuestionKindValues = [
+  "single_choice",
+  "free_text",
+  "merge_confirmation",
+] as const;
+export type InterpretationQuestionKind =
+  (typeof interpretationQuestionKindValues)[number];
+
+export const interpretationQuestionStatusValues = [
+  "pending",
+  "answered",
+] as const;
+export type InterpretationQuestionStatus =
+  (typeof interpretationQuestionStatusValues)[number];
+
+export const interpretationWarningSeverityValues = ["info", "warning"] as const;
+export type InterpretationWarningSeverity =
+  (typeof interpretationWarningSeverityValues)[number];
+
+export interface InterpretationEntity {
+  id: string;
+  originalField: string;
+  aiMeaning: string;
+  entityType: string;
+  confidence: number;
+  reason: string;
+  sampleValues: string[];
+}
+
+export const indicatorRelevanceStageValues = [
+  "output",
+  "outcome",
+  "impact",
+] as const;
+export type IndicatorRelevanceStage =
+  (typeof indicatorRelevanceStageValues)[number];
+
+export const interpretationIndicatorStatusValues = [
+  "kept",
+  "rejected",
+] as const;
+export type InterpretationIndicatorStatus =
+  (typeof interpretationIndicatorStatusValues)[number];
+
+export interface InterpretationIndicator {
+  id: string;
+  name: string;
+  description: string;
+  confidence: number;
+  reason: string;
+  relatedEntityIds: string[];
+  relevanceStage: IndicatorRelevanceStage | null;
+  status: InterpretationIndicatorStatus;
+}
+
+export interface InterpretationRelationship {
+  id: string;
+  description: string;
+  involvedEntityIds: string[];
+  confidence: number;
+}
+
+export interface InterpretationQuestion {
+  id: string;
+  prompt: string;
+  kind: InterpretationQuestionKind;
+  options: string[] | null;
+  status: InterpretationQuestionStatus;
+  answeredValue: string | null;
+  answeredById: string | null;
+  answeredAt: string | null;
+}
+
+export interface InterpretationWarning {
+  id: string;
+  message: string;
+  severity: InterpretationWarningSeverity;
+}
+
+export interface InterpretationGoalCoverage {
+  id: string;
+  goalSummary: string;
+  isSupportedByData: boolean;
+  relatedIndicatorIds: string[];
+  gapExplanation: string | null;
+}
+
+export interface InterpretationResultRecord {
+  id: string;
+  organizationId: string;
+  projectId: string;
+  activityId: string | null;
+  uploadMetadataId: string;
+  privacySafeRepresentationId: string;
+  processingJobId: string;
+  versionNumber: number;
+  previousInterpretationResultId: string | null;
+  datasetType: string;
+  overallConfidence: number;
+  entities: InterpretationEntity[];
+  indicators: InterpretationIndicator[];
+  relationships: InterpretationRelationship[];
+  questions: InterpretationQuestion[];
+  warnings: InterpretationWarning[];
+  goalAlignment: InterpretationGoalCoverage[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ProjectInterpretationOverview {
+  results: InterpretationResultRecord[];
+}
+
+export interface StartInterpretationResponse {
+  job: ProcessingJobRecord;
+}
+
+export interface AnswerInterpretationQuestionRequest {
+  answeredValue: string;
 }
 
 export interface DeleteActivityResponse {

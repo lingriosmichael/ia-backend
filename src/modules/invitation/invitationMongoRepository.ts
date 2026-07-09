@@ -108,7 +108,7 @@ export class MongoInvitationRepository implements InvitationRepository {
           acceptedAt: new Date(),
         },
       },
-      { new: true },
+      { returnDocument: "after" },
     ).exec();
 
     return toInvitationRecord(document);
@@ -125,7 +125,7 @@ export class MongoInvitationRepository implements InvitationRepository {
           status: "revoked",
         },
       },
-      { new: true },
+      { returnDocument: "after" },
     ).exec();
 
     return toInvitationRecord(document);

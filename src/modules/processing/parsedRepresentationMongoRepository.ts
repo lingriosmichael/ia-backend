@@ -52,7 +52,7 @@ export class MongoParsedRepresentationRepository implements ParsedRepresentation
           _id: createDocumentId(),
         },
       },
-      { upsert: true, new: true },
+      { upsert: true, returnDocument: "after" },
     ).exec();
 
     return toParsedRepresentationRecord(

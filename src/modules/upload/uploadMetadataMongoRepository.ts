@@ -79,6 +79,29 @@ export class MongoUploadMetadataRepository implements UploadMetadataRepository {
       );
   }
 
+  async listByActivityIds(
+    activityIds: string[],
+    _session: DatabaseSession,
+  ): Promise<UploadMetadataPersistenceRecord[]> {
+    if (activityIds.length === 0) {
+      return [];
+    }
+
+    const documents = await UploadMetadataMongoModel.find({
+      activityId: { $in: activityIds },
+      status: { $ne: "archived" },
+      supersededAt: null,
+    })
+      .sort({ createdAt: -1 })
+      .exec();
+
+    return documents
+      .map((document) => toUploadMetadataRecord(document))
+      .filter((document): document is UploadMetadataPersistenceRecord =>
+        Boolean(document),
+      );
+  }
+
   async findById(
     uploadMetadataId: string,
     _session: DatabaseSession,
@@ -246,7 +269,7 @@ export class MongoUploadMetadataRepository implements UploadMetadataRepository {
         $set: input,
       },
       {
-        new: true,
+        returnDocument: "after",
       },
     ).exec();
 

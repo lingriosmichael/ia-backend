@@ -251,7 +251,7 @@ export class MongoOrganizationRepository implements OrganizationRepository {
           },
         },
         {
-          new: true,
+          returnDocument: "after",
         },
       ).exec();
     } catch (error) {

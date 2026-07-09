@@ -60,7 +60,7 @@ export class MongoPrivacyReviewRepository implements PrivacyReviewRepository {
           status: "pending",
         },
       },
-      { upsert: true, new: true },
+      { upsert: true, returnDocument: "after" },
     ).exec();
 
     return toPrivacyReviewRecord(document) as PrivacyReviewPersistenceRecord;
@@ -91,7 +91,7 @@ export class MongoPrivacyReviewRepository implements PrivacyReviewRepository {
           approvedAt: input.approvedAt,
         },
       },
-      { new: true },
+      { returnDocument: "after" },
     ).exec();
 
     return toPrivacyReviewRecord(document);

@@ -5,6 +5,10 @@ export async function registerProcessingJobRoutes(
   app: FastifyInstance,
   controller: ProcessingJobController,
   authenticate: (request: FastifyRequest, reply: FastifyReply) => Promise<void>,
+  requireInternalServiceSecret: (
+    request: FastifyRequest,
+    reply: FastifyReply,
+  ) => Promise<void>,
 ) {
   app.get(
     "/activities/:activityId/jobs",
@@ -25,5 +29,10 @@ export async function registerProcessingJobRoutes(
     "/jobs/:processingJobId/cancel",
     { preHandler: authenticate },
     controller.cancel.bind(controller),
+  );
+  app.post(
+    "/internal/processing-jobs/:processingJobId/complete",
+    { preHandler: requireInternalServiceSecret },
+    controller.completeExternally.bind(controller),
   );
 }

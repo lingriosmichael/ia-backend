@@ -40,6 +40,39 @@ interface ApprovePrivacyReviewResponse {
   details?: Record<string, unknown> | null;
 }
 
+interface StartDatasetInterpretationActivityGoals {
+  objectives: string | null;
+  successIndicators: string | null;
+}
+
+interface StartDatasetInterpretationProjectImpactModel {
+  inputs: string | null;
+  activities: string | null;
+  outputs: string | null;
+  outcomes: string | null;
+  impact: string | null;
+}
+
+interface StartDatasetInterpretationProjectGoals {
+  impactModel: StartDatasetInterpretationProjectImpactModel | null;
+  successIndicators: string | null;
+}
+
+interface StartDatasetInterpretationInput {
+  processingJobId: string;
+  privacySafeRepresentationId: string;
+  payload: Record<string, unknown>;
+  language: "de" | "en";
+  activityGoals: StartDatasetInterpretationActivityGoals | null;
+  projectGoals: StartDatasetInterpretationProjectGoals | null;
+}
+
+interface PythonDatasetInterpretationResponse {
+  externalJobId: string;
+  status: "accepted" | "processing";
+  acceptedAt: string;
+}
+
 export class PythonProcessingClient {
   constructor(
     private readonly baseUrl: string,
@@ -98,6 +131,22 @@ export class PythonProcessingClient {
       { headers: this.authHeaders() },
     );
 
+    // If the job doesn't exist in Python (404), it was lost due to a restart,
+    // crash, or memory loss. Mark it as failed instead of throwing an error,
+    // so the backend can terminate the polling loop by updating the job status
+    // to "failed" in the database. Without this, the backend would keep polling
+    // forever (with exponential backoff from React Query).
+    if (response.status === 404) {
+      return {
+        externalJobId,
+        status: "failed",
+        updatedAt: new Date().toISOString(),
+        errorMessage:
+          "The processing job was lost from the Python service (likely due to a server restart or crash). The job has been marked as failed.",
+        details: null,
+      };
+    }
+
     if (!response.ok) {
       throw new AppError(
         "The Python processing service did not return a job status.",
@@ -134,5 +183,35 @@ export class PythonProcessingClient {
     }
 
     return response.json() as Promise<ApprovePrivacyReviewResponse>;
+  }
+
+  async startDatasetInterpretation(
+    input: StartDatasetInterpretationInput,
+  ): Promise<PythonDatasetInterpretationResponse> {
+    const response = await fetch(`${this.baseUrl}/processing/interpretation`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        ...this.authHeaders(),
+      },
+      body: JSON.stringify({
+        processingJobId: input.processingJobId,
+        privacySafeRepresentationId: input.privacySafeRepresentationId,
+        payload: input.payload,
+        language: input.language,
+        activityGoals: input.activityGoals,
+        projectGoals: input.projectGoals,
+      }),
+    });
+
+    if (!response.ok) {
+      throw new AppError(
+        "The Python processing service did not accept the interpretation job.",
+        502,
+        "python_processing_interpretation_unavailable",
+      );
+    }
+
+    return response.json() as Promise<PythonDatasetInterpretationResponse>;
   }
 }

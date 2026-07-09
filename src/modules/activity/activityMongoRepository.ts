@@ -33,6 +33,9 @@ function toActivityRecord(
     targetAudience: document.targetAudience ?? null,
     additionalContext: document.additionalContext ?? null,
     status: document.status,
+    interpretationAcknowledgedAt: document.interpretationAcknowledgedAt ?? null,
+    interpretationAcknowledgedById:
+      document.interpretationAcknowledgedById ?? null,
     createdAt: document.createdAt,
     updatedAt: document.updatedAt,
   };
@@ -71,7 +74,7 @@ export class MongoActivityRepository implements ActivityRepository {
         $set: input,
       },
       {
-        new: true,
+        returnDocument: "after",
       },
     ).exec();
 

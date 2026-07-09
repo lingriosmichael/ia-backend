@@ -1,3 +1,4 @@
+import type { FastifyBaseLogger } from "fastify";
 import { databaseSession } from "../../../shared/database/databaseClient.js";
 import { AppError } from "../../../shared/errors/appError.js";
 import { AuthorizationService } from "../../../shared/auth/authorizationService.js";
@@ -6,10 +7,41 @@ import type {
   ProcessingJobType,
   ProcessingJobStatus,
 } from "../../../shared/contracts.js";
+import { InterpretationArtifactService } from "../../interpretation/interpretationArtifactService.js";
 import { EvidenceProcessingArtifactService } from "../../processing/evidenceProcessingArtifactService.js";
 import { PythonProcessingClient } from "../../processing/pythonProcessingClient.js";
 import type { UploadMetadataRepository } from "../../upload/uploadMetadataRepository.js";
+import type { ProcessingJobPersistenceRecord } from "../persistence/aiPersistenceTypes.js";
 import type { ProcessingJobRepository } from "./processingJobRepository.js";
+
+const terminalJobStatuses: ProcessingJobStatus[] = [
+  "completed",
+  "failed",
+  "cancelled",
+];
+
+interface ProcessorStatusPayload {
+  externalJobId: string;
+  status:
+    | "accepted"
+    | "processing"
+    | "awaiting_privacy_review"
+    | "transforming"
+    | "completed"
+    | "failed"
+    | "cancelled";
+  updatedAt: string;
+  errorMessage?: string | null;
+  details?: Record<string, unknown> | null;
+}
+
+// Job types whose lifecycle is driven by an external Python job that this
+// service polls and ingests artifacts from. Every other jobType is a no-op
+// for sync() (e.g. it may be updated directly by its own service instead).
+const syncableJobTypes: ProcessingJobType[] = [
+  "evidence_processing",
+  "dataset_interpretation",
+];
 
 export class ProcessingJobService {
   constructor(
@@ -18,6 +50,8 @@ export class ProcessingJobService {
     private readonly authorizationService: AuthorizationService,
     private readonly pythonProcessingClient: PythonProcessingClient,
     private readonly evidenceProcessingArtifactService: EvidenceProcessingArtifactService,
+    private readonly interpretationArtifactService: InterpretationArtifactService,
+    private readonly logger: FastifyBaseLogger,
   ) {}
 
   async listByActivity(userId: string, activityId: string) {
@@ -164,8 +198,8 @@ export class ProcessingJobService {
     await this.authorizationService.canViewProject(userId, job.projectId);
 
     if (
-      job.jobType !== "evidence_processing" ||
-      ["completed", "failed", "cancelled"].includes(job.status)
+      !syncableJobTypes.includes(job.jobType) ||
+      terminalJobStatuses.includes(job.status)
     ) {
       return mapProcessingJob(job);
     }
@@ -176,29 +210,83 @@ export class ProcessingJobService {
       return mapProcessingJob(job);
     }
 
+    // Pulls the current status from Python. Interpretation jobs also push
+    // their completion directly (see applyExternalCompletion) the instant
+    // they finish, so by the time this poll fires the job is very often
+    // already terminal in the database and this pull never happens at all
+    // — this remains as a fallback for evidence-processing jobs (which
+    // don't push) and as resilience if a push callback is ever missed.
     const processorStatus =
       await this.pythonProcessingClient.getProcessingJobStatus(externalJobId);
+    const updatedJob = await this.applyProcessorStatus(job, processorStatus);
 
-    await this.evidenceProcessingArtifactService.ingestProcessorArtifacts(
-      job,
-      processorStatus.details,
-      this.mapProcessorStatus(processorStatus.status),
+    return mapProcessingJob(updatedJob);
+  }
+
+  /**
+   * Applies a job's terminal (or intermediate) status pushed directly by
+   * Python, rather than pulled via sync(). No userId/authorization check —
+   * this is only reachable through the internal-service-secret-guarded
+   * route, not a user-facing one. Safe to call more than once for the same
+   * job (e.g. a retried callback): a job that's already terminal is a
+   * no-op.
+   */
+  async applyExternalCompletion(
+    processingJobId: string,
+    processorStatus: ProcessorStatusPayload,
+  ) {
+    const job = await this.processingJobRepository.findById(
+      processingJobId,
+      databaseSession,
     );
 
+    if (!job) {
+      throw new AppError(
+        "Processing job not found.",
+        404,
+        "processing_job_not_found",
+      );
+    }
+
+    if (terminalJobStatuses.includes(job.status)) {
+      return mapProcessingJob(job);
+    }
+
+    const updatedJob = await this.applyProcessorStatus(job, processorStatus);
+    return mapProcessingJob(updatedJob);
+  }
+
+  private async applyProcessorStatus(
+    job: ProcessingJobPersistenceRecord,
+    processorStatus: ProcessorStatusPayload,
+  ): Promise<ProcessingJobPersistenceRecord> {
+    const mappedStatus = this.mapProcessorStatus(processorStatus.status);
+
+    if (job.jobType === "evidence_processing") {
+      await this.evidenceProcessingArtifactService.ingestProcessorArtifacts(
+        job,
+        processorStatus.details,
+        mappedStatus,
+      );
+    } else {
+      await this.interpretationArtifactService.ingestProcessorArtifacts(
+        job,
+        processorStatus.details,
+        mappedStatus,
+      );
+    }
+
     const updatedJob = await this.processingJobRepository.update(
-      processingJobId,
+      job.id,
       {
-        status: this.mapProcessorStatus(processorStatus.status),
+        status: mappedStatus,
         errorMessage:
           processorStatus.errorMessage === undefined
             ? undefined
             : (processorStatus.errorMessage ?? null),
-        completedAt:
-          processorStatus.status === "completed" ||
-          processorStatus.status === "failed" ||
-          processorStatus.status === "cancelled"
-            ? new Date(processorStatus.updatedAt)
-            : undefined,
+        completedAt: terminalJobStatuses.includes(mappedStatus)
+          ? new Date(processorStatus.updatedAt)
+          : undefined,
         payload: {
           ...(job.payload ?? {}),
           pythonJob: {
@@ -217,7 +305,23 @@ export class ProcessingJobService {
       databaseSession,
     );
 
-    return mapProcessingJob(updatedJob);
+    // Logged once per real transition (not per poll — the frontend polls
+    // on a fixed interval regardless of whether anything changed), so this
+    // is the line to grep for when checking whether a job is progressing.
+    if (updatedJob.status !== job.status) {
+      this.logger.info(
+        {
+          processingJobId: job.id,
+          jobType: job.jobType,
+          fromStatus: job.status,
+          toStatus: updatedJob.status,
+          errorMessage: updatedJob.errorMessage,
+        },
+        "processing job status changed",
+      );
+    }
+
+    return updatedJob;
   }
 
   private getExternalJobId(payload: Record<string, unknown> | null) {

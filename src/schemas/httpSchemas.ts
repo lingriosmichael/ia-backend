@@ -20,10 +20,7 @@ const nullableTextFieldSchema = z
   .max(2000)
   .nullable()
   .optional();
-const privacyReviewDecisionValueSchema = z.enum([
-  "exclude",
-  "continue_with_restriction",
-]);
+const privacyReviewDecisionValueSchema = z.enum(["approved", "rejected"]);
 
 export const idParamSchema = z.object({
   organizationId: z.string().min(1).optional(),
@@ -34,6 +31,9 @@ export const idParamSchema = z.object({
   evidenceId: z.string().min(1).optional(),
   processingJobId: z.string().min(1).optional(),
   resultRecordId: z.string().min(1).optional(),
+  interpretationResultId: z.string().min(1).optional(),
+  questionId: z.string().min(1).optional(),
+  indicatorId: z.string().min(1).optional(),
   invitationId: z.string().min(1).optional(),
   token: z.string().min(1).optional(),
 });
@@ -174,21 +174,20 @@ export const updateActivitySchema = z.object({
 export const approvePrivacyReviewSchema = z.object({
   decisions: z
     .object({
-      defaults: z
-        .object({
-          freeTextRisk: privacyReviewDecisionValueSchema.optional(),
-          specialCategoryData: privacyReviewDecisionValueSchema.optional(),
-        })
-        .optional(),
+      // Every entity type can require a decision now, not just free-text
+      // risk/special-category — see privacy_tools.py's _recommended_action.
+      // decidedById/decidedAt are deliberately not accepted here: the
+      // server stamps those itself from the authenticated caller, never
+      // trusting a client-supplied identity or timestamp.
       fieldDecisions: z
         .array(
           z.object({
             field: z.string().trim().min(1).max(255),
-            entityType: z.enum(["FREE_TEXT_RISK", "SPECIAL_CATEGORY_DATA"]),
+            entityType: z.string().trim().min(1).max(120),
             decision: privacyReviewDecisionValueSchema,
           }),
         )
-        .max(100)
+        .max(200)
         .optional(),
     })
     .optional(),
@@ -205,4 +204,32 @@ export const createResultRecordSchema = z.object({
 export const updateResultRecordSchema = z.object({
   status: z.enum(resultRecordStatusValues).optional(),
   payload: jsonPayloadSchema.nullable().optional(),
+});
+
+export const answerInterpretationQuestionSchema = z.object({
+  answeredValue: z.string().trim().min(1).max(2000),
+});
+
+export const setIndicatorStatusSchema = z.object({
+  status: z.enum(["kept", "rejected"]),
+});
+
+export const startInterpretationSchema = z.object({
+  language: z.enum(["de", "en"]).default("de"),
+});
+
+export const processingJobCallbackSchema = z.object({
+  externalJobId: z.string().min(1),
+  status: z.enum([
+    "accepted",
+    "processing",
+    "awaiting_privacy_review",
+    "transforming",
+    "completed",
+    "failed",
+    "cancelled",
+  ]),
+  updatedAt: z.string().min(1),
+  errorMessage: z.string().nullable().optional(),
+  details: jsonPayloadSchema.nullable().optional(),
 });

@@ -54,12 +54,25 @@ export class MongoPrivacySafeRepresentationRepository implements PrivacySafeRepr
           _id: createDocumentId(),
         },
       },
-      { upsert: true, new: true },
+      { upsert: true, returnDocument: "after" },
     ).exec();
 
     return toPrivacySafeRepresentationRecord(
       document,
     ) as PrivacySafeRepresentationPersistenceRecord;
+  }
+
+  async findLatestByUploadMetadataId(
+    uploadMetadataId: string,
+    _session: DatabaseSession,
+  ): Promise<PrivacySafeRepresentationPersistenceRecord | null> {
+    const document = await PrivacySafeRepresentationMongoModel.findOne({
+      uploadMetadataId,
+    })
+      .sort({ createdAt: -1 })
+      .exec();
+
+    return toPrivacySafeRepresentationRecord(document);
   }
 
   async deleteByProjectId(

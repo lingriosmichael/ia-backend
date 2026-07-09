@@ -1,4 +1,5 @@
 import type { DatabaseSession } from "../../shared/database/databaseClient.js";
+import type { InterpretationResultRepository } from "../interpretation/interpretationResultRepository.js";
 import type { EntityMappingRepository } from "./entityMappingRepository.js";
 import type { ParsedRepresentationRepository } from "./parsedRepresentationRepository.js";
 import type { PrivacyReviewRepository } from "./privacyReviewRepository.js";
@@ -10,6 +11,7 @@ export class ProcessingResourceCleanupService {
     private readonly privacyReviewRepository: PrivacyReviewRepository,
     private readonly privacySafeRepresentationRepository: PrivacySafeRepresentationRepository,
     private readonly entityMappingRepository: EntityMappingRepository,
+    private readonly interpretationResultRepository: InterpretationResultRepository,
   ) {}
 
   async deleteByProjectId(
@@ -24,6 +26,7 @@ export class ProcessingResourceCleanupService {
         session,
       ),
       this.entityMappingRepository.deleteByProjectId(projectId, session),
+      this.interpretationResultRepository.deleteByProjectId(projectId, session),
     ]);
   }
 
@@ -42,6 +45,10 @@ export class ProcessingResourceCleanupService {
         session,
       ),
       this.entityMappingRepository.deleteByActivityId(activityId, session),
+      this.interpretationResultRepository.deleteByActivityId(
+        activityId,
+        session,
+      ),
     ]);
   }
 
@@ -63,6 +70,10 @@ export class ProcessingResourceCleanupService {
         session,
       ),
       this.entityMappingRepository.deleteByUploadMetadataId(
+        uploadMetadataId,
+        session,
+      ),
+      this.interpretationResultRepository.deleteByUploadMetadataId(
         uploadMetadataId,
         session,
       ),

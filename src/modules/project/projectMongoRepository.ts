@@ -103,7 +103,7 @@ export class MongoProjectRepository implements ProjectRepository {
         $set: input,
       },
       {
-        new: true,
+        returnDocument: "after",
       },
     ).exec();
 
@@ -127,7 +127,7 @@ export class MongoProjectRepository implements ProjectRepository {
         $set: { ownerId: newOwnerId },
       },
       {
-        new: true,
+        returnDocument: "after",
       },
     ).exec();
 

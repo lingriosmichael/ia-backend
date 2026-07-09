@@ -275,11 +275,25 @@ export class OrganizationService {
         projectActivities.map((activity) => activity.id),
         databaseSession,
       );
+    const acknowledgerUsers = await this.userRepository.findByIds(
+      [
+        ...new Set(
+          projectActivities
+            .map((activity) => activity.interpretationAcknowledgedById)
+            .filter((id): id is string => Boolean(id)),
+        ),
+      ],
+      databaseSession,
+    );
+    const acknowledgerNamesById = new Map(
+      acknowledgerUsers.map((user) => [user.id, user.fullName] as const),
+    );
     const activitiesByProjectId = projectActivities.reduce<
       Record<
         string,
         Array<
           (typeof projectActivities)[number] & {
+            interpretationAcknowledgedByName: string | null;
             _count: {
               uploadMetadata: number;
               processingJobs: number;
@@ -291,6 +305,12 @@ export class OrganizationService {
     >((groups, activity) => {
       const enrichedActivity = {
         ...activity,
+        interpretationAcknowledgedByName:
+          activity.interpretationAcknowledgedById
+            ? (acknowledgerNamesById.get(
+                activity.interpretationAcknowledgedById,
+              ) ?? null)
+            : null,
         _count: {
           uploadMetadata: activityUploadCounts[activity.id] ?? 0,
           processingJobs: 0,

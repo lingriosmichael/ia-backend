@@ -14,6 +14,10 @@ export interface UploadMetadataRepository {
     activityId: string,
     session: DatabaseSession,
   ): Promise<UploadMetadataPersistenceRecord[]>;
+  listByActivityIds(
+    activityIds: string[],
+    session: DatabaseSession,
+  ): Promise<UploadMetadataPersistenceRecord[]>;
   findById(
     uploadMetadataId: string,
     session: DatabaseSession,

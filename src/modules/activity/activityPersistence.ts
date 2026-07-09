@@ -14,6 +14,8 @@ export interface ActivityPersistenceRecord {
   targetAudience: string | null;
   additionalContext: string | null;
   status: ActivityStatus;
+  interpretationAcknowledgedAt: Date | null;
+  interpretationAcknowledgedById: string | null;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -46,4 +48,6 @@ export interface ActivityUpdateInput {
   targetAudience?: string | null;
   additionalContext?: string | null;
   status?: ActivityStatus;
+  interpretationAcknowledgedAt?: Date | null;
+  interpretationAcknowledgedById?: string | null;
 }

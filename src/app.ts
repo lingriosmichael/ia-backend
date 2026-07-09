@@ -9,6 +9,7 @@ import { registerProcessingJobRoutes } from "./modules/ai/execution/processingJo
 import { registerAuthRoutes } from "./modules/auth/authRoutes.js";
 import { registerHealthRoutes } from "./modules/health/healthRoutes.js";
 import { registerInvitationRoutes } from "./modules/invitation/invitationRoutes.js";
+import { registerInterpretationRoutes } from "./modules/interpretation/interpretationRoutes.js";
 import { registerOrganizationRoutes } from "./modules/organization/organizationRoutes.js";
 import { registerProjectRoutes } from "./modules/project/projectRoutes.js";
 import { registerPrivacyReviewRoutes } from "./modules/processing/privacyReviewRoutes.js";
@@ -54,6 +55,16 @@ export async function buildApp(config: BackendConfig) {
     },
   });
 
+  // The frontend polls job-status endpoints on a fixed interval (e.g. once a
+  // second) while a job is in flight — logging every poll at the same level
+  // as every other request buries the one line that's actually actionable.
+  // Polling requests are still handled normally; they're just excluded from
+  // this access log. Real progress is logged separately, once per actual
+  // status change, by ProcessingJobService.
+  function isPollingRoute(url: string): boolean {
+    return url.includes("/sync") || /\/jobs$/.test(url.split("?")[0] ?? "");
+  }
+
   // Every request logs on arrival (before auth, so even a rejected or
   // crashed request leaves a trace) and again on completion. The
   // completion line picks up `userId` automatically once authenticate.ts
@@ -61,6 +72,9 @@ export async function buildApp(config: BackendConfig) {
   // when, and with what outcome — without needing to add logging to every
   // individual route handler.
   app.addHook("onRequest", async (request) => {
+    if (isPollingRoute(request.url)) {
+      return;
+    }
     request.log.info(
       { method: request.method, url: request.url },
       "request received",
@@ -68,6 +82,9 @@ export async function buildApp(config: BackendConfig) {
   });
 
   app.addHook("onResponse", async (request, reply) => {
+    if (isPollingRoute(request.url)) {
+      return;
+    }
     request.log.info(
       {
         method: request.method,
@@ -103,7 +120,7 @@ export async function buildApp(config: BackendConfig) {
     global: false,
   });
 
-  const context = createApplicationContext(config);
+  const context = createApplicationContext(config, app.log);
 
   await registerHealthRoutes(app, context.healthController);
   await registerAuthRoutes(app, context.authController, context.authenticate);
@@ -142,6 +159,7 @@ export async function buildApp(config: BackendConfig) {
     app,
     context.processingJobController,
     context.authenticate,
+    context.requireInternalServiceSecret,
   );
   await registerPrivacyReviewRoutes(
     app,
@@ -151,6 +169,11 @@ export async function buildApp(config: BackendConfig) {
   await registerResultRoutes(
     app,
     context.resultController,
+    context.authenticate,
+  );
+  await registerInterpretationRoutes(
+    app,
+    context.interpretationController,
     context.authenticate,
   );
 
