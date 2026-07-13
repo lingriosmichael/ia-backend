@@ -31,12 +31,10 @@ export interface InterpretationResultRepository {
     session: DatabaseSession,
   ): Promise<InterpretationResultPersistenceRecord[]>;
   /**
-   * Atomically answers a question only if it is still "pending". Returns
-   * null if the result or question was not found, or the question had
-   * already been answered (e.g. a concurrent submission) — the caller
-   * decides which error that maps to.
+   * Creates or updates a question answer by question id. Returns null if
+   * the result or question was not found.
    */
-  answerQuestionIfPending(
+  answerQuestion(
     interpretationResultId: string,
     questionId: string,
     input: InterpretationQuestionAnswerInput,
@@ -51,6 +49,18 @@ export interface InterpretationResultRepository {
   setIndicatorStatus(
     interpretationResultId: string,
     indicatorId: string,
+    status: InterpretationIndicatorStatus,
+    session: DatabaseSession,
+  ): Promise<InterpretationResultPersistenceRecord | null>;
+  setQualitativeFindingStatus(
+    interpretationResultId: string,
+    qualitativeFindingId: string,
+    status: InterpretationIndicatorStatus,
+    session: DatabaseSession,
+  ): Promise<InterpretationResultPersistenceRecord | null>;
+  setSupportingQuoteStatus(
+    interpretationResultId: string,
+    supportingQuoteId: string,
     status: InterpretationIndicatorStatus,
     session: DatabaseSession,
   ): Promise<InterpretationResultPersistenceRecord | null>;

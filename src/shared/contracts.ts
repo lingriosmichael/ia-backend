@@ -294,10 +294,20 @@ export interface ParsedRepresentationRecord {
   uploadMetadataId: string;
   processingJobId: string;
   fileType: "spreadsheet" | "document" | "unknown";
+  interpretationDataType: InterpretationDataType;
   payload: Record<string, unknown>;
   createdAt: string;
   updatedAt: string;
 }
+
+export const interpretationDataTypeValues = [
+  "tabular_structured",
+  "text_narrative",
+  "mixed_structured_text",
+  "insufficiently_extracted",
+] as const;
+export type InterpretationDataType =
+  (typeof interpretationDataTypeValues)[number];
 
 export const privacyReviewDecisionValueValues = [
   "approved",
@@ -322,6 +332,7 @@ export interface ParsedRepresentationPreviewParagraph {
 
 export interface ParsedRepresentationPreviewRecord {
   fileType: "spreadsheet" | "document" | "unknown";
+  interpretationDataType: InterpretationDataType;
   sourceFileName: string | null;
   extension: string | null;
   contentType: string | null;
@@ -382,6 +393,7 @@ export interface PrivacySafeRepresentationRecord {
   processingJobId: string;
   privacyReviewId: string;
   parsedRepresentationId: string;
+  interpretationDataType: InterpretationDataType;
   payload: Record<string, unknown>;
   createdAt: string;
   updatedAt: string;
@@ -431,6 +443,51 @@ export const interpretationIndicatorStatusValues = [
 export type InterpretationIndicatorStatus =
   (typeof interpretationIndicatorStatusValues)[number];
 
+export const interpretationQualitativeStageValues = [
+  "output",
+  "outcome",
+  "impact",
+  "context",
+  "risk",
+] as const;
+export type InterpretationQualitativeStage =
+  (typeof interpretationQualitativeStageValues)[number];
+
+export const interpretationQuoteExcerptKindValues = [
+  "direct",
+  "paraphrased",
+] as const;
+export type InterpretationQuoteExcerptKind =
+  (typeof interpretationQuoteExcerptKindValues)[number];
+
+export const interpretationQuoteSpeakerTypeValues = [
+  "participant",
+  "caregiver",
+  "staff",
+  "volunteer",
+  "evaluator",
+  "unknown",
+] as const;
+export type InterpretationQuoteSpeakerType =
+  (typeof interpretationQuoteSpeakerTypeValues)[number];
+
+export const interpretationQuotePrivacyModeValues = [
+  "verbatim_safe",
+  "redacted",
+  "paraphrased_only",
+] as const;
+export type InterpretationQuotePrivacyMode =
+  (typeof interpretationQuotePrivacyModeValues)[number];
+
+export const interpretationQualitativeFindingRelationValues = [
+  "reinforces",
+  "contradicts",
+  "complicates",
+  "context_only",
+] as const;
+export type InterpretationQualitativeFindingRelation =
+  (typeof interpretationQualitativeFindingRelationValues)[number];
+
 export interface InterpretationIndicator {
   id: string;
   name: string;
@@ -438,6 +495,7 @@ export interface InterpretationIndicator {
   confidence: number;
   reason: string;
   relatedEntityIds: string[];
+  supportingParagraphKeys: string[];
   relevanceStage: IndicatorRelevanceStage | null;
   status: InterpretationIndicatorStatus;
 }
@@ -449,11 +507,38 @@ export interface InterpretationRelationship {
   confidence: number;
 }
 
+export interface InterpretationSupportingQuote {
+  id: string;
+  excerptText: string;
+  excerptKind: InterpretationQuoteExcerptKind;
+  speakerType: InterpretationQuoteSpeakerType;
+  stage: InterpretationQualitativeStage;
+  confidence: number;
+  reason: string;
+  sourceReference: string;
+  privacyMode: InterpretationQuotePrivacyMode;
+  status: InterpretationIndicatorStatus;
+}
+
+export interface InterpretationQualitativeFinding {
+  id: string;
+  summary: string;
+  stage: InterpretationQualitativeStage;
+  confidence: number;
+  reason: string;
+  relatedEntityIds: string[];
+  relatedIndicatorIds: string[];
+  supportingQuoteIds: string[];
+  relationToEvidence: InterpretationQualitativeFindingRelation;
+  status: InterpretationIndicatorStatus;
+}
+
 export interface InterpretationQuestion {
   id: string;
   prompt: string;
   kind: InterpretationQuestionKind;
   options: string[] | null;
+  isBlocking: boolean;
   status: InterpretationQuestionStatus;
   answeredValue: string | null;
   answeredById: string | null;
@@ -489,6 +574,8 @@ export interface InterpretationResultRecord {
   entities: InterpretationEntity[];
   indicators: InterpretationIndicator[];
   relationships: InterpretationRelationship[];
+  qualitativeFindings: InterpretationQualitativeFinding[];
+  supportingQuotes: InterpretationSupportingQuote[];
   questions: InterpretationQuestion[];
   warnings: InterpretationWarning[];
   goalAlignment: InterpretationGoalCoverage[];
@@ -747,4 +834,50 @@ export interface ApiSuccessResponse<T> {
 export interface ApiErrorResponse {
   success: false;
   error: ApiErrorPayload;
+}
+
+// ============================================================
+// Project Knowledge Model (Phase 4, Part B)
+// ============================================================
+
+export const projectKnowledgeModelStatusValues = [
+  "building",
+  "ready",
+  "stale",
+] as const;
+export type ProjectKnowledgeModelStatus =
+  (typeof projectKnowledgeModelStatusValues)[number];
+
+export const knowledgeEntityTypeValues = [
+  "participant",
+  "mentor",
+  "activity",
+  "outcome",
+  "location",
+  "indicator",
+  "session",
+  "theme",
+  "organization",
+  "evidence_source",
+] as const;
+export type KnowledgeEntityType = (typeof knowledgeEntityTypeValues)[number];
+
+export const knowledgeRelationshipTypeValues = [
+  "attended",
+  "completed",
+  "observed_in",
+  "reinforces",
+  "contradicts",
+  "complicates",
+] as const;
+export type KnowledgeRelationshipType =
+  (typeof knowledgeRelationshipTypeValues)[number];
+
+export interface KnowledgeSourceInstance {
+  uploadMetadataId: string;
+  interpretationResultId: string;
+  activityId: string;
+  activityType: string | null;
+  sourceReference: string;
+  addedAt: string;
 }

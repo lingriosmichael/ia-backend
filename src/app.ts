@@ -82,7 +82,7 @@ export async function buildApp(config: BackendConfig) {
   });
 
   app.addHook("onResponse", async (request, reply) => {
-    if (isPollingRoute(request.url)) {
+    if (isPollingRoute(request.url) && reply.statusCode < 400) {
       return;
     }
     request.log.info(

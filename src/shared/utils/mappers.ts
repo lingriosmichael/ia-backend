@@ -15,8 +15,10 @@ import type {
   InterpretationIndicator,
   InterpretationQuestionKind,
   InterpretationQuestionStatus,
+  InterpretationQualitativeFinding,
   InterpretationRelationship,
   InterpretationResultRecord,
+  InterpretationSupportingQuote,
   InterpretationWarning,
   ParsedRepresentationPreviewRecord,
   ParsedRepresentationRecord,
@@ -36,6 +38,7 @@ import type {
   WorkspaceActivity,
   WorkspaceProject,
 } from "../contracts.js";
+import { classifyInterpretationDataTypeFromPayload } from "./interpretationDataType.js";
 
 const organizationRoleMap = {
   OWNER: "ORGANIZATION_ADMIN",
@@ -623,6 +626,9 @@ export function mapParsedRepresentation(record: {
   createdAt: Date;
   updatedAt: Date;
 }): ParsedRepresentationRecord {
+  const interpretationDataType = classifyInterpretationDataTypeFromPayload(
+    record.payload,
+  );
   return {
     id: record.id,
     organizationId: record.organizationId,
@@ -631,6 +637,7 @@ export function mapParsedRepresentation(record: {
     uploadMetadataId: record.uploadMetadataId,
     processingJobId: record.processingJobId,
     fileType: record.fileType,
+    interpretationDataType,
     payload: (record.payload as Record<string, unknown>) ?? {},
     createdAt: toIso(record.createdAt),
     updatedAt: toIso(record.updatedAt),
@@ -645,9 +652,12 @@ export function mapParsedRepresentationPreview(record: {
   const metadata = asRecord(payload.metadata);
   const tables = asRecordArray(payload.tables);
   const paragraphs = asRecordArray(payload.paragraphs);
+  const interpretationDataType =
+    classifyInterpretationDataTypeFromPayload(payload);
 
   return {
     fileType: record.fileType,
+    interpretationDataType,
     sourceFileName: readString(metadata.sourceFileName),
     extension: readString(metadata.extension),
     contentType: readString(metadata.contentType),
@@ -716,6 +726,9 @@ export function mapPrivacySafeRepresentation(record: {
   createdAt: Date;
   updatedAt: Date;
 }): PrivacySafeRepresentationRecord {
+  const interpretationDataType = classifyInterpretationDataTypeFromPayload(
+    record.payload,
+  );
   return {
     id: record.id,
     organizationId: record.organizationId,
@@ -725,6 +738,7 @@ export function mapPrivacySafeRepresentation(record: {
     processingJobId: record.processingJobId,
     privacyReviewId: record.privacyReviewId,
     parsedRepresentationId: record.parsedRepresentationId,
+    interpretationDataType,
     payload: (record.payload as Record<string, unknown>) ?? {},
     createdAt: toIso(record.createdAt),
     updatedAt: toIso(record.updatedAt),
@@ -746,11 +760,14 @@ export function mapInterpretationResult(record: {
   entities: InterpretationEntity[];
   indicators: InterpretationIndicator[];
   relationships: InterpretationRelationship[];
+  qualitativeFindings: InterpretationQualitativeFinding[];
+  supportingQuotes: InterpretationSupportingQuote[];
   questions: Array<{
     id: string;
     prompt: string;
     kind: InterpretationQuestionKind;
     options: string[] | null;
+    isBlocking: boolean;
     status: InterpretationQuestionStatus;
     answeredValue: string | null;
     answeredById: string | null;
@@ -776,11 +793,14 @@ export function mapInterpretationResult(record: {
     entities: record.entities,
     indicators: record.indicators,
     relationships: record.relationships,
+    qualitativeFindings: record.qualitativeFindings,
+    supportingQuotes: record.supportingQuotes,
     questions: record.questions.map((question) => ({
       id: question.id,
       prompt: question.prompt,
       kind: question.kind,
       options: question.options,
+      isBlocking: question.isBlocking,
       status: question.status,
       answeredValue: question.answeredValue,
       answeredById: question.answeredById,

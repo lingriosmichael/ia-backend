@@ -16,7 +16,8 @@
     "lint:check": "eslint . && npm run typecheck",
     "format": "prettier --write .",
     "test": "node --import tsx --test src/**/*.test.ts",
-    "migrate:roles": "tsx src/scripts/migrateOrganizationRoleModel.ts"
+    "migrate:roles": "tsx src/scripts/migrateOrganizationRoleModel.ts",
+    "migrate:privacy-review-decisions": "tsx src/scripts/migratePrivacyReviewDecisionValues.ts"
   },
   "dependencies": {
     "@fastify/cors": "^10.0.1",

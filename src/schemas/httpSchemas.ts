@@ -34,6 +34,8 @@ export const idParamSchema = z.object({
   interpretationResultId: z.string().min(1).optional(),
   questionId: z.string().min(1).optional(),
   indicatorId: z.string().min(1).optional(),
+  qualitativeFindingId: z.string().min(1).optional(),
+  supportingQuoteId: z.string().min(1).optional(),
   invitationId: z.string().min(1).optional(),
   token: z.string().min(1).optional(),
 });
@@ -211,6 +213,10 @@ export const answerInterpretationQuestionSchema = z.object({
 });
 
 export const setIndicatorStatusSchema = z.object({
+  status: z.enum(["kept", "rejected"]),
+});
+
+export const setQualitativeCurationStatusSchema = z.object({
   status: z.enum(["kept", "rejected"]),
 });
 

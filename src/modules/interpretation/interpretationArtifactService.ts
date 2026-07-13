@@ -1,4 +1,5 @@
 import { databaseSession } from "../../shared/database/databaseClient.js";
+import type { FastifyBaseLogger } from "fastify";
 import type {
   IndicatorRelevanceStage,
   InterpretationQuestionKind,
@@ -11,13 +12,16 @@ import type { ActivityRepository } from "../activity/activityRepository.js";
 import type { ProcessingJobPersistenceRecord } from "../ai/persistence/aiPersistenceTypes.js";
 import type {
   InterpretationEntityCreateInput,
+  InterpretationQualitativeFindingCreateInput,
   InterpretationGoalCoverageCreateInput,
   InterpretationIndicatorCreateInput,
   InterpretationQuestionCreateInput,
   InterpretationRelationshipCreateInput,
+  InterpretationSupportingQuoteCreateInput,
   InterpretationWarningCreateInput,
 } from "./interpretationResultPersistence.js";
 import type { InterpretationResultRepository } from "./interpretationResultRepository.js";
+import { clearActivityInterpretationAcknowledgmentIfPresent } from "./interpretationReviewState.js";
 
 type ProcessingStatusDetails = Record<string, unknown> | null | undefined;
 
@@ -44,6 +48,10 @@ function readNullableString(value: unknown): string | null {
 
 function readNumber(value: unknown, fallback = 0): number {
   return typeof value === "number" && Number.isFinite(value) ? value : fallback;
+}
+
+function readBoolean(value: unknown, fallback = false): boolean {
+  return typeof value === "boolean" ? value : fallback;
 }
 
 function readStringArray(value: unknown): string[] {
@@ -123,6 +131,7 @@ function mapIndicators(
       entry.relatedFields,
       entityIdByOriginalField,
     ),
+    supportingParagraphKeys: readStringArray(entry.supportingParagraphKeys),
     relevanceStage: readIndicatorRelevanceStage(entry.relevanceStage),
     status: "kept",
   }));
@@ -170,6 +179,92 @@ function mapRelationships(
   }));
 }
 
+type MappedSupportingQuote = InterpretationSupportingQuoteCreateInput & {
+  quoteKey: string;
+};
+
+function mapSupportingQuotes(value: unknown): MappedSupportingQuote[] {
+  return readRecordArray(value).map((entry, index) => ({
+    id: createDocumentId(),
+    quoteKey: readString(entry.quoteKey, `quote_${index + 1}`),
+    excerptText: readString(entry.excerptText),
+    excerptKind:
+      readString(entry.excerptKind) === "direct" ? "direct" : "paraphrased",
+    speakerType: (() => {
+      const speakerType = readString(entry.speakerType);
+      return speakerType === "participant" ||
+        speakerType === "caregiver" ||
+        speakerType === "staff" ||
+        speakerType === "volunteer" ||
+        speakerType === "evaluator"
+        ? speakerType
+        : "unknown";
+    })(),
+    stage: (() => {
+      const stage = readString(entry.stage);
+      return stage === "output" ||
+        stage === "outcome" ||
+        stage === "impact" ||
+        stage === "risk"
+        ? stage
+        : "context";
+    })(),
+    confidence: readNumber(entry.confidence),
+    reason: readString(entry.reason),
+    sourceReference: readString(entry.sourceReference, `Quote ${index + 1}`),
+    privacyMode:
+      readString(entry.privacyMode) === "verbatim_safe"
+        ? "verbatim_safe"
+        : readString(entry.privacyMode) === "redacted"
+          ? "redacted"
+          : "paraphrased_only",
+    status: "kept",
+  }));
+}
+
+function mapQualitativeFindings(
+  value: unknown,
+  entityIdByOriginalField: ReadonlyMap<string, string>,
+  indicatorIdByName: ReadonlyMap<string, string>,
+  supportingQuoteIdByKey: ReadonlyMap<string, string>,
+): InterpretationQualitativeFindingCreateInput[] {
+  return readRecordArray(value).map((entry) => ({
+    id: createDocumentId(),
+    summary: readString(entry.summary, "Qualitative finding"),
+    stage: (() => {
+      const stage = readString(entry.stage);
+      return stage === "output" ||
+        stage === "outcome" ||
+        stage === "impact" ||
+        stage === "risk"
+        ? stage
+        : "context";
+    })(),
+    confidence: readNumber(entry.confidence),
+    reason: readString(entry.reason),
+    relatedEntityIds: resolveEntityIds(
+      entry.relatedFieldNames,
+      entityIdByOriginalField,
+    ),
+    relatedIndicatorIds: resolveIndicatorIds(
+      entry.relatedIndicatorNames,
+      indicatorIdByName,
+    ),
+    supportingQuoteIds: readStringArray(entry.supportingQuoteKeys)
+      .map((quoteKey) => supportingQuoteIdByKey.get(quoteKey))
+      .filter((id): id is string => Boolean(id)),
+    relationToEvidence: (() => {
+      const relation = readString(entry.relationToEvidence);
+      return relation === "reinforces" ||
+        relation === "contradicts" ||
+        relation === "complicates"
+        ? relation
+        : "context_only";
+    })(),
+    status: "kept",
+  }));
+}
+
 function mapQuestions(value: unknown): InterpretationQuestionCreateInput[] {
   return readRecordArray(value).map((entry) => ({
     prompt: readString(entry.prompt, "Can you confirm this interpretation?"),
@@ -177,6 +272,10 @@ function mapQuestions(value: unknown): InterpretationQuestionCreateInput[] {
     options: Array.isArray(entry.options)
       ? readStringArray(entry.options)
       : null,
+    isBlocking: readBoolean(
+      entry.isBlocking,
+      readQuestionKind(entry.kind) !== "free_text",
+    ),
   }));
 }
 
@@ -191,6 +290,7 @@ export class InterpretationArtifactService {
   constructor(
     private readonly interpretationResultRepository: InterpretationResultRepository,
     private readonly activityRepository: ActivityRepository,
+    private readonly logger: FastifyBaseLogger,
   ) {}
 
   async ingestProcessorArtifacts(
@@ -232,6 +332,24 @@ export class InterpretationArtifactService {
     const indicatorIdByName = new Map(
       indicators.map((indicator) => [indicator.name, indicator.id]),
     );
+    const supportingQuotes = mapSupportingQuotes(
+      interpretation.supportingQuotes,
+    );
+    const supportingQuoteIdByKey = new Map<string, string>();
+    for (const quote of supportingQuotes) {
+      if (supportingQuoteIdByKey.has(quote.quoteKey)) {
+        this.logger.warn(
+          {
+            processingJobId: job.id,
+            uploadMetadataId: job.uploadMetadataId,
+            quoteKey: quote.quoteKey,
+          },
+          "Duplicate supporting quote key in interpretation artifact; keeping first occurrence",
+        );
+        continue;
+      }
+      supportingQuoteIdByKey.set(quote.quoteKey, quote.id);
+    }
 
     await this.interpretationResultRepository.create(
       {
@@ -251,6 +369,15 @@ export class InterpretationArtifactService {
           interpretation.relationships,
           entityIdByOriginalField,
         ),
+        qualitativeFindings: mapQualitativeFindings(
+          interpretation.qualitativeFindings,
+          entityIdByOriginalField,
+          indicatorIdByName,
+          supportingQuoteIdByKey,
+        ),
+        supportingQuotes: supportingQuotes.map(
+          ({ quoteKey: _quoteKey, ...quote }) => quote,
+        ),
         questions: mapQuestions(interpretation.questions),
         warnings: mapWarnings(interpretation.warnings),
         goalAlignment: mapGoalAlignment(
@@ -266,12 +393,9 @@ export class InterpretationArtifactService {
     // evidence — so any prior "nothing left to decide" acknowledgment no
     // longer applies and must be cleared, not left silently stale.
     if (job.activityId) {
-      await this.activityRepository.update(
+      await clearActivityInterpretationAcknowledgmentIfPresent(
+        this.activityRepository,
         job.activityId,
-        {
-          interpretationAcknowledgedAt: null,
-          interpretationAcknowledgedById: null,
-        },
         databaseSession,
       );
     }

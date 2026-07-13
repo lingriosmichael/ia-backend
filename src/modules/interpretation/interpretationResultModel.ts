@@ -6,6 +6,11 @@ import {
   interpretationIndicatorStatusValues,
   interpretationQuestionKindValues,
   interpretationQuestionStatusValues,
+  interpretationQualitativeFindingRelationValues,
+  interpretationQualitativeStageValues,
+  interpretationQuoteExcerptKindValues,
+  interpretationQuotePrivacyModeValues,
+  interpretationQuoteSpeakerTypeValues,
   interpretationWarningSeverityValues,
 } from "../../shared/contracts.js";
 
@@ -26,6 +31,7 @@ const interpretationIndicatorSchema = new Schema({
   confidence: { type: Number, required: true },
   reason: { type: String, required: true },
   relatedEntityIds: { type: [String], default: [] },
+  supportingParagraphKeys: { type: [String], default: [] },
   relevanceStage: {
     type: String,
     enum: [...indicatorRelevanceStageValues],
@@ -45,6 +51,64 @@ const interpretationRelationshipSchema = new Schema({
   confidence: { type: Number, required: true },
 });
 
+const interpretationSupportingQuoteSchema = new Schema({
+  _id: { type: String, default: createDocumentId },
+  excerptText: { type: String, required: true },
+  excerptKind: {
+    type: String,
+    enum: [...interpretationQuoteExcerptKindValues],
+    required: true,
+  },
+  speakerType: {
+    type: String,
+    enum: [...interpretationQuoteSpeakerTypeValues],
+    required: true,
+  },
+  stage: {
+    type: String,
+    enum: [...interpretationQualitativeStageValues],
+    required: true,
+  },
+  confidence: { type: Number, required: true },
+  reason: { type: String, required: true },
+  sourceReference: { type: String, required: true },
+  privacyMode: {
+    type: String,
+    enum: [...interpretationQuotePrivacyModeValues],
+    required: true,
+  },
+  status: {
+    type: String,
+    enum: [...interpretationIndicatorStatusValues],
+    default: "kept",
+  },
+});
+
+const interpretationQualitativeFindingSchema = new Schema({
+  _id: { type: String, default: createDocumentId },
+  summary: { type: String, required: true },
+  stage: {
+    type: String,
+    enum: [...interpretationQualitativeStageValues],
+    required: true,
+  },
+  confidence: { type: Number, required: true },
+  reason: { type: String, required: true },
+  relatedEntityIds: { type: [String], default: [] },
+  relatedIndicatorIds: { type: [String], default: [] },
+  supportingQuoteIds: { type: [String], default: [] },
+  relationToEvidence: {
+    type: String,
+    enum: [...interpretationQualitativeFindingRelationValues],
+    default: "context_only",
+  },
+  status: {
+    type: String,
+    enum: [...interpretationIndicatorStatusValues],
+    default: "kept",
+  },
+});
+
 const interpretationQuestionSchema = new Schema({
   _id: { type: String, default: createDocumentId },
   prompt: { type: String, required: true },
@@ -54,6 +118,7 @@ const interpretationQuestionSchema = new Schema({
     required: true,
   },
   options: { type: [String], default: null },
+  isBlocking: { type: Boolean, default: false },
   status: {
     type: String,
     enum: [...interpretationQuestionStatusValues],
@@ -98,6 +163,14 @@ const interpretationResultSchema = new Schema(
     entities: { type: [interpretationEntitySchema], default: [] },
     indicators: { type: [interpretationIndicatorSchema], default: [] },
     relationships: { type: [interpretationRelationshipSchema], default: [] },
+    qualitativeFindings: {
+      type: [interpretationQualitativeFindingSchema],
+      default: [],
+    },
+    supportingQuotes: {
+      type: [interpretationSupportingQuoteSchema],
+      default: [],
+    },
     questions: { type: [interpretationQuestionSchema], default: [] },
     warnings: { type: [interpretationWarningSchema], default: [] },
     goalAlignment: { type: [interpretationGoalCoverageSchema], default: [] },

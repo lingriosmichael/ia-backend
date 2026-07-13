@@ -19,6 +19,16 @@ import type { PrivacySafeRepresentationRepository } from "../processing/privacyS
 import { PythonProcessingClient } from "../processing/pythonProcessingClient.js";
 import type { UploadMetadataRepository } from "../upload/uploadMetadataRepository.js";
 import type { InterpretationResultRepository } from "./interpretationResultRepository.js";
+import {
+  clearActivityInterpretationAcknowledgmentIfPresent,
+  hasPendingBlockingQuestions,
+  isBlockingQuestion,
+} from "./interpretationReviewState.js";
+import {
+  classifyInterpretationDataTypeFromPayload,
+  getInterpretationSupportState,
+  isInterpretationDataTypeSupported,
+} from "../../shared/utils/interpretationDataType.js";
 
 export class InterpretationService {
   constructor(
@@ -66,6 +76,26 @@ export class InterpretationService {
         "This evidence has not completed privacy-safe processing yet.",
         409,
         "privacy_safe_representation_not_available",
+      );
+    }
+
+    const interpretationDataType = classifyInterpretationDataTypeFromPayload(
+      privacySafeRepresentation.payload,
+    );
+    const interpretationSupportState = getInterpretationSupportState(
+      interpretationDataType,
+    );
+
+    if (!isInterpretationDataTypeSupported(interpretationDataType)) {
+      throw new AppError(
+        interpretationSupportState === "insufficiently_extracted"
+          ? "This evidence does not contain enough extracted structure for reliable interpretation."
+          : "This evidence was parsed successfully, but its current data type is not yet supported for canonical interpretation.",
+        409,
+        interpretationSupportState === "insufficiently_extracted"
+          ? "interpretation_data_type_insufficiently_extracted"
+          : "interpretation_data_type_not_supported_yet",
+        { interpretationDataType },
       );
     }
 
@@ -245,19 +275,35 @@ export class InterpretationService {
 
     await this.authorizationService.canEditProject(userId, result.projectId);
 
-    const updated =
-      await this.interpretationResultRepository.answerQuestionIfPending(
-        interpretationResultId,
-        questionId,
-        { answeredValue, answeredById: userId, answeredAt: new Date() },
-        databaseSession,
-      );
+    const answeredQuestion = result.questions.find(
+      (question) => question.id === questionId,
+    );
 
-    if (!updated) {
+    const updated = await this.interpretationResultRepository.answerQuestion(
+      interpretationResultId,
+      questionId,
+      { answeredValue, answeredById: userId, answeredAt: new Date() },
+      databaseSession,
+    );
+
+    if (!updated || !answeredQuestion) {
       throw new AppError(
-        "This question was not found or has already been answered.",
-        409,
-        "interpretation_question_not_pending",
+        "This question was not found.",
+        404,
+        "interpretation_question_not_found",
+      );
+    }
+
+    if (
+      result.activityId &&
+      answeredQuestion.status === "answered" &&
+      answeredQuestion.answeredValue !== answeredValue &&
+      isBlockingQuestion(answeredQuestion)
+    ) {
+      await clearActivityInterpretationAcknowledgmentIfPresent(
+        this.activityRepository,
+        result.activityId,
+        databaseSession,
       );
     }
 
@@ -301,6 +347,110 @@ export class InterpretationService {
       );
     }
 
+    if (result.activityId) {
+      await clearActivityInterpretationAcknowledgmentIfPresent(
+        this.activityRepository,
+        result.activityId,
+        databaseSession,
+      );
+    }
+
+    return mapInterpretationResult(updated);
+  }
+
+  async setQualitativeFindingStatus(
+    userId: string,
+    interpretationResultId: string,
+    qualitativeFindingId: string,
+    status: InterpretationIndicatorStatus,
+  ) {
+    const result = await this.interpretationResultRepository.findById(
+      interpretationResultId,
+      databaseSession,
+    );
+
+    if (!result) {
+      throw new AppError(
+        "Interpretation result not found.",
+        404,
+        "interpretation_result_not_found",
+      );
+    }
+
+    await this.authorizationService.canEditProject(userId, result.projectId);
+
+    const updated =
+      await this.interpretationResultRepository.setQualitativeFindingStatus(
+        interpretationResultId,
+        qualitativeFindingId,
+        status,
+        databaseSession,
+      );
+
+    if (!updated) {
+      throw new AppError(
+        "This qualitative finding was not found.",
+        404,
+        "interpretation_qualitative_finding_not_found",
+      );
+    }
+
+    if (result.activityId) {
+      await clearActivityInterpretationAcknowledgmentIfPresent(
+        this.activityRepository,
+        result.activityId,
+        databaseSession,
+      );
+    }
+
+    return mapInterpretationResult(updated);
+  }
+
+  async setSupportingQuoteStatus(
+    userId: string,
+    interpretationResultId: string,
+    supportingQuoteId: string,
+    status: InterpretationIndicatorStatus,
+  ) {
+    const result = await this.interpretationResultRepository.findById(
+      interpretationResultId,
+      databaseSession,
+    );
+
+    if (!result) {
+      throw new AppError(
+        "Interpretation result not found.",
+        404,
+        "interpretation_result_not_found",
+      );
+    }
+
+    await this.authorizationService.canEditProject(userId, result.projectId);
+
+    const updated =
+      await this.interpretationResultRepository.setSupportingQuoteStatus(
+        interpretationResultId,
+        supportingQuoteId,
+        status,
+        databaseSession,
+      );
+
+    if (!updated) {
+      throw new AppError(
+        "This supporting quote was not found.",
+        404,
+        "interpretation_supporting_quote_not_found",
+      );
+    }
+
+    if (result.activityId) {
+      await clearActivityInterpretationAcknowledgmentIfPresent(
+        this.activityRepository,
+        result.activityId,
+        databaseSession,
+      );
+    }
+
     return mapInterpretationResult(updated);
   }
 
@@ -322,21 +472,63 @@ export class InterpretationService {
         uploads.map((upload) => upload.id),
         databaseSession,
       );
+    const privacySafeRepresentations =
+      await this.privacySafeRepresentationRepository.findLatestByUploadMetadataIds(
+        uploads.map((upload) => upload.id),
+        databaseSession,
+      );
 
-    // The frontend already disables its "Bestätigen" button while actionable
-    // questions remain pending, but that's a UX nicety, not the real
-    // guarantee — same principle as privacy review approval. The generic
-    // "additional context" question (kind "free_text") is deliberately
-    // optional and never blocks review; only merge-confirmation questions
-    // (normalization) are actionable.
-    const hasUnresolvedActionableQuestion = results.some((result) =>
-      result.questions.some(
-        (question) =>
-          question.kind !== "free_text" && question.status === "pending",
-      ),
-    );
+    if (uploads.length === 0) {
+      throw new AppError(
+        "This activity has no evidence to acknowledge.",
+        409,
+        "interpretation_review_incomplete",
+      );
+    }
 
-    if (hasUnresolvedActionableQuestion) {
+    if (privacySafeRepresentations.length !== uploads.length) {
+      throw new AppError(
+        "Every evidence file must complete privacy-safe processing before this activity can be acknowledged.",
+        409,
+        "interpretation_review_incomplete",
+      );
+    }
+
+    const unsupportedInterpretationDataTypes = privacySafeRepresentations
+      .map((representation) =>
+        classifyInterpretationDataTypeFromPayload(representation.payload),
+      )
+      .filter(
+        (interpretationDataType) =>
+          !isInterpretationDataTypeSupported(interpretationDataType),
+      );
+
+    if (unsupportedInterpretationDataTypes.length > 0) {
+      throw new AppError(
+        "Every evidence file must be on a supported interpretation data type before this activity can be acknowledged.",
+        409,
+        "interpretation_review_incomplete",
+        {
+          unsupportedInterpretationDataTypes: [
+            ...new Set(unsupportedInterpretationDataTypes),
+          ],
+        },
+      );
+    }
+
+    if (results.length !== uploads.length) {
+      throw new AppError(
+        "Every evidence file must be interpreted before this activity can be acknowledged.",
+        409,
+        "interpretation_review_incomplete",
+      );
+    }
+
+    // The frontend already disables its acknowledgment button while
+    // blocking questions remain pending, but that's a UX nicety, not the
+    // real guarantee — same principle as privacy review approval. The
+    // backend remains the source of truth for review completeness.
+    if (hasPendingBlockingQuestions(results)) {
       throw new AppError(
         "This activity still has unresolved clarification questions.",
         409,

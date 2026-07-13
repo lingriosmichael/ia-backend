@@ -1,5 +1,8 @@
 import type { DatabaseSession } from "../../shared/database/databaseClient.js";
 import type { InterpretationResultRepository } from "../interpretation/interpretationResultRepository.js";
+import type { KnowledgeEntityRepository } from "../knowledge/knowledgeEntityRepository.js";
+import type { KnowledgeRelationshipRepository } from "../knowledge/knowledgeRelationshipRepository.js";
+import type { ProjectKnowledgeModelRepository } from "../knowledge/projectKnowledgeModelRepository.js";
 import type { EntityMappingRepository } from "./entityMappingRepository.js";
 import type { ParsedRepresentationRepository } from "./parsedRepresentationRepository.js";
 import type { PrivacyReviewRepository } from "./privacyReviewRepository.js";
@@ -12,6 +15,9 @@ export class ProcessingResourceCleanupService {
     private readonly privacySafeRepresentationRepository: PrivacySafeRepresentationRepository,
     private readonly entityMappingRepository: EntityMappingRepository,
     private readonly interpretationResultRepository: InterpretationResultRepository,
+    private readonly projectKnowledgeModelRepository: ProjectKnowledgeModelRepository,
+    private readonly knowledgeEntityRepository: KnowledgeEntityRepository,
+    private readonly knowledgeRelationshipRepository: KnowledgeRelationshipRepository,
   ) {}
 
   async deleteByProjectId(
@@ -27,6 +33,15 @@ export class ProcessingResourceCleanupService {
       ),
       this.entityMappingRepository.deleteByProjectId(projectId, session),
       this.interpretationResultRepository.deleteByProjectId(projectId, session),
+      this.knowledgeRelationshipRepository.deleteByProjectId(
+        projectId,
+        session,
+      ),
+      this.knowledgeEntityRepository.deleteByProjectId(projectId, session),
+      this.projectKnowledgeModelRepository.deleteByProjectId(
+        projectId,
+        session,
+      ),
     ]);
   }
 

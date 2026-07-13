@@ -27,6 +27,9 @@ import { InterpretationArtifactService } from "../../modules/interpretation/inte
 import { InterpretationController } from "../../modules/interpretation/interpretationController.js";
 import { MongoInterpretationResultRepository } from "../../modules/interpretation/interpretationResultMongoRepository.js";
 import { InterpretationService } from "../../modules/interpretation/interpretationService.js";
+import { MongoKnowledgeEntityRepository } from "../../modules/knowledge/knowledgeEntityMongoRepository.js";
+import { MongoKnowledgeRelationshipRepository } from "../../modules/knowledge/knowledgeRelationshipMongoRepository.js";
+import { MongoProjectKnowledgeModelRepository } from "../../modules/knowledge/projectKnowledgeModelMongoRepository.js";
 import { OrganizationController } from "../../modules/organization/organizationController.js";
 import { MongoOrganizationRepository } from "../../modules/organization/organizationMongoRepository.js";
 import { OrganizationService } from "../../modules/organization/organizationService.js";
@@ -73,12 +76,20 @@ export function createApplicationContext(
   const entityMappingRepository = new MongoEntityMappingRepository();
   const interpretationResultRepository =
     new MongoInterpretationResultRepository();
+  const projectKnowledgeModelRepository =
+    new MongoProjectKnowledgeModelRepository();
+  const knowledgeEntityRepository = new MongoKnowledgeEntityRepository();
+  const knowledgeRelationshipRepository =
+    new MongoKnowledgeRelationshipRepository();
   const processingResourceCleanupService = new ProcessingResourceCleanupService(
     parsedRepresentationRepository,
     privacyReviewRepository,
     privacySafeRepresentationRepository,
     entityMappingRepository,
     interpretationResultRepository,
+    projectKnowledgeModelRepository,
+    knowledgeEntityRepository,
+    knowledgeRelationshipRepository,
   );
   const authorizationService = new AuthorizationService(
     organizationRepository,
@@ -148,6 +159,7 @@ export function createApplicationContext(
   const interpretationArtifactService = new InterpretationArtifactService(
     interpretationResultRepository,
     activityRepository,
+    logger,
   );
   const processingJobService = new ProcessingJobService(
     processingJobRepository,

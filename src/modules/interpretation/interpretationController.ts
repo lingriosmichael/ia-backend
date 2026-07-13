@@ -5,6 +5,7 @@ import {
   answerInterpretationQuestionSchema,
   idParamSchema,
   setIndicatorStatusSchema,
+  setQualitativeCurationStatusSchema,
   startInterpretationSchema,
 } from "../../schemas/httpSchemas.js";
 import { InterpretationService } from "./interpretationService.js";
@@ -70,6 +71,35 @@ export class InterpretationController {
       auth.userId,
       params.interpretationResultId!,
       params.indicatorId!,
+      payload.status,
+    );
+    return successResponse(response);
+  }
+
+  async setQualitativeFindingStatus(request: FastifyRequest) {
+    const auth = requireAuthenticatedUser(request);
+
+    const params = idParamSchema.parse(request.params);
+    const payload = setQualitativeCurationStatusSchema.parse(request.body);
+    const response =
+      await this.interpretationService.setQualitativeFindingStatus(
+        auth.userId,
+        params.interpretationResultId!,
+        params.qualitativeFindingId!,
+        payload.status,
+      );
+    return successResponse(response);
+  }
+
+  async setSupportingQuoteStatus(request: FastifyRequest) {
+    const auth = requireAuthenticatedUser(request);
+
+    const params = idParamSchema.parse(request.params);
+    const payload = setQualitativeCurationStatusSchema.parse(request.body);
+    const response = await this.interpretationService.setSupportingQuoteStatus(
+      auth.userId,
+      params.interpretationResultId!,
+      params.supportingQuoteId!,
       payload.status,
     );
     return successResponse(response);

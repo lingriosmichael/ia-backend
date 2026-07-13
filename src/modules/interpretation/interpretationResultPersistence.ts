@@ -6,7 +6,14 @@ import type {
   InterpretationIndicatorStatus,
   InterpretationQuestionKind,
   InterpretationQuestionStatus,
+  InterpretationQualitativeFindingRelation,
+  InterpretationQualitativeStage,
   InterpretationRelationship,
+  InterpretationQuoteExcerptKind,
+  InterpretationQuotePrivacyMode,
+  InterpretationQuoteSpeakerType,
+  InterpretationQualitativeFinding,
+  InterpretationSupportingQuote,
   InterpretationWarning,
   InterpretationWarningSeverity,
 } from "../../shared/contracts.js";
@@ -20,6 +27,7 @@ export interface InterpretationQuestionPersistence {
   prompt: string;
   kind: InterpretationQuestionKind;
   options: string[] | null;
+  isBlocking: boolean;
   status: InterpretationQuestionStatus;
   answeredValue: string | null;
   answeredById: string | null;
@@ -41,6 +49,8 @@ export interface InterpretationResultPersistenceRecord {
   entities: InterpretationEntity[];
   indicators: InterpretationIndicator[];
   relationships: InterpretationRelationship[];
+  qualitativeFindings: InterpretationQualitativeFinding[];
+  supportingQuotes: InterpretationSupportingQuote[];
   questions: InterpretationQuestionPersistence[];
   warnings: InterpretationWarning[];
   goalAlignment: InterpretationGoalCoverage[];
@@ -72,6 +82,7 @@ export interface InterpretationIndicatorCreateInput {
   confidence: number;
   reason: string;
   relatedEntityIds: string[];
+  supportingParagraphKeys: string[];
   relevanceStage: IndicatorRelevanceStage | null;
   status: InterpretationIndicatorStatus;
 }
@@ -82,10 +93,37 @@ export interface InterpretationRelationshipCreateInput {
   confidence: number;
 }
 
+export interface InterpretationSupportingQuoteCreateInput {
+  id: string;
+  excerptText: string;
+  excerptKind: InterpretationQuoteExcerptKind;
+  speakerType: InterpretationQuoteSpeakerType;
+  stage: InterpretationQualitativeStage;
+  confidence: number;
+  reason: string;
+  sourceReference: string;
+  privacyMode: InterpretationQuotePrivacyMode;
+  status: InterpretationIndicatorStatus;
+}
+
+export interface InterpretationQualitativeFindingCreateInput {
+  id: string;
+  summary: string;
+  stage: InterpretationQualitativeStage;
+  confidence: number;
+  reason: string;
+  relatedEntityIds: string[];
+  relatedIndicatorIds: string[];
+  supportingQuoteIds: string[];
+  relationToEvidence: InterpretationQualitativeFindingRelation;
+  status: InterpretationIndicatorStatus;
+}
+
 export interface InterpretationQuestionCreateInput {
   prompt: string;
   kind: InterpretationQuestionKind;
   options: string[] | null;
+  isBlocking: boolean;
 }
 
 export interface InterpretationWarningCreateInput {
@@ -114,6 +152,8 @@ export interface InterpretationResultCreateInput {
   entities: InterpretationEntityCreateInput[];
   indicators: InterpretationIndicatorCreateInput[];
   relationships: InterpretationRelationshipCreateInput[];
+  qualitativeFindings: InterpretationQualitativeFindingCreateInput[];
+  supportingQuotes: InterpretationSupportingQuoteCreateInput[];
   questions: InterpretationQuestionCreateInput[];
   warnings: InterpretationWarningCreateInput[];
   goalAlignment: InterpretationGoalCoverageCreateInput[];

@@ -75,6 +75,38 @@ export class MongoPrivacySafeRepresentationRepository implements PrivacySafeRepr
     return toPrivacySafeRepresentationRecord(document);
   }
 
+  async findLatestByUploadMetadataIds(
+    uploadMetadataIds: string[],
+    _session: DatabaseSession,
+  ): Promise<PrivacySafeRepresentationPersistenceRecord[]> {
+    if (uploadMetadataIds.length === 0) {
+      return [];
+    }
+
+    const documents = await PrivacySafeRepresentationMongoModel.find({
+      uploadMetadataId: { $in: uploadMetadataIds },
+    })
+      .sort({ createdAt: -1 })
+      .exec();
+
+    const latestByUploadMetadataId = new Map<
+      string,
+      PrivacySafeRepresentationMongoHydratedDocument
+    >();
+    for (const document of documents) {
+      if (!latestByUploadMetadataId.has(document.uploadMetadataId)) {
+        latestByUploadMetadataId.set(document.uploadMetadataId, document);
+      }
+    }
+
+    return Array.from(latestByUploadMetadataId.values())
+      .map((document) => toPrivacySafeRepresentationRecord(document))
+      .filter(
+        (record): record is PrivacySafeRepresentationPersistenceRecord =>
+          record !== null,
+      );
+  }
+
   async deleteByProjectId(
     projectId: string,
     _session: DatabaseSession,

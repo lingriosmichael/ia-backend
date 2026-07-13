@@ -131,22 +131,6 @@ export class PythonProcessingClient {
       { headers: this.authHeaders() },
     );
 
-    // If the job doesn't exist in Python (404), it was lost due to a restart,
-    // crash, or memory loss. Mark it as failed instead of throwing an error,
-    // so the backend can terminate the polling loop by updating the job status
-    // to "failed" in the database. Without this, the backend would keep polling
-    // forever (with exponential backoff from React Query).
-    if (response.status === 404) {
-      return {
-        externalJobId,
-        status: "failed",
-        updatedAt: new Date().toISOString(),
-        errorMessage:
-          "The processing job was lost from the Python service (likely due to a server restart or crash). The job has been marked as failed.",
-        details: null,
-      };
-    }
-
     if (!response.ok) {
       throw new AppError(
         "The Python processing service did not return a job status.",

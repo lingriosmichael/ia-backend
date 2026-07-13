@@ -48,6 +48,7 @@ function toInterpretationResultRecord(
       confidence: indicator.confidence,
       reason: indicator.reason,
       relatedEntityIds: indicator.relatedEntityIds,
+      supportingParagraphKeys: indicator.supportingParagraphKeys,
       relevanceStage: indicator.relevanceStage ?? null,
       status: indicator.status ?? "kept",
     })),
@@ -57,11 +58,36 @@ function toInterpretationResultRecord(
       involvedEntityIds: relationship.involvedEntityIds,
       confidence: relationship.confidence,
     })),
+    qualitativeFindings: document.qualitativeFindings.map((finding) => ({
+      id: finding._id.toString(),
+      summary: finding.summary,
+      stage: finding.stage,
+      confidence: finding.confidence,
+      reason: finding.reason,
+      relatedEntityIds: finding.relatedEntityIds,
+      relatedIndicatorIds: finding.relatedIndicatorIds,
+      supportingQuoteIds: finding.supportingQuoteIds,
+      relationToEvidence: finding.relationToEvidence ?? "context_only",
+      status: finding.status ?? "kept",
+    })),
+    supportingQuotes: document.supportingQuotes.map((quote) => ({
+      id: quote._id.toString(),
+      excerptText: quote.excerptText,
+      excerptKind: quote.excerptKind,
+      speakerType: quote.speakerType,
+      stage: quote.stage,
+      confidence: quote.confidence,
+      reason: quote.reason,
+      sourceReference: quote.sourceReference,
+      privacyMode: quote.privacyMode,
+      status: quote.status ?? "kept",
+    })),
     questions: document.questions.map((question) => ({
       id: question._id.toString(),
       prompt: question.prompt,
       kind: question.kind,
       options: question.options ?? null,
+      isBlocking: question.isBlocking ?? question.kind !== "free_text",
       status: question.status,
       answeredValue: question.answeredValue ?? null,
       answeredById: question.answeredById ?? null,
@@ -115,6 +141,16 @@ export class MongoInterpretationResultRepository implements InterpretationResult
         ...indicator,
       })),
       relationships: input.relationships,
+      qualitativeFindings: input.qualitativeFindings.map(
+        ({ id, ...finding }) => ({
+          _id: id,
+          ...finding,
+        }),
+      ),
+      supportingQuotes: input.supportingQuotes.map(({ id, ...quote }) => ({
+        _id: id,
+        ...quote,
+      })),
       questions: input.questions,
       warnings: input.warnings,
       goalAlignment: input.goalAlignment,
@@ -179,7 +215,7 @@ export class MongoInterpretationResultRepository implements InterpretationResult
       );
   }
 
-  async answerQuestionIfPending(
+  async answerQuestion(
     interpretationResultId: string,
     questionId: string,
     input: InterpretationQuestionAnswerInput,
@@ -188,17 +224,20 @@ export class MongoInterpretationResultRepository implements InterpretationResult
     const document = await InterpretationResultMongoModel.findOneAndUpdate(
       {
         _id: interpretationResultId,
-        questions: { $elemMatch: { _id: questionId, status: "pending" } },
+        "questions._id": questionId,
       },
       {
         $set: {
-          "questions.$.status": "answered",
-          "questions.$.answeredValue": input.answeredValue,
-          "questions.$.answeredById": input.answeredById,
-          "questions.$.answeredAt": input.answeredAt,
+          "questions.$[question].status": "answered",
+          "questions.$[question].answeredValue": input.answeredValue,
+          "questions.$[question].answeredById": input.answeredById,
+          "questions.$[question].answeredAt": input.answeredAt,
         },
       },
-      { returnDocument: "after" },
+      {
+        returnDocument: "after",
+        arrayFilters: [{ "question._id": questionId }],
+      },
     ).exec();
 
     return toInterpretationResultRecord(document);
@@ -218,6 +257,50 @@ export class MongoInterpretationResultRepository implements InterpretationResult
       {
         $set: {
           "indicators.$.status": status,
+        },
+      },
+      { returnDocument: "after" },
+    ).exec();
+
+    return toInterpretationResultRecord(document);
+  }
+
+  async setQualitativeFindingStatus(
+    interpretationResultId: string,
+    qualitativeFindingId: string,
+    status: InterpretationIndicatorStatus,
+    _session: DatabaseSession,
+  ): Promise<InterpretationResultPersistenceRecord | null> {
+    const document = await InterpretationResultMongoModel.findOneAndUpdate(
+      {
+        _id: interpretationResultId,
+        "qualitativeFindings._id": qualitativeFindingId,
+      },
+      {
+        $set: {
+          "qualitativeFindings.$.status": status,
+        },
+      },
+      { returnDocument: "after" },
+    ).exec();
+
+    return toInterpretationResultRecord(document);
+  }
+
+  async setSupportingQuoteStatus(
+    interpretationResultId: string,
+    supportingQuoteId: string,
+    status: InterpretationIndicatorStatus,
+    _session: DatabaseSession,
+  ): Promise<InterpretationResultPersistenceRecord | null> {
+    const document = await InterpretationResultMongoModel.findOneAndUpdate(
+      {
+        _id: interpretationResultId,
+        "supportingQuotes._id": supportingQuoteId,
+      },
+      {
+        $set: {
+          "supportingQuotes.$.status": status,
         },
       },
       { returnDocument: "after" },
