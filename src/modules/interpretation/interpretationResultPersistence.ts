@@ -3,7 +3,9 @@ import type {
   InterpretationEntity,
   InterpretationGoalCoverage,
   InterpretationIndicator,
+  InterpretationIndicatorComputedValue,
   InterpretationIndicatorStatus,
+  InterpretationIndicatorSuggestedCalculation,
   InterpretationQuestionKind,
   InterpretationQuestionStatus,
   InterpretationQualitativeFindingRelation,
@@ -84,7 +86,10 @@ export interface InterpretationIndicatorCreateInput {
   relatedEntityIds: string[];
   supportingParagraphKeys: string[];
   relevanceStage: IndicatorRelevanceStage | null;
+  matchesStatedGoal: boolean;
   status: InterpretationIndicatorStatus;
+  suggestedCalculation: InterpretationIndicatorSuggestedCalculation | null;
+  computedValue: InterpretationIndicatorComputedValue | null;
 }
 
 export interface InterpretationRelationshipCreateInput {
@@ -103,7 +108,6 @@ export interface InterpretationSupportingQuoteCreateInput {
   reason: string;
   sourceReference: string;
   privacyMode: InterpretationQuotePrivacyMode;
-  status: InterpretationIndicatorStatus;
 }
 
 export interface InterpretationQualitativeFindingCreateInput {

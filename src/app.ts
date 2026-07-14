@@ -4,6 +4,7 @@ import cors from "@fastify/cors";
 import multipart from "@fastify/multipart";
 import rateLimit from "@fastify/rate-limit";
 import { registerActivityRoutes } from "./modules/activity/activityRoutes.js";
+import { registerAnalyticsRoutes } from "./modules/analytics/analyticsRoutes.js";
 import { registerResultRoutes } from "./modules/ai/artifact/resultRoutes.js";
 import { registerProcessingJobRoutes } from "./modules/ai/execution/processingJobRoutes.js";
 import { registerAuthRoutes } from "./modules/auth/authRoutes.js";
@@ -174,6 +175,11 @@ export async function buildApp(config: BackendConfig) {
   await registerInterpretationRoutes(
     app,
     context.interpretationController,
+    context.authenticate,
+  );
+  await registerAnalyticsRoutes(
+    app,
+    context.analyticsController,
     context.authenticate,
   );
 

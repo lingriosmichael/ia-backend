@@ -33,53 +33,56 @@ export class FileStorageService {
   constructor(private readonly uploadDir: string) {}
 
   async storeActivityUpload(activityId: string, file: MultipartFile) {
-    const originalFileName = file.filename || "upload";
-    const extension = path.extname(originalFileName).toLowerCase();
-    const allowedMimeTypes = supportedDatasetMimeTypesByExtension[extension];
-
-    if (!allowedMimeTypes || !allowedMimeTypes.has(file.mimetype || "")) {
-      throw new AppError(
+    return this.persistUploadedFile({
+      directorySegments: [activityId],
+      file,
+      defaultFileName: "upload",
+      isSupportedType: (extension, mimeType) =>
+        Boolean(supportedDatasetMimeTypesByExtension[extension]?.has(mimeType)),
+      unsupportedTypeMessage:
         "Only CSV, Excel, PDF, and DOCX files are supported.",
-        400,
-        "unsupported_file_type",
-      );
-    }
-
-    const fileBuffer = await file.toBuffer();
-    if (fileBuffer.byteLength === 0) {
-      throw new AppError("Uploaded file is empty.", 400, "empty_file");
-    }
-
-    const activityDirectory = path.resolve(this.uploadDir, activityId);
-    await mkdir(activityDirectory, { recursive: true });
-
-    const storedFileName = `${Date.now()}-${sanitizeFileName(originalFileName)}`;
-    const absolutePath = path.join(activityDirectory, storedFileName);
-
-    await writeFile(absolutePath, fileBuffer);
-
-    return {
-      originalFileName,
-      contentType: file.mimetype || null,
-      sizeBytes: fileBuffer.byteLength,
-      storageKey: path.relative(this.uploadDir, absolutePath),
-      absolutePath,
-    };
+      unsupportedTypeCode: "unsupported_file_type",
+    });
   }
 
   async storeOrganizationLogo(organizationId: string, file: MultipartFile) {
-    const originalFileName = file.filename || "organization-logo";
+    return this.persistUploadedFile({
+      directorySegments: ["organizations", organizationId],
+      file,
+      defaultFileName: "organization-logo",
+      isSupportedType: (extension, mimeType) =>
+        supportedLogoExtensions.has(extension) &&
+        supportedLogoMimeTypes.has(mimeType),
+      unsupportedTypeMessage:
+        "Only PNG, JPG, JPEG, and WebP images are supported.",
+      unsupportedTypeCode: "unsupported_logo_type",
+    });
+  }
+
+  // Shared by storeActivityUpload/storeOrganizationLogo: both validate an
+  // extension+MIME allowlist, reject empty files, then write into a
+  // dedicated subdirectory under a timestamp-prefixed, sanitized filename —
+  // only the allowlist and target subdirectory actually differ between them.
+  private async persistUploadedFile({
+    directorySegments,
+    file,
+    defaultFileName,
+    isSupportedType,
+    unsupportedTypeMessage,
+    unsupportedTypeCode,
+  }: {
+    directorySegments: string[];
+    file: MultipartFile;
+    defaultFileName: string;
+    isSupportedType: (extension: string, mimeType: string) => boolean;
+    unsupportedTypeMessage: string;
+    unsupportedTypeCode: string;
+  }) {
+    const originalFileName = file.filename || defaultFileName;
     const extension = path.extname(originalFileName).toLowerCase();
 
-    if (
-      !supportedLogoExtensions.has(extension) ||
-      !supportedLogoMimeTypes.has(file.mimetype || "")
-    ) {
-      throw new AppError(
-        "Only PNG, JPG, JPEG, and WebP images are supported.",
-        400,
-        "unsupported_logo_type",
-      );
+    if (!isSupportedType(extension, file.mimetype || "")) {
+      throw new AppError(unsupportedTypeMessage, 400, unsupportedTypeCode);
     }
 
     const fileBuffer = await file.toBuffer();
@@ -87,15 +90,11 @@ export class FileStorageService {
       throw new AppError("Uploaded file is empty.", 400, "empty_file");
     }
 
-    const organizationDirectory = path.resolve(
-      this.uploadDir,
-      "organizations",
-      organizationId,
-    );
-    await mkdir(organizationDirectory, { recursive: true });
+    const targetDirectory = path.resolve(this.uploadDir, ...directorySegments);
+    await mkdir(targetDirectory, { recursive: true });
 
     const storedFileName = `${Date.now()}-${sanitizeFileName(originalFileName)}`;
-    const absolutePath = path.join(organizationDirectory, storedFileName);
+    const absolutePath = path.join(targetDirectory, storedFileName);
 
     await writeFile(absolutePath, fileBuffer);
 

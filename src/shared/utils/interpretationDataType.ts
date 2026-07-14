@@ -1,4 +1,10 @@
 import type { InterpretationDataType } from "../contracts.js";
+import {
+  asRecord,
+  asRecordArray,
+  readNumber,
+  readString,
+} from "./unknownValueReaders.js";
 
 export function readInterpretationDataType(
   value: unknown,
@@ -9,26 +15,6 @@ export function readInterpretationDataType(
     value === "insufficiently_extracted"
     ? value
     : null;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
-}
-
-function asRecord(value: unknown): Record<string, unknown> {
-  return isRecord(value) ? value : {};
-}
-
-function asRecordArray(value: unknown): Record<string, unknown>[] {
-  return Array.isArray(value) ? value.filter(isRecord) : [];
-}
-
-function readString(value: unknown): string | null {
-  return typeof value === "string" && value.trim().length > 0 ? value : null;
-}
-
-function readNumber(value: unknown): number | null {
-  return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
 const MIN_MEANINGFUL_TABLE_ROWS = 1;

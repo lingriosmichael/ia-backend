@@ -91,20 +91,6 @@ export class InterpretationController {
     return successResponse(response);
   }
 
-  async setSupportingQuoteStatus(request: FastifyRequest) {
-    const auth = requireAuthenticatedUser(request);
-
-    const params = idParamSchema.parse(request.params);
-    const payload = setQualitativeCurationStatusSchema.parse(request.body);
-    const response = await this.interpretationService.setSupportingQuoteStatus(
-      auth.userId,
-      params.interpretationResultId!,
-      params.supportingQuoteId!,
-      payload.status,
-    );
-    return successResponse(response);
-  }
-
   async acknowledgeReview(request: FastifyRequest) {
     const auth = requireAuthenticatedUser(request);
 

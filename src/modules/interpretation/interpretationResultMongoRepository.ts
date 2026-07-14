@@ -1,5 +1,9 @@
 import type { DatabaseSession } from "../../shared/database/databaseClient.js";
-import type { InterpretationIndicatorStatus } from "../../shared/contracts.js";
+import type {
+  InterpretationIndicatorComputedValue,
+  InterpretationIndicatorStatus,
+  InterpretationIndicatorSuggestedCalculation,
+} from "../../shared/contracts.js";
 import { createDocumentId } from "../../shared/database/documentId.js";
 import {
   InterpretationResultMongoModel,
@@ -50,7 +54,14 @@ function toInterpretationResultRecord(
       relatedEntityIds: indicator.relatedEntityIds,
       supportingParagraphKeys: indicator.supportingParagraphKeys,
       relevanceStage: indicator.relevanceStage ?? null,
+      matchesStatedGoal: indicator.matchesStatedGoal ?? false,
       status: indicator.status ?? "kept",
+      suggestedCalculation:
+        (indicator.suggestedCalculation as InterpretationIndicatorSuggestedCalculation | null) ??
+        null,
+      computedValue:
+        (indicator.computedValue as InterpretationIndicatorComputedValue | null) ??
+        null,
     })),
     relationships: document.relationships.map((relationship) => ({
       id: relationship._id.toString(),
@@ -80,7 +91,6 @@ function toInterpretationResultRecord(
       reason: quote.reason,
       sourceReference: quote.sourceReference,
       privacyMode: quote.privacyMode,
-      status: quote.status ?? "kept",
     })),
     questions: document.questions.map((question) => ({
       id: question._id.toString(),
@@ -279,28 +289,6 @@ export class MongoInterpretationResultRepository implements InterpretationResult
       {
         $set: {
           "qualitativeFindings.$.status": status,
-        },
-      },
-      { returnDocument: "after" },
-    ).exec();
-
-    return toInterpretationResultRecord(document);
-  }
-
-  async setSupportingQuoteStatus(
-    interpretationResultId: string,
-    supportingQuoteId: string,
-    status: InterpretationIndicatorStatus,
-    _session: DatabaseSession,
-  ): Promise<InterpretationResultPersistenceRecord | null> {
-    const document = await InterpretationResultMongoModel.findOneAndUpdate(
-      {
-        _id: interpretationResultId,
-        "supportingQuotes._id": supportingQuoteId,
-      },
-      {
-        $set: {
-          "supportingQuotes.$.status": status,
         },
       },
       { returnDocument: "after" },

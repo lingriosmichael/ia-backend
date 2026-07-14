@@ -10,6 +10,7 @@ import { MongoInterpretationResultRepository } from "../modules/interpretation/i
 import { MongoProjectKnowledgeModelRepository } from "../modules/knowledge/projectKnowledgeModelMongoRepository.js";
 import { MongoKnowledgeEntityRepository } from "../modules/knowledge/knowledgeEntityMongoRepository.js";
 import { MongoKnowledgeRelationshipRepository } from "../modules/knowledge/knowledgeRelationshipMongoRepository.js";
+import { MongoKnowledgeIndicatorRepository } from "../modules/knowledge/knowledgeIndicatorMongoRepository.js";
 import { ProjectKnowledgeBuilderService } from "../modules/knowledge/projectKnowledgeBuilderService.js";
 
 /**
@@ -36,6 +37,7 @@ async function run() {
     new MongoProjectKnowledgeModelRepository(),
     new MongoKnowledgeEntityRepository(),
     new MongoKnowledgeRelationshipRepository(),
+    new MongoKnowledgeIndicatorRepository(),
   );
 
   const result = await builder.buildForProject(projectId);

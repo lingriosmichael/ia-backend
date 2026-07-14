@@ -71,4 +71,15 @@ export interface KnowledgeEntityRepository {
     projectId: string,
     session: DatabaseSession,
   ): Promise<number>;
+  /**
+   * Deletes entities outright — used when pruning leaves an entity with
+   * zero source instances (its only evidence was deleted, an activity
+   * was removed, or a previously-kept indicator was rejected). An entity
+   * with no provenance must not be left behind: besides violating the
+   * "every entity traces to real evidence" guarantee, hasCompatibleActivity
+   * in projectKnowledgeBuilderService treats an entity with zero source
+   * instances as a wildcard match for any future activity, which would
+   * silently reintroduce a false-merge risk.
+   */
+  deleteMany(ids: string[], session: DatabaseSession): Promise<number>;
 }

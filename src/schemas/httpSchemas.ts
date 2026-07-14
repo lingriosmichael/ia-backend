@@ -35,7 +35,6 @@ export const idParamSchema = z.object({
   questionId: z.string().min(1).optional(),
   indicatorId: z.string().min(1).optional(),
   qualitativeFindingId: z.string().min(1).optional(),
-  supportingQuoteId: z.string().min(1).optional(),
   invitationId: z.string().min(1).optional(),
   token: z.string().min(1).optional(),
 });
@@ -173,6 +172,26 @@ export const updateActivitySchema = z.object({
   status: z.enum(activityStatusValues).optional(),
 });
 
+const privacyReviewFieldDecisionSchema = z
+  .object({
+    field: z.string().trim().min(1).max(255),
+    entityType: z.string().trim().min(1).max(120),
+    decision: privacyReviewDecisionValueSchema,
+    // Required only for "rejected": overriding a privacy finding (keeping
+    // PII unredacted) must be justified for the audit trail. Approving the
+    // recommended action needs no justification.
+    reason: z.string().trim().min(10).max(2000).optional(),
+  })
+  .superRefine((fieldDecision, ctx) => {
+    if (fieldDecision.decision === "rejected" && !fieldDecision.reason) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "A reason is required when rejecting a privacy finding.",
+        path: ["reason"],
+      });
+    }
+  });
+
 export const approvePrivacyReviewSchema = z.object({
   decisions: z
     .object({
@@ -181,16 +200,7 @@ export const approvePrivacyReviewSchema = z.object({
       // decidedById/decidedAt are deliberately not accepted here: the
       // server stamps those itself from the authenticated caller, never
       // trusting a client-supplied identity or timestamp.
-      fieldDecisions: z
-        .array(
-          z.object({
-            field: z.string().trim().min(1).max(255),
-            entityType: z.string().trim().min(1).max(120),
-            decision: privacyReviewDecisionValueSchema,
-          }),
-        )
-        .max(200)
-        .optional(),
+      fieldDecisions: z.array(privacyReviewFieldDecisionSchema).max(200).optional(),
     })
     .optional(),
 });

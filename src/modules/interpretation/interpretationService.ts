@@ -18,6 +18,7 @@ import type { ProcessingJobRepository } from "../ai/execution/processingJobRepos
 import type { PrivacySafeRepresentationRepository } from "../processing/privacySafeRepresentationRepository.js";
 import { PythonProcessingClient } from "../processing/pythonProcessingClient.js";
 import type { UploadMetadataRepository } from "../upload/uploadMetadataRepository.js";
+import type { ProjectKnowledgeBuilderService } from "../knowledge/projectKnowledgeBuilderService.js";
 import type { InterpretationResultRepository } from "./interpretationResultRepository.js";
 import {
   clearActivityInterpretationAcknowledgmentIfPresent,
@@ -40,6 +41,7 @@ export class InterpretationService {
     private readonly authorizationService: AuthorizationService,
     private readonly pythonProcessingClient: PythonProcessingClient,
     private readonly logger: FastifyBaseLogger,
+    private readonly projectKnowledgeBuilderService: ProjectKnowledgeBuilderService,
   ) {}
 
   async startInterpretation(
@@ -406,54 +408,6 @@ export class InterpretationService {
     return mapInterpretationResult(updated);
   }
 
-  async setSupportingQuoteStatus(
-    userId: string,
-    interpretationResultId: string,
-    supportingQuoteId: string,
-    status: InterpretationIndicatorStatus,
-  ) {
-    const result = await this.interpretationResultRepository.findById(
-      interpretationResultId,
-      databaseSession,
-    );
-
-    if (!result) {
-      throw new AppError(
-        "Interpretation result not found.",
-        404,
-        "interpretation_result_not_found",
-      );
-    }
-
-    await this.authorizationService.canEditProject(userId, result.projectId);
-
-    const updated =
-      await this.interpretationResultRepository.setSupportingQuoteStatus(
-        interpretationResultId,
-        supportingQuoteId,
-        status,
-        databaseSession,
-      );
-
-    if (!updated) {
-      throw new AppError(
-        "This supporting quote was not found.",
-        404,
-        "interpretation_supporting_quote_not_found",
-      );
-    }
-
-    if (result.activityId) {
-      await clearActivityInterpretationAcknowledgmentIfPresent(
-        this.activityRepository,
-        result.activityId,
-        databaseSession,
-      );
-    }
-
-    return mapInterpretationResult(updated);
-  }
-
   async acknowledgeReview(
     userId: string,
     activityId: string,
@@ -544,6 +498,24 @@ export class InterpretationService {
       },
       databaseSession,
     );
+
+    // Acknowledgment is exactly the "verified evidence update" event the
+    // Project Knowledge Model's own design anticipated as the automatic
+    // rebuild trigger (see "Phase 4 — Project Knowledge Model.md",
+    // "Versioning and Rebuild Lifecycle" — rebuilds stay explicit/
+    // event-driven, never on a timer or on every page view). A rebuild
+    // failure must never fail the acknowledgment itself — acknowledgment
+    // already succeeded and is valid regardless; the rebuild is a
+    // best-effort downstream projection of it. AnalyticsExecutionService
+    // also self-heals for any activity acknowledged before this existed.
+    try {
+      await this.projectKnowledgeBuilderService.buildForProject(project.id);
+    } catch (error) {
+      this.logger.error(
+        { projectId: project.id, activityId, error },
+        "project knowledge model rebuild after acknowledgment failed",
+      );
+    }
 
     return mapActivity(
       { ...updatedActivity, projectOwnerId: project.ownerId },

@@ -346,10 +346,16 @@ export interface ParsedRepresentationPreviewRecord {
 // What the client sends when approving a review: which finding, which
 // choice. Never includes who/when — that's stamped server-side (see
 // PrivacyReviewFieldDecisionRecord) so it can't be spoofed by the caller.
+//
+// `reason` is required (non-empty) whenever decision is "rejected" — a
+// reviewer overriding a privacy finding (choosing to keep PII unredacted)
+// must justify it for the audit trail. This is enforced at the validation
+// boundary (see approvePrivacyReviewSchema), not just here in the type.
 export interface PrivacyReviewFieldDecisionInput {
   field: string;
   entityType: string;
   decision: PrivacyReviewDecisionValue;
+  reason?: string;
 }
 
 // What actually gets persisted and returned — the input plus a real audit
@@ -443,6 +449,67 @@ export const interpretationIndicatorStatusValues = [
 export type InterpretationIndicatorStatus =
   (typeof interpretationIndicatorStatusValues)[number];
 
+// Mirrors ia_python_service's IndicatorSuggestedCalculation /
+// IndicatorComputedValue (app/schemas/processing.py) — see
+// "Phase 4 — Project Knowledge Model.md", "Indicator Value Computation".
+// A small, fixed vocabulary of general operations the model points at
+// real columns to derive an indicator's value; never asks the model to
+// do the arithmetic itself.
+export const indicatorCalculationOperationValues = [
+  "count",
+  "count_distinct",
+  "sum",
+  "mean",
+  "ratio",
+  "distribution",
+  "trend",
+] as const;
+export type IndicatorCalculationOperation =
+  (typeof indicatorCalculationOperationValues)[number];
+
+export interface InterpretationIndicatorValueFilter {
+  column: string;
+  acceptedValues: string[];
+}
+
+export interface InterpretationIndicatorSuggestedCalculation {
+  operation: IndicatorCalculationOperation;
+  column: string | null;
+  groupByColumn: string | null;
+  numerator: InterpretationIndicatorValueFilter | null;
+  denominator: InterpretationIndicatorValueFilter | null;
+  dateColumn: string | null;
+  // Restricts count/count_distinct to rows matching this filter (e.g.
+  // recommendation equals "geeignet") instead of merely being non-null —
+  // the same shape numerator/denominator already use for ratio.
+  valueFilter: InterpretationIndicatorValueFilter | null;
+}
+
+export const indicatorComputedValueSourceKindValues = [
+  "computed_from_table",
+  "extracted_from_text",
+] as const;
+export type IndicatorComputedValueSourceKind =
+  (typeof indicatorComputedValueSourceKindValues)[number];
+
+export const indicatorComputedValueGroundingStatusValues = [
+  "passed",
+  "failed_column_not_found",
+  "failed_number_not_in_text",
+] as const;
+export type IndicatorComputedValueGroundingStatus =
+  (typeof indicatorComputedValueGroundingStatusValues)[number];
+
+export interface InterpretationIndicatorComputedValue {
+  sourceKind: IndicatorComputedValueSourceKind;
+  value: number | null;
+  unit: string | null;
+  components: Record<string, unknown>;
+  recordsIncluded: number;
+  recordsExcluded: number;
+  groundingStatus: IndicatorComputedValueGroundingStatus;
+}
+
 export const interpretationQualitativeStageValues = [
   "output",
   "outcome",
@@ -497,7 +564,16 @@ export interface InterpretationIndicator {
   relatedEntityIds: string[];
   supportingParagraphKeys: string[];
   relevanceStage: IndicatorRelevanceStage | null;
+  // True only when this indicator directly measures progress toward an
+  // already-stated project/activity goal or success indicator — set by
+  // ia_python_service's extraction call, never inferred here. Drives
+  // reviewer-facing "highly recommended" labeling and is never displaced
+  // by ia_python_service's emergent-indicator cap (see
+  // _prioritize_and_cap_indicators in interpretation_pipeline.py).
+  matchesStatedGoal: boolean;
   status: InterpretationIndicatorStatus;
+  suggestedCalculation: InterpretationIndicatorSuggestedCalculation | null;
+  computedValue: InterpretationIndicatorComputedValue | null;
 }
 
 export interface InterpretationRelationship {
@@ -517,7 +593,6 @@ export interface InterpretationSupportingQuote {
   reason: string;
   sourceReference: string;
   privacyMode: InterpretationQuotePrivacyMode;
-  status: InterpretationIndicatorStatus;
 }
 
 export interface InterpretationQualitativeFinding {
@@ -873,6 +948,22 @@ export const knowledgeRelationshipTypeValues = [
 export type KnowledgeRelationshipType =
   (typeof knowledgeRelationshipTypeValues)[number];
 
+// Carried on a KnowledgeSourceInstance when the indicator it came from had
+// a computedValue (see "Phase 4 — Project Knowledge Model.md", "Indicator
+// Value Computation") — this is what lets ProjectKnowledgeBuilderService
+// recombine values across merged source instances using `components`
+// (e.g. sum-then-divide a ratio's numerator/denominator) instead of
+// re-deriving from raw rows or naively averaging already-divided values.
+export interface KnowledgeSourceInstanceComputedValue {
+  sourceKind: IndicatorComputedValueSourceKind;
+  operation: IndicatorCalculationOperation | null;
+  value: number | null;
+  unit: string | null;
+  components: Record<string, unknown>;
+  groundingStatus: IndicatorComputedValueGroundingStatus;
+  confidence: number;
+}
+
 export interface KnowledgeSourceInstance {
   uploadMetadataId: string;
   interpretationResultId: string;
@@ -880,4 +971,19 @@ export interface KnowledgeSourceInstance {
   activityType: string | null;
   sourceReference: string;
   addedAt: string;
+  computedValue?: KnowledgeSourceInstanceComputedValue | null;
 }
+
+// Set on a KnowledgeIndicator only for count_distinct operations recombined
+// across more than one source instance — cross-file participant identity
+// is deliberately unresolved (see "Stable Cross-File Identity" in
+// "Phase 4 — Project Knowledge Model.md"), so a summed distinct-count
+// across files can double-count a participant appearing in both. This
+// must be labeled honestly rather than presented as deduplicated.
+export const knowledgeIndicatorDeduplicationConfidenceValues = [
+  "deduplicated",
+  "not_deduplicated_across_sources",
+  "not_applicable",
+] as const;
+export type KnowledgeIndicatorDeduplicationConfidence =
+  (typeof knowledgeIndicatorDeduplicationConfidenceValues)[number];

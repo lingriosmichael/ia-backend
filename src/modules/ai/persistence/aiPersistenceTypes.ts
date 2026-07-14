@@ -23,7 +23,6 @@ export interface ProcessingJobPersistenceRecord {
   createdAt: Date;
   updatedAt: Date;
 }
-export type AIExecutionPersistenceRecord = ProcessingJobPersistenceRecord;
 
 export interface ProcessingJobCreateInput {
   organizationId: string;
@@ -34,7 +33,6 @@ export interface ProcessingJobCreateInput {
   jobType: ProcessingJobType;
   payload: StructuredAIPayload;
 }
-export type AIExecutionCreateInput = ProcessingJobCreateInput;
 
 export interface ProcessingJobUpdateInput {
   status?: ProcessingJobStatus;
@@ -43,7 +41,6 @@ export interface ProcessingJobUpdateInput {
   startedAt?: Date | null;
   completedAt?: Date | null;
 }
-export type AIExecutionUpdateInput = ProcessingJobUpdateInput;
 
 export interface ResultRecordPersistenceRecord {
   id: string;

@@ -11,6 +11,13 @@ import { NoopTransactionManager } from "../database/transactionManager.js";
 import { ActivityController } from "../../modules/activity/activityController.js";
 import { MongoActivityRepository } from "../../modules/activity/activityMongoRepository.js";
 import { ActivityService } from "../../modules/activity/activityService.js";
+import { AnalyticsController } from "../../modules/analytics/analyticsController.js";
+import { AnalyticsExecutionService } from "../../modules/analytics/analyticsExecutionService.js";
+import { MongoAnalyticsExecutionRepository } from "../../modules/analytics/analyticsExecutionMongoRepository.js";
+import { AnalyticsQueryService } from "../../modules/analytics/analyticsQueryService.js";
+import { MongoAnalyticsResultRepository } from "../../modules/analytics/analyticsResultMongoRepository.js";
+import { DashboardCatalogAssemblerService } from "../../modules/analytics/dashboardCatalogAssemblerService.js";
+import { PythonAnalyticsCurationClient } from "../../modules/analytics/pythonAnalyticsCurationClient.js";
 import { ResultController } from "../../modules/ai/artifact/resultController.js";
 import { MongoResultRepository } from "../../modules/ai/artifact/resultRecordMongoRepository.js";
 import { ResultRecordService } from "../../modules/ai/artifact/resultRecordService.js";
@@ -28,8 +35,10 @@ import { InterpretationController } from "../../modules/interpretation/interpret
 import { MongoInterpretationResultRepository } from "../../modules/interpretation/interpretationResultMongoRepository.js";
 import { InterpretationService } from "../../modules/interpretation/interpretationService.js";
 import { MongoKnowledgeEntityRepository } from "../../modules/knowledge/knowledgeEntityMongoRepository.js";
+import { MongoKnowledgeIndicatorRepository } from "../../modules/knowledge/knowledgeIndicatorMongoRepository.js";
 import { MongoKnowledgeRelationshipRepository } from "../../modules/knowledge/knowledgeRelationshipMongoRepository.js";
 import { MongoProjectKnowledgeModelRepository } from "../../modules/knowledge/projectKnowledgeModelMongoRepository.js";
+import { ProjectKnowledgeBuilderService } from "../../modules/knowledge/projectKnowledgeBuilderService.js";
 import { OrganizationController } from "../../modules/organization/organizationController.js";
 import { MongoOrganizationRepository } from "../../modules/organization/organizationMongoRepository.js";
 import { OrganizationService } from "../../modules/organization/organizationService.js";
@@ -81,6 +90,17 @@ export function createApplicationContext(
   const knowledgeEntityRepository = new MongoKnowledgeEntityRepository();
   const knowledgeRelationshipRepository =
     new MongoKnowledgeRelationshipRepository();
+  const knowledgeIndicatorRepository = new MongoKnowledgeIndicatorRepository();
+  const projectKnowledgeBuilderService = new ProjectKnowledgeBuilderService(
+    projectRepository,
+    activityRepository,
+    uploadMetadataRepository,
+    interpretationResultRepository,
+    projectKnowledgeModelRepository,
+    knowledgeEntityRepository,
+    knowledgeRelationshipRepository,
+    knowledgeIndicatorRepository,
+  );
   const processingResourceCleanupService = new ProcessingResourceCleanupService(
     parsedRepresentationRepository,
     privacyReviewRepository,
@@ -205,6 +225,32 @@ export function createApplicationContext(
     authorizationService,
     pythonProcessingClient,
     logger,
+    projectKnowledgeBuilderService,
+  );
+  const dashboardCatalogAssemblerService = new DashboardCatalogAssemblerService(
+    projectKnowledgeModelRepository,
+    knowledgeEntityRepository,
+    knowledgeIndicatorRepository,
+  );
+  const analyticsExecutionRepository = new MongoAnalyticsExecutionRepository();
+  const analyticsResultRepository = new MongoAnalyticsResultRepository();
+  const pythonAnalyticsCurationClient = new PythonAnalyticsCurationClient(
+    config.PYTHON_SERVICE_URL,
+    config.PYTHON_SERVICE_SHARED_SECRET,
+  );
+  const analyticsExecutionService = new AnalyticsExecutionService(
+    authorizationService,
+    dashboardCatalogAssemblerService,
+    analyticsExecutionRepository,
+    analyticsResultRepository,
+    pythonAnalyticsCurationClient,
+    projectKnowledgeBuilderService,
+  );
+  const analyticsQueryService = new AnalyticsQueryService(
+    authorizationService,
+    projectKnowledgeModelRepository,
+    analyticsExecutionRepository,
+    analyticsResultRepository,
   );
   const invitationService = new InvitationService(
     invitationRepository,
@@ -240,6 +286,10 @@ export function createApplicationContext(
     resultController: new ResultController(resultRecordService),
     interpretationController: new InterpretationController(
       interpretationService,
+    ),
+    analyticsController: new AnalyticsController(
+      analyticsExecutionService,
+      analyticsQueryService,
     ),
   };
 }

@@ -39,6 +39,12 @@ import type {
   WorkspaceProject,
 } from "../contracts.js";
 import { classifyInterpretationDataTypeFromPayload } from "./interpretationDataType.js";
+import {
+  asRecord,
+  asRecordArray,
+  readNumber,
+  readString,
+} from "./unknownValueReaders.js";
 
 const organizationRoleMap = {
   OWNER: "ORGANIZATION_ADMIN",
@@ -59,26 +65,6 @@ const activityStatusMap = {
 
 function toIso(value: Date): string {
   return value.toISOString();
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
-}
-
-function asRecord(value: unknown): Record<string, unknown> {
-  return isRecord(value) ? value : {};
-}
-
-function asRecordArray(value: unknown): Record<string, unknown>[] {
-  return Array.isArray(value) ? value.filter(isRecord) : [];
-}
-
-function readString(value: unknown): string | null {
-  return typeof value === "string" && value.trim().length > 0 ? value : null;
-}
-
-function readNumber(value: unknown): number | null {
-  return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
 function readStringArray(value: unknown): string[] {

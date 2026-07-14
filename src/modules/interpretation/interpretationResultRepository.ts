@@ -58,12 +58,6 @@ export interface InterpretationResultRepository {
     status: InterpretationIndicatorStatus,
     session: DatabaseSession,
   ): Promise<InterpretationResultPersistenceRecord | null>;
-  setSupportingQuoteStatus(
-    interpretationResultId: string,
-    supportingQuoteId: string,
-    status: InterpretationIndicatorStatus,
-    session: DatabaseSession,
-  ): Promise<InterpretationResultPersistenceRecord | null>;
   deleteByProjectId(
     projectId: string,
     session: DatabaseSession,

@@ -9,6 +9,10 @@ export interface KnowledgeIndicatorRepository {
     input: KnowledgeIndicatorCreateInput,
     session: DatabaseSession,
   ): Promise<KnowledgeIndicatorPersistenceRecord>;
+  createMany(
+    inputs: KnowledgeIndicatorCreateInput[],
+    session: DatabaseSession,
+  ): Promise<KnowledgeIndicatorPersistenceRecord[]>;
   listByProjectKnowledgeModelId(
     projectKnowledgeModelId: string,
     session: DatabaseSession,

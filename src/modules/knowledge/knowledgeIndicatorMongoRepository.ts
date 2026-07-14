@@ -10,18 +10,6 @@ import type {
   KnowledgeIndicatorPersistenceRecord,
 } from "./knowledgeIndicatorPersistence.js";
 
-/**
- * Intentionally unwired scaffolding for Phase 5 deterministic analytics.
- *
- * The current ProjectKnowledgeBuilderService (Phase 4) does not create
- * KnowledgeIndicator records yet because interpretation output currently
- * carries indicator concepts without a durable numeric value contract.
- *
- * Keep this repository in sync with the documented "Data Model — As Built"
- * in `Phase 4 — Project Knowledge Model.md`; wire it into runtime flows only
- * once Phase 5 lands numeric indicator extraction/persistence.
- */
-
 function toRecord(
   document: KnowledgeIndicatorMongoHydratedDocument | null,
 ): KnowledgeIndicatorPersistenceRecord | null {
@@ -43,6 +31,7 @@ function toRecord(
       sourceReference: document.sourceEvidence.sourceReference,
     },
     confidence: document.confidence,
+    deduplicationConfidence: document.deduplicationConfidence,
     createdAt: document.createdAt,
     updatedAt: document.updatedAt,
   };
@@ -63,8 +52,40 @@ export class MongoKnowledgeIndicatorRepository implements KnowledgeIndicatorRepo
       participantId: input.participantId,
       sourceEvidence: input.sourceEvidence,
       confidence: input.confidence,
+      deduplicationConfidence: input.deduplicationConfidence,
     });
     return toRecord(document) as KnowledgeIndicatorPersistenceRecord;
+  }
+
+  async createMany(
+    inputs: KnowledgeIndicatorCreateInput[],
+    _session: DatabaseSession,
+  ): Promise<KnowledgeIndicatorPersistenceRecord[]> {
+    if (inputs.length === 0) {
+      return [];
+    }
+
+    const documents = await KnowledgeIndicatorMongoModel.insertMany(
+      inputs.map((input) => ({
+        _id: createDocumentId(),
+        projectKnowledgeModelId: input.projectKnowledgeModelId,
+        knowledgeEntityId: input.knowledgeEntityId,
+        value: input.value,
+        unit: input.unit,
+        activityId: input.activityId,
+        participantId: input.participantId,
+        sourceEvidence: input.sourceEvidence,
+        confidence: input.confidence,
+        deduplicationConfidence: input.deduplicationConfidence,
+      })),
+    );
+    return documents
+      .map((document) =>
+        toRecord(document as unknown as KnowledgeIndicatorMongoHydratedDocument),
+      )
+      .filter((record): record is KnowledgeIndicatorPersistenceRecord =>
+        Boolean(record),
+      );
   }
 
   async listByProjectKnowledgeModelId(

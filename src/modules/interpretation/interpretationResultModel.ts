@@ -37,11 +37,22 @@ const interpretationIndicatorSchema = new Schema({
     enum: [...indicatorRelevanceStageValues],
     default: null,
   },
+  matchesStatedGoal: { type: Boolean, default: false },
   status: {
     type: String,
     enum: [...interpretationIndicatorStatusValues],
     default: "kept",
   },
+  // Mixed rather than a nested Schema: shape is a small, fixed union
+  // defined and validated in TypeScript/Pydantic (see
+  // InterpretationIndicatorSuggestedCalculation /
+  // InterpretationIndicatorComputedValue in shared/contracts.ts), and
+  // `components` specifically is intentionally open-shaped per operation
+  // (numeratorCount/denominatorCount for ratio, buckets for
+  // distribution/trend, etc.) — modeling every variant as a strict nested
+  // Mongoose schema would duplicate that union for no added safety.
+  suggestedCalculation: { type: Schema.Types.Mixed, default: null },
+  computedValue: { type: Schema.Types.Mixed, default: null },
 });
 
 const interpretationRelationshipSchema = new Schema({
@@ -76,11 +87,6 @@ const interpretationSupportingQuoteSchema = new Schema({
     type: String,
     enum: [...interpretationQuotePrivacyModeValues],
     required: true,
-  },
-  status: {
-    type: String,
-    enum: [...interpretationIndicatorStatusValues],
-    default: "kept",
   },
 });
 

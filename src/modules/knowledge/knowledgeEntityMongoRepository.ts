@@ -257,6 +257,20 @@ export class MongoKnowledgeEntityRepository implements KnowledgeEntityRepository
     return toRecord(document);
   }
 
+  async deleteMany(
+    ids: string[],
+    _session: DatabaseSession,
+  ): Promise<number> {
+    if (ids.length === 0) {
+      return 0;
+    }
+
+    const result = await KnowledgeEntityMongoModel.deleteMany({
+      _id: { $in: ids },
+    }).exec();
+    return result.deletedCount ?? 0;
+  }
+
   async deleteByProjectKnowledgeModelId(
     projectKnowledgeModelId: string,
     _session: DatabaseSession,

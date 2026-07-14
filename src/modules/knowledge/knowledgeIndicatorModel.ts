@@ -1,6 +1,7 @@
 import { Schema, type HydratedDocument, type InferSchemaType } from "mongoose";
 import { createModel } from "../../shared/database/createModel.js";
 import { createDocumentId } from "../../shared/database/documentId.js";
+import { knowledgeIndicatorDeduplicationConfidenceValues } from "../../shared/contracts.js";
 
 const knowledgeIndicatorSourceEvidenceSchema = new Schema(
   {
@@ -25,6 +26,15 @@ const knowledgeIndicatorSchema = new Schema(
       required: true,
     },
     confidence: { type: Number, required: true },
+    // Only meaningful for count_distinct recombined across more than one
+    // source instance — see KnowledgeIndicatorDeduplicationConfidence in
+    // shared/contracts.ts and "Merging computed values" in
+    // "Phase 4 — Project Knowledge Model.md".
+    deduplicationConfidence: {
+      type: String,
+      enum: [...knowledgeIndicatorDeduplicationConfidenceValues],
+      required: true,
+    },
   },
   {
     collection: "knowledge_indicators",

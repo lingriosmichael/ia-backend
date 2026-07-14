@@ -17,26 +17,22 @@ export interface KnowledgeRelationshipRepository {
     projectKnowledgeModelId: string,
     session: DatabaseSession,
   ): Promise<KnowledgeRelationshipPersistenceRecord[]>;
-  /**
-   * Finds an existing relationship between the same two entities of the
-   * same type, if one already exists — used to avoid creating a
-   * duplicate KnowledgeRelationship every time the same underlying link
-   * (e.g. the same qualitative finding's relationToEvidence) is seen
-   * again across builds.
-   */
-  findByEntitiesAndType(
-    projectKnowledgeModelId: string,
-    fromEntityId: string,
-    toEntityId: string,
-    relationshipType: string,
-    session: DatabaseSession,
-  ): Promise<KnowledgeRelationshipPersistenceRecord | null>;
   deleteByProjectKnowledgeModelId(
     projectKnowledgeModelId: string,
     session: DatabaseSession,
   ): Promise<number>;
   deleteByProjectId(
     projectId: string,
+    session: DatabaseSession,
+  ): Promise<number>;
+  /**
+   * Cascade-deletes relationships that reference any of the given entity
+   * ids on either side — used when a KnowledgeEntity is deleted (its
+   * provenance was fully pruned) so no relationship is left dangling on
+   * a now-nonexistent entity.
+   */
+  deleteByEntityIds(
+    entityIds: string[],
     session: DatabaseSession,
   ): Promise<number>;
 }

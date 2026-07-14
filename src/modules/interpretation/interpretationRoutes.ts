@@ -47,10 +47,4 @@ export async function registerInterpretationRoutes(
     { preHandler: authenticate },
     controller.setQualitativeFindingStatus.bind(controller),
   );
-
-  app.patch(
-    "/interpretations/:interpretationResultId/supporting-quotes/:supportingQuoteId",
-    { preHandler: authenticate },
-    controller.setSupportingQuoteStatus.bind(controller),
-  );
 }

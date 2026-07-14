@@ -1,12 +1,23 @@
 import { databaseSession } from "../../shared/database/databaseClient.js";
 import type { FastifyBaseLogger } from "fastify";
 import type {
+  IndicatorCalculationOperation,
+  IndicatorComputedValueGroundingStatus,
+  IndicatorComputedValueSourceKind,
   IndicatorRelevanceStage,
+  InterpretationIndicatorComputedValue,
+  InterpretationIndicatorSuggestedCalculation,
+  InterpretationIndicatorValueFilter,
   InterpretationQuestionKind,
   InterpretationWarningSeverity,
   ProcessingJobStatus,
 } from "../../shared/contracts.js";
-import { indicatorRelevanceStageValues } from "../../shared/contracts.js";
+import {
+  indicatorCalculationOperationValues,
+  indicatorComputedValueGroundingStatusValues,
+  indicatorComputedValueSourceKindValues,
+  indicatorRelevanceStageValues,
+} from "../../shared/contracts.js";
 import { createDocumentId } from "../../shared/database/documentId.js";
 import type { ActivityRepository } from "../activity/activityRepository.js";
 import type { ProcessingJobPersistenceRecord } from "../ai/persistence/aiPersistenceTypes.js";
@@ -90,6 +101,104 @@ function readIndicatorRelevanceStage(
     : null;
 }
 
+function readNullableNumber(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function readIndicatorCalculationOperation(
+  value: unknown,
+): IndicatorCalculationOperation | null {
+  return indicatorCalculationOperationValues.includes(
+    value as IndicatorCalculationOperation,
+  )
+    ? (value as IndicatorCalculationOperation)
+    : null;
+}
+
+function readIndicatorValueFilter(
+  value: unknown,
+): InterpretationIndicatorValueFilter | null {
+  if (!isRecord(value)) {
+    return null;
+  }
+  const column = readNullableString(value.column);
+  if (!column) {
+    return null;
+  }
+  return { column, acceptedValues: readStringArray(value.acceptedValues) };
+}
+
+// suggestedCalculation's column/groupByColumn/dateColumn/numerator.column/
+// denominator.column/valueFilter.column are real data-column names
+// (originalField values), not entity ids — unlike relatedFields above,
+// they never get resolved through entityIdByOriginalField, since the
+// deterministic executor in ia_python_service already validated them
+// against real columns before this ever reaches ia_backend (see "Phase 4
+// — Project Knowledge Model.md", "Indicator Value Computation").
+function readSuggestedCalculation(
+  value: unknown,
+): InterpretationIndicatorSuggestedCalculation | null {
+  if (!isRecord(value)) {
+    return null;
+  }
+  const operation = readIndicatorCalculationOperation(value.operation);
+  if (!operation) {
+    return null;
+  }
+  return {
+    operation,
+    column: readNullableString(value.column),
+    groupByColumn: readNullableString(value.groupByColumn),
+    numerator: readIndicatorValueFilter(value.numerator),
+    denominator: readIndicatorValueFilter(value.denominator),
+    dateColumn: readNullableString(value.dateColumn),
+    valueFilter: readIndicatorValueFilter(value.valueFilter),
+  };
+}
+
+function readIndicatorComputedValueSourceKind(
+  value: unknown,
+): IndicatorComputedValueSourceKind | null {
+  return indicatorComputedValueSourceKindValues.includes(
+    value as IndicatorComputedValueSourceKind,
+  )
+    ? (value as IndicatorComputedValueSourceKind)
+    : null;
+}
+
+function readIndicatorComputedValueGroundingStatus(
+  value: unknown,
+): IndicatorComputedValueGroundingStatus {
+  return indicatorComputedValueGroundingStatusValues.includes(
+    value as IndicatorComputedValueGroundingStatus,
+  )
+    ? (value as IndicatorComputedValueGroundingStatus)
+    : "failed_column_not_found";
+}
+
+function readComputedValue(
+  value: unknown,
+): InterpretationIndicatorComputedValue | null {
+  if (!isRecord(value)) {
+    return null;
+  }
+  const sourceKind = readIndicatorComputedValueSourceKind(value.sourceKind);
+  if (!sourceKind) {
+    return null;
+  }
+  return {
+    sourceKind,
+    value: readNullableNumber(value.value),
+    unit: readNullableString(value.unit),
+    components: isRecord(value.components) ? value.components : {},
+    recordsIncluded: readNumber(value.recordsIncluded),
+    recordsExcluded: readNumber(value.recordsExcluded),
+    groundingStatus: readIndicatorComputedValueGroundingStatus(
+      value.groundingStatus,
+    ),
+  };
+}
+
 function mapEntities(value: unknown): InterpretationEntityCreateInput[] {
   return readRecordArray(value).map((entry) => ({
     id: createDocumentId(),
@@ -133,7 +242,10 @@ function mapIndicators(
     ),
     supportingParagraphKeys: readStringArray(entry.supportingParagraphKeys),
     relevanceStage: readIndicatorRelevanceStage(entry.relevanceStage),
+    matchesStatedGoal: entry.matchesStatedGoal === true,
     status: "kept",
+    suggestedCalculation: readSuggestedCalculation(entry.suggestedCalculation),
+    computedValue: readComputedValue(entry.computedValue),
   }));
 }
 
@@ -218,7 +330,6 @@ function mapSupportingQuotes(value: unknown): MappedSupportingQuote[] {
         : readString(entry.privacyMode) === "redacted"
           ? "redacted"
           : "paraphrased_only",
-    status: "kept",
   }));
 }
 

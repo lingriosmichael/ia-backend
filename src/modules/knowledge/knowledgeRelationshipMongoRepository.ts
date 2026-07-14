@@ -112,20 +112,21 @@ export class MongoKnowledgeRelationshipRepository implements KnowledgeRelationsh
       );
   }
 
-  async findByEntitiesAndType(
-    projectKnowledgeModelId: string,
-    fromEntityId: string,
-    toEntityId: string,
-    relationshipType: string,
+  async deleteByEntityIds(
+    entityIds: string[],
     _session: DatabaseSession,
-  ): Promise<KnowledgeRelationshipPersistenceRecord | null> {
-    const document = await KnowledgeRelationshipMongoModel.findOne({
-      projectKnowledgeModelId,
-      fromEntityId,
-      toEntityId,
-      relationshipType,
+  ): Promise<number> {
+    if (entityIds.length === 0) {
+      return 0;
+    }
+
+    const result = await KnowledgeRelationshipMongoModel.deleteMany({
+      $or: [
+        { fromEntityId: { $in: entityIds } },
+        { toEntityId: { $in: entityIds } },
+      ],
     }).exec();
-    return toRecord(document);
+    return result.deletedCount ?? 0;
   }
 
   async deleteByProjectKnowledgeModelId(
