@@ -130,6 +130,59 @@ function makeCountDistinctIndicator(
   };
 }
 
+function makeCountIndicator(
+  overrides: Partial<InterpretationIndicator> & {
+    count: number;
+    componentKey?: "count" | "positiveCount" | "rowCount";
+    name?: string;
+    description?: string;
+  },
+): InterpretationIndicator {
+  const {
+    count,
+    componentKey = "count",
+    name,
+    description,
+    ...rest
+  } = overrides;
+
+  return {
+    id: "indicator-1",
+    name: name ?? "Selected applicants",
+    description:
+      description ?? "Applicants whose status matches the selected values.",
+    confidence: 0.9,
+    reason: "Derived from the prepared status or row-count signal.",
+    relatedEntityIds: [],
+    supportingParagraphKeys: [],
+    relevanceStage: null,
+    matchesStatedGoal: false,
+    status: "kept",
+    suggestedCalculation: {
+      operation: "count",
+      column: componentKey === "rowCount" ? null : "status",
+      groupByColumn: null,
+      numerator: null,
+      denominator: null,
+      dateColumn: null,
+      valueFilter:
+        componentKey === "positiveCount"
+          ? { column: "status", acceptedValues: ["selected"] }
+          : null,
+    },
+    computedValue: {
+      sourceKind: "computed_from_table",
+      value: count,
+      unit: "count",
+      components: { [componentKey]: count },
+      recordsIncluded: count,
+      recordsExcluded: 0,
+      groundingStatus: "passed",
+    },
+    ...rest,
+  };
+}
+
 test("a single source instance's ratio computes as not_applicable for dedup and matches its own value", async () => {
   const activities = [makeActivity({})];
   const uploads = [makeUpload({})];
@@ -267,6 +320,55 @@ test("a single file's count_distinct is not flagged as undeduplicated, since no 
     repos.knowledgeIndicators[0]!.deduplicationConfidence,
     "not_applicable",
   );
+});
+
+test("a deterministic positive-status count survives knowledge recombination", async () => {
+  const activities = [makeActivity({})];
+  const uploads = [makeUpload({})];
+  const interpretationResults = [
+    makeInterpretationResult({
+      indicators: [makeCountIndicator({ count: 75, componentKey: "positiveCount" })],
+    }),
+  ];
+  const repos = createFakeRepositories({
+    activities,
+    uploads,
+    interpretationResults,
+  });
+  const service = buildService(repos);
+
+  await service.buildForProject("project-1");
+
+  assert.equal(repos.knowledgeIndicators.length, 1);
+  assert.equal(repos.knowledgeIndicators[0]!.value, 75);
+});
+
+test("a deterministic row-count metric survives knowledge recombination", async () => {
+  const activities = [makeActivity({})];
+  const uploads = [makeUpload({})];
+  const interpretationResults = [
+    makeInterpretationResult({
+      indicators: [
+        makeCountIndicator({
+          count: 79,
+          componentKey: "rowCount",
+          name: "Applicants",
+          description: "Total applicant rows in the prepared dataset.",
+        }),
+      ],
+    }),
+  ];
+  const repos = createFakeRepositories({
+    activities,
+    uploads,
+    interpretationResults,
+  });
+  const service = buildService(repos);
+
+  await service.buildForProject("project-1");
+
+  assert.equal(repos.knowledgeIndicators.length, 1);
+  assert.equal(repos.knowledgeIndicators[0]!.value, 79);
 });
 
 test("an indicator with no computed value (concept-only) produces no KnowledgeIndicator record", async () => {

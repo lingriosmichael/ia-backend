@@ -625,6 +625,20 @@ function readComponentNumber(
   return typeof value === "number" && Number.isFinite(value) ? value : 0;
 }
 
+function readFirstAvailableComponentNumber(
+  components: Record<string, unknown>,
+  keys: string[],
+): number {
+  for (const key of keys) {
+    const value = components[key];
+    if (typeof value === "number" && Number.isFinite(value)) {
+      return value;
+    }
+  }
+
+  return 0;
+}
+
 function averageConfidence(instances: Array<{ confidence: number }>): number {
   if (instances.length === 0) {
     return 0;
@@ -752,7 +766,11 @@ function recombineComputedValues(
     case "count": {
       let count = 0;
       for (const instance of computed) {
-        count += readComponentNumber(instance.components, "count");
+        count += readFirstAvailableComponentNumber(instance.components, [
+          "count",
+          "positiveCount",
+          "rowCount",
+        ]);
       }
       return {
         value: count,
@@ -764,7 +782,10 @@ function recombineComputedValues(
     case "count_distinct": {
       let count = 0;
       for (const instance of computed) {
-        count += readComponentNumber(instance.components, "count");
+        count += readFirstAvailableComponentNumber(instance.components, [
+          "distinctCount",
+          "count",
+        ]);
       }
       return {
         value: count,
