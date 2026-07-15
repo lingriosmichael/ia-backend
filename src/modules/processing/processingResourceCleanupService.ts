@@ -1,5 +1,7 @@
 import type { DatabaseSession } from "../../shared/database/databaseClient.js";
+import type { DeterministicAnalysisRepository } from "../interpretation/deterministicAnalysisRepository.js";
 import type { InterpretationResultRepository } from "../interpretation/interpretationResultRepository.js";
+import type { DatasetPreparationRepository } from "../interpretation/datasetPreparationRepository.js";
 import type { KnowledgeEntityRepository } from "../knowledge/knowledgeEntityRepository.js";
 import type { KnowledgeRelationshipRepository } from "../knowledge/knowledgeRelationshipRepository.js";
 import type { ProjectKnowledgeModelRepository } from "../knowledge/projectKnowledgeModelRepository.js";
@@ -15,6 +17,8 @@ export class ProcessingResourceCleanupService {
     private readonly privacySafeRepresentationRepository: PrivacySafeRepresentationRepository,
     private readonly entityMappingRepository: EntityMappingRepository,
     private readonly interpretationResultRepository: InterpretationResultRepository,
+    private readonly datasetPreparationRepository: DatasetPreparationRepository,
+    private readonly deterministicAnalysisRepository: DeterministicAnalysisRepository,
     private readonly projectKnowledgeModelRepository: ProjectKnowledgeModelRepository,
     private readonly knowledgeEntityRepository: KnowledgeEntityRepository,
     private readonly knowledgeRelationshipRepository: KnowledgeRelationshipRepository,
@@ -33,6 +37,8 @@ export class ProcessingResourceCleanupService {
       ),
       this.entityMappingRepository.deleteByProjectId(projectId, session),
       this.interpretationResultRepository.deleteByProjectId(projectId, session),
+      this.datasetPreparationRepository.deleteByProjectId(projectId, session),
+      this.deterministicAnalysisRepository.deleteByProjectId(projectId, session),
       this.knowledgeRelationshipRepository.deleteByProjectId(
         projectId,
         session,
@@ -64,6 +70,11 @@ export class ProcessingResourceCleanupService {
         activityId,
         session,
       ),
+      this.datasetPreparationRepository.deleteByActivityId(activityId, session),
+      this.deterministicAnalysisRepository.deleteByActivityId(
+        activityId,
+        session,
+      ),
     ]);
   }
 
@@ -89,6 +100,14 @@ export class ProcessingResourceCleanupService {
         session,
       ),
       this.interpretationResultRepository.deleteByUploadMetadataId(
+        uploadMetadataId,
+        session,
+      ),
+      this.datasetPreparationRepository.deleteByUploadMetadataId(
+        uploadMetadataId,
+        session,
+      ),
+      this.deterministicAnalysisRepository.deleteByUploadMetadataId(
         uploadMetadataId,
         session,
       ),

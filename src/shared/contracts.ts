@@ -295,6 +295,7 @@ export interface ParsedRepresentationRecord {
   processingJobId: string;
   fileType: "spreadsheet" | "document" | "unknown";
   interpretationDataType: InterpretationDataType;
+  evidenceModality: EvidenceModality;
   payload: Record<string, unknown>;
   createdAt: string;
   updatedAt: string;
@@ -308,6 +309,31 @@ export const interpretationDataTypeValues = [
 ] as const;
 export type InterpretationDataType =
   (typeof interpretationDataTypeValues)[number];
+
+export const evidenceModalityValues = [
+  "structured_quantitative",
+  "structured_qualitative",
+  "mixed_dual_track",
+  "narrative_qualitative",
+  "insufficiently_extracted",
+] as const;
+export type EvidenceModality = (typeof evidenceModalityValues)[number];
+
+export const evidenceRoutingDecisionSourceValues = [
+  "deterministic",
+  "llm_tiebreaker",
+] as const;
+export type EvidenceRoutingDecisionSource =
+  (typeof evidenceRoutingDecisionSourceValues)[number];
+
+export interface EvidenceRoutingDecision {
+  evidenceModality: EvidenceModality;
+  decisionSource: EvidenceRoutingDecisionSource;
+  routingConfidence: number;
+  quantitativeUtilityScore: number;
+  qualitativeUtilityScore: number;
+  reasons: string[];
+}
 
 export const privacyReviewDecisionValueValues = [
   "approved",
@@ -333,6 +359,7 @@ export interface ParsedRepresentationPreviewParagraph {
 export interface ParsedRepresentationPreviewRecord {
   fileType: "spreadsheet" | "document" | "unknown";
   interpretationDataType: InterpretationDataType;
+  evidenceModality: EvidenceModality;
   sourceFileName: string | null;
   extension: string | null;
   contentType: string | null;
@@ -400,6 +427,7 @@ export interface PrivacySafeRepresentationRecord {
   privacyReviewId: string;
   parsedRepresentationId: string;
   interpretationDataType: InterpretationDataType;
+  evidenceModality: EvidenceModality;
   payload: Record<string, unknown>;
   createdAt: string;
   updatedAt: string;
@@ -413,6 +441,24 @@ export const interpretationQuestionKindValues = [
 export type InterpretationQuestionKind =
   (typeof interpretationQuestionKindValues)[number];
 
+export const interpretationQuestionDomainValues = [
+  "preparation",
+  "interpretation",
+] as const;
+export type InterpretationQuestionDomain =
+  (typeof interpretationQuestionDomainValues)[number];
+
+export const interpretationQuestionCodeValues = [
+  "normalization_merge",
+  "row_grain",
+  "duplicate_identifier_resolution",
+  "primary_status_field",
+  "positive_status_values",
+  "primary_date_field",
+] as const;
+export type InterpretationQuestionCode =
+  (typeof interpretationQuestionCodeValues)[number];
+
 export const interpretationQuestionStatusValues = [
   "pending",
   "answered",
@@ -423,6 +469,18 @@ export type InterpretationQuestionStatus =
 export const interpretationWarningSeverityValues = ["info", "warning"] as const;
 export type InterpretationWarningSeverity =
   (typeof interpretationWarningSeverityValues)[number];
+
+export const datasetProfileColumnTypeValues = [
+  "identifier",
+  "numeric",
+  "date",
+  "categorical",
+  "free_text",
+  "boolean",
+  "unknown",
+] as const;
+export type DatasetProfileColumnType =
+  (typeof datasetProfileColumnTypeValues)[number];
 
 export interface InterpretationEntity {
   id: string;
@@ -555,6 +613,28 @@ export const interpretationQualitativeFindingRelationValues = [
 export type InterpretationQualitativeFindingRelation =
   (typeof interpretationQualitativeFindingRelationValues)[number];
 
+export const interpretationQualitativeFindingCategoryValues = [
+  "outcome_support",
+  "outcome_complication",
+  "outcome_contradiction",
+  "barrier",
+  "enabler",
+  "unintended_effect",
+  "context_only",
+] as const;
+export type InterpretationQualitativeFindingCategory =
+  (typeof interpretationQualitativeFindingCategoryValues)[number];
+
+export const interpretationQualitativeOutcomeAnchorTypeValues = [
+  "project_outcome",
+  "project_impact",
+  "activity_objective",
+  "activity_success_indicator",
+  "unanchored",
+] as const;
+export type InterpretationQualitativeOutcomeAnchorType =
+  (typeof interpretationQualitativeOutcomeAnchorTypeValues)[number];
+
 export interface InterpretationIndicator {
   id: string;
   name: string;
@@ -604,6 +684,9 @@ export interface InterpretationQualitativeFinding {
   relatedEntityIds: string[];
   relatedIndicatorIds: string[];
   supportingQuoteIds: string[];
+  category: InterpretationQualitativeFindingCategory;
+  outcomeReference: string | null;
+  outcomeAnchorType: InterpretationQualitativeOutcomeAnchorType;
   relationToEvidence: InterpretationQualitativeFindingRelation;
   status: InterpretationIndicatorStatus;
 }
@@ -612,8 +695,12 @@ export interface InterpretationQuestion {
   id: string;
   prompt: string;
   kind: InterpretationQuestionKind;
+  questionDomain: InterpretationQuestionDomain;
   options: string[] | null;
   isBlocking: boolean;
+  questionCode: InterpretationQuestionCode | null;
+  targetTableName: string | null;
+  targetColumnName: string | null;
   status: InterpretationQuestionStatus;
   answeredValue: string | null;
   answeredById: string | null;
@@ -626,12 +713,300 @@ export interface InterpretationWarning {
   severity: InterpretationWarningSeverity;
 }
 
+export interface DatasetProfileValueCount {
+  value: string;
+  count: number;
+}
+
+export interface DatasetProfileNumericSummary {
+  min: number;
+  max: number;
+  mean: number;
+}
+
+export interface DatasetProfileDateSummary {
+  min: string;
+  max: string;
+}
+
+export interface DatasetProfileColumn {
+  name: string;
+  inferredType: DatasetProfileColumnType;
+  roleHints: string[];
+  nullPercentage: number;
+  distinctCount: number;
+  averageTextLength: number | null;
+  topValues: DatasetProfileValueCount[];
+  numericSummary: DatasetProfileNumericSummary | null;
+  dateSummary: DatasetProfileDateSummary | null;
+  duplicateNonNullValueCount: number;
+}
+
+export const datasetProfileIssueCodeValues = [
+  "duplicate_identifier",
+  "missing_identifier",
+  "row_grain_ambiguous",
+  "multiple_date_columns",
+  "multiple_status_columns",
+  "status_values_need_definition",
+] as const;
+export type DatasetProfileIssueCode =
+  (typeof datasetProfileIssueCodeValues)[number];
+
+export interface DatasetProfileIssue {
+  code: DatasetProfileIssueCode;
+  severity: InterpretationWarningSeverity;
+  tableName: string;
+  columnName: string | null;
+  message: string;
+}
+
+export interface DatasetProfileTable {
+  name: string;
+  rowCount: number;
+  columnCount: number;
+  likelyIdentifierColumns: string[];
+  likelyStatusColumns: string[];
+  likelyStageColumns: string[];
+  likelyDateColumns: string[];
+  likelyMeasureColumns: string[];
+  likelyFreeTextColumns: string[];
+  likelySubgroupColumns: string[];
+  columns: DatasetProfileColumn[];
+}
+
+export interface DatasetProfile {
+  tableCount: number;
+  paragraphCount: number;
+  tables: DatasetProfileTable[];
+  issues: DatasetProfileIssue[];
+}
+
 export interface InterpretationGoalCoverage {
   id: string;
   goalSummary: string;
   isSupportedByData: boolean;
   relatedIndicatorIds: string[];
   gapExplanation: string | null;
+}
+
+export const datasetPreparationStatusValues = [
+  "not_applicable",
+  "not_started",
+  "awaiting_answers",
+  "ready_for_analysis",
+  "analysis_completed",
+] as const;
+export type DatasetPreparationStatus =
+  (typeof datasetPreparationStatusValues)[number];
+
+export interface DatasetPreparationDecision {
+  questionId: string;
+  questionCode: InterpretationQuestionCode;
+  questionPrompt: string;
+  tableName: string | null;
+  columnName: string | null;
+  answeredValue: string;
+  answeredById: string | null;
+  answeredAt: string | null;
+}
+
+export interface DatasetPreparationDecisionSelection {
+  questionId: string;
+  tableName: string | null;
+  columnName: string | null;
+  value: string;
+}
+
+export interface DatasetPreparationDecisionSummary {
+  normalizationMerges: DatasetPreparationDecisionSelection[];
+  rowGrains: DatasetPreparationDecisionSelection[];
+  duplicateIdentifierResolutions: DatasetPreparationDecisionSelection[];
+  primaryStatusFields: DatasetPreparationDecisionSelection[];
+  positiveStatusDefinitions: DatasetPreparationDecisionSelection[];
+  primaryDateFields: DatasetPreparationDecisionSelection[];
+}
+
+export const preparedDatasetColumnRoleValues = [
+  "identifier",
+  "primary_status",
+  "primary_date",
+  "measure",
+  "subgroup",
+  "free_text",
+  "other",
+] as const;
+export type PreparedDatasetColumnRole =
+  (typeof preparedDatasetColumnRoleValues)[number];
+
+export const preparedDatasetIdentifierHandlingValues = [
+  "assume_unique",
+  "allow_duplicate_rows_as_events",
+  "deduplicate_by_identifier",
+  "manual_review_required",
+] as const;
+export type PreparedDatasetIdentifierHandling =
+  (typeof preparedDatasetIdentifierHandlingValues)[number];
+
+export interface PreparedDatasetColumn {
+  name: string;
+  inferredType: DatasetProfileColumnType | null;
+  role: PreparedDatasetColumnRole;
+  positiveStatusValues: string[];
+  positiveStatusDefinitionText: string | null;
+  normalizationAccepted: boolean | null;
+}
+
+export interface PreparedDatasetTable {
+  name: string;
+  rowCount: number;
+  columnCount: number;
+  selectedRowGrain: string | null;
+  identifierColumn: string | null;
+  identifierHandling: PreparedDatasetIdentifierHandling | null;
+  primaryStatusColumn: string | null;
+  primaryDateColumn: string | null;
+  columns: PreparedDatasetColumn[];
+  notes: string[];
+}
+
+export interface PreparedDatasetSnapshot {
+  evidenceModality: EvidenceModality;
+  isReadyForDeterministicAnalysis: boolean;
+  unresolvedRequirements: string[];
+  tables: PreparedDatasetTable[];
+}
+
+export const deterministicAnalysisStatusValues = [
+  "not_applicable",
+  "awaiting_preparation",
+  "ready",
+] as const;
+export type DeterministicAnalysisStatus =
+  (typeof deterministicAnalysisStatusValues)[number];
+
+export const deterministicAnalysisMetricKindValues = [
+  "count",
+  "count_distinct",
+  "ratio",
+  "distribution",
+  "trend",
+] as const;
+export type DeterministicAnalysisMetricKind =
+  (typeof deterministicAnalysisMetricKindValues)[number];
+
+export interface DeterministicAnalysisMetric {
+  metricKey: string;
+  label: string;
+  description: string;
+  tableName: string;
+  sourceColumns: string[];
+  kind: DeterministicAnalysisMetricKind;
+  formula: string;
+  value: number | null;
+  unit: string | null;
+  components: Record<string, unknown>;
+}
+
+export interface DeterministicAnalysisDistributionBucket {
+  value: string;
+  count: number;
+  ratio: number | null;
+}
+
+export interface DeterministicAnalysisDistribution {
+  distributionKey: string;
+  label: string;
+  tableName: string;
+  columnName: string;
+  buckets: DeterministicAnalysisDistributionBucket[];
+}
+
+export interface DeterministicAnalysisTrendPoint {
+  period: string;
+  rowCount: number;
+  positiveCount: number | null;
+  positiveRatio: number | null;
+}
+
+export interface DeterministicAnalysisTrend {
+  trendKey: string;
+  label: string;
+  tableName: string;
+  dateColumnName: string;
+  positiveStatusColumnName: string | null;
+  points: DeterministicAnalysisTrendPoint[];
+}
+
+export interface DeterministicAnalysisSubgroupSegment {
+  value: string;
+  rowCount: number;
+  positiveCount: number | null;
+  positiveRatio: number | null;
+}
+
+export interface DeterministicAnalysisSubgroupBreakdown {
+  breakdownKey: string;
+  label: string;
+  tableName: string;
+  columnName: string;
+  segments: DeterministicAnalysisSubgroupSegment[];
+}
+
+export interface DeterministicAnalysisWarning {
+  code: string;
+  message: string;
+}
+
+export interface DeterministicAnalysisCandidateIndicator {
+  indicatorKey: string;
+  label: string;
+  description: string;
+  tableName: string;
+  formula: string;
+  value: number | null;
+  unit: string | null;
+  sourceColumns: string[];
+  groundingNote: string;
+}
+
+export interface DeterministicAnalysisRecord {
+  id: string;
+  organizationId: string;
+  projectId: string;
+  activityId: string | null;
+  uploadMetadataId: string;
+  privacySafeRepresentationId: string;
+  interpretationResultId: string;
+  datasetPreparationId: string;
+  status: DeterministicAnalysisStatus;
+  metrics: DeterministicAnalysisMetric[];
+  distributions: DeterministicAnalysisDistribution[];
+  trends: DeterministicAnalysisTrend[];
+  subgroupBreakdowns: DeterministicAnalysisSubgroupBreakdown[];
+  warnings: DeterministicAnalysisWarning[];
+  candidateIndicators: DeterministicAnalysisCandidateIndicator[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface DatasetPreparationRecord {
+  id: string;
+  organizationId: string;
+  projectId: string;
+  activityId: string | null;
+  uploadMetadataId: string;
+  privacySafeRepresentationId: string;
+  interpretationResultId: string;
+  status: DatasetPreparationStatus;
+  blockingQuestionCount: number;
+  answeredBlockingQuestionCount: number;
+  unansweredBlockingQuestionIds: string[];
+  decisions: DatasetPreparationDecision[];
+  decisionSummary: DatasetPreparationDecisionSummary;
+  preparedDataset: PreparedDatasetSnapshot | null;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface InterpretationResultRecord {
@@ -646,6 +1021,8 @@ export interface InterpretationResultRecord {
   previousInterpretationResultId: string | null;
   datasetType: string;
   overallConfidence: number;
+  evidenceRouting: EvidenceRoutingDecision | null;
+  datasetProfile: DatasetProfile | null;
   entities: InterpretationEntity[];
   indicators: InterpretationIndicator[];
   relationships: InterpretationRelationship[];
@@ -654,6 +1031,8 @@ export interface InterpretationResultRecord {
   questions: InterpretationQuestion[];
   warnings: InterpretationWarning[];
   goalAlignment: InterpretationGoalCoverage[];
+  datasetPreparation: DatasetPreparationRecord | null;
+  deterministicAnalysis: DeterministicAnalysisRecord | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -964,6 +1343,13 @@ export interface KnowledgeSourceInstanceComputedValue {
   confidence: number;
 }
 
+export interface KnowledgeSourceInstanceQualitativeContext {
+  category: InterpretationQualitativeFindingCategory;
+  outcomeReference: string | null;
+  outcomeAnchorType: InterpretationQualitativeOutcomeAnchorType;
+  relationToEvidence: InterpretationQualitativeFindingRelation;
+}
+
 export interface KnowledgeSourceInstance {
   uploadMetadataId: string;
   interpretationResultId: string;
@@ -972,6 +1358,7 @@ export interface KnowledgeSourceInstance {
   sourceReference: string;
   addedAt: string;
   computedValue?: KnowledgeSourceInstanceComputedValue | null;
+  qualitativeContext?: KnowledgeSourceInstanceQualitativeContext | null;
 }
 
 // Set on a KnowledgeIndicator only for count_distinct operations recombined

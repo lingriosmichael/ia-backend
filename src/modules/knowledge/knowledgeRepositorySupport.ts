@@ -8,6 +8,8 @@ type SourceInstanceDocumentShape = {
   activityType?: string | null;
   sourceReference: string;
   addedAt: Date;
+  computedValue?: KnowledgeSourceInstance["computedValue"];
+  qualitativeContext?: KnowledgeSourceInstance["qualitativeContext"];
 };
 
 export function toKnowledgeSourceInstanceRecord(
@@ -20,6 +22,8 @@ export function toKnowledgeSourceInstanceRecord(
     activityType: instance.activityType ?? null,
     sourceReference: instance.sourceReference,
     addedAt: instance.addedAt.toISOString(),
+    computedValue: instance.computedValue ?? null,
+    qualitativeContext: instance.qualitativeContext ?? null,
   };
 }
 

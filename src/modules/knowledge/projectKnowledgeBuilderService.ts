@@ -296,6 +296,12 @@ export class ProjectKnowledgeBuilderService {
           activityType,
           sourceReference: finding.summary,
           addedAt: new Date().toISOString(),
+          qualitativeContext: {
+            category: finding.category,
+            outcomeReference: finding.outcomeReference,
+            outcomeAnchorType: finding.outcomeAnchorType,
+            relationToEvidence: finding.relationToEvidence,
+          },
         },
       });
     }

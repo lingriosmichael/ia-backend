@@ -11,6 +11,8 @@ const knowledgeSourceInstanceSchema = new Schema(
     activityType: { type: String, default: null },
     sourceReference: { type: String, required: true },
     addedAt: { type: Date, required: true },
+    computedValue: { type: Schema.Types.Mixed, default: null },
+    qualitativeContext: { type: Schema.Types.Mixed, default: null },
   },
   { _id: false },
 );

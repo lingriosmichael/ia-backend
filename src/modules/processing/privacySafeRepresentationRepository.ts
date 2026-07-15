@@ -9,6 +9,10 @@ export interface PrivacySafeRepresentationRepository {
     input: PrivacySafeRepresentationUpsertInput,
     session: DatabaseSession,
   ): Promise<PrivacySafeRepresentationPersistenceRecord>;
+  findById(
+    privacySafeRepresentationId: string,
+    session: DatabaseSession,
+  ): Promise<PrivacySafeRepresentationPersistenceRecord | null>;
   findLatestByUploadMetadataId(
     uploadMetadataId: string,
     session: DatabaseSession,

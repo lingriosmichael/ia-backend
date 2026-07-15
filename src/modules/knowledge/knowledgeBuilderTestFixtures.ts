@@ -88,6 +88,8 @@ export function makeInterpretationResult(
     previousInterpretationResultId: null,
     datasetType: "attendance_log",
     overallConfidence: 0.9,
+    evidenceRouting: null,
+    datasetProfile: null,
     entities: [],
     indicators: [],
     relationships: [],

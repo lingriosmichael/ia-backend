@@ -1,4 +1,9 @@
 import type {
+  DatasetProfile,
+  EvidenceRoutingDecision,
+  InterpretationQualitativeFindingCategory,
+  InterpretationQualitativeOutcomeAnchorType,
+  InterpretationQuestionCode,
   IndicatorRelevanceStage,
   InterpretationEntity,
   InterpretationGoalCoverage,
@@ -6,6 +11,7 @@ import type {
   InterpretationIndicatorComputedValue,
   InterpretationIndicatorStatus,
   InterpretationIndicatorSuggestedCalculation,
+  InterpretationQuestionDomain,
   InterpretationQuestionKind,
   InterpretationQuestionStatus,
   InterpretationQualitativeFindingRelation,
@@ -28,8 +34,12 @@ export interface InterpretationQuestionPersistence {
   id: string;
   prompt: string;
   kind: InterpretationQuestionKind;
+  questionDomain: InterpretationQuestionDomain;
   options: string[] | null;
   isBlocking: boolean;
+  questionCode: InterpretationQuestionCode | null;
+  targetTableName: string | null;
+  targetColumnName: string | null;
   status: InterpretationQuestionStatus;
   answeredValue: string | null;
   answeredById: string | null;
@@ -48,6 +58,8 @@ export interface InterpretationResultPersistenceRecord {
   previousInterpretationResultId: string | null;
   datasetType: string;
   overallConfidence: number;
+  evidenceRouting: EvidenceRoutingDecision | null;
+  datasetProfile: DatasetProfile | null;
   entities: InterpretationEntity[];
   indicators: InterpretationIndicator[];
   relationships: InterpretationRelationship[];
@@ -119,6 +131,9 @@ export interface InterpretationQualitativeFindingCreateInput {
   relatedEntityIds: string[];
   relatedIndicatorIds: string[];
   supportingQuoteIds: string[];
+  category: InterpretationQualitativeFindingCategory;
+  outcomeReference: string | null;
+  outcomeAnchorType: InterpretationQualitativeOutcomeAnchorType;
   relationToEvidence: InterpretationQualitativeFindingRelation;
   status: InterpretationIndicatorStatus;
 }
@@ -126,8 +141,12 @@ export interface InterpretationQualitativeFindingCreateInput {
 export interface InterpretationQuestionCreateInput {
   prompt: string;
   kind: InterpretationQuestionKind;
+  questionDomain: InterpretationQuestionDomain;
   options: string[] | null;
   isBlocking: boolean;
+  questionCode: InterpretationQuestionCode | null;
+  targetTableName: string | null;
+  targetColumnName: string | null;
 }
 
 export interface InterpretationWarningCreateInput {
@@ -153,12 +172,26 @@ export interface InterpretationResultCreateInput {
   previousInterpretationResultId: string | null;
   datasetType: string;
   overallConfidence: number;
+  evidenceRouting: EvidenceRoutingDecision | null;
+  datasetProfile: DatasetProfile | null;
   entities: InterpretationEntityCreateInput[];
   indicators: InterpretationIndicatorCreateInput[];
   relationships: InterpretationRelationshipCreateInput[];
   qualitativeFindings: InterpretationQualitativeFindingCreateInput[];
   supportingQuotes: InterpretationSupportingQuoteCreateInput[];
   questions: InterpretationQuestionCreateInput[];
+  warnings: InterpretationWarningCreateInput[];
+  goalAlignment: InterpretationGoalCoverageCreateInput[];
+}
+
+export interface InterpretationResultSynthesisUpdateInput {
+  datasetType: string;
+  overallConfidence: number;
+  entities: InterpretationEntityCreateInput[];
+  indicators: InterpretationIndicatorCreateInput[];
+  relationships: InterpretationRelationshipCreateInput[];
+  qualitativeFindings: InterpretationQualitativeFindingCreateInput[];
+  supportingQuotes: InterpretationSupportingQuoteCreateInput[];
   warnings: InterpretationWarningCreateInput[];
   goalAlignment: InterpretationGoalCoverageCreateInput[];
 }

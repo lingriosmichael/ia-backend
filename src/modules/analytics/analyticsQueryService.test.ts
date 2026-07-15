@@ -46,13 +46,14 @@ function makeResult(
     scopeType: "PROJECT",
     catalogVersion: "3.0",
     knowledgeModelVersion: 1,
-    catalog: {
-      catalogVersion: "3.0",
-      knowledgeModelVersion: 1,
-      scope: { type: "PROJECT", projectId: "project-1", activityId: null },
-      entries: [],
-      omittedEntries: [],
-    },
+      catalog: {
+        catalogVersion: "3.0",
+        knowledgeModelVersion: 1,
+        scope: { type: "PROJECT", projectId: "project-1", activityId: null },
+        entries: [],
+        omittedEntries: [],
+        qualitySignals: [],
+      },
     curation: {
       featuredEntryIds: [],
       narrative: [],

@@ -32,8 +32,13 @@ import { MongoInvitationRepository } from "../../modules/invitation/invitationMo
 import { InvitationService } from "../../modules/invitation/invitationService.js";
 import { InterpretationArtifactService } from "../../modules/interpretation/interpretationArtifactService.js";
 import { InterpretationController } from "../../modules/interpretation/interpretationController.js";
+import { MongoDeterministicAnalysisRepository } from "../../modules/interpretation/deterministicAnalysisMongoRepository.js";
+import { MongoDatasetPreparationRepository } from "../../modules/interpretation/datasetPreparationMongoRepository.js";
+import { DatasetPreparationService } from "../../modules/interpretation/datasetPreparationService.js";
+import { DeterministicAnalysisService } from "../../modules/interpretation/deterministicAnalysisService.js";
 import { MongoInterpretationResultRepository } from "../../modules/interpretation/interpretationResultMongoRepository.js";
 import { InterpretationService } from "../../modules/interpretation/interpretationService.js";
+import { QuantitativeInterpretationSynthesisService } from "../../modules/interpretation/quantitativeInterpretationSynthesisService.js";
 import { MongoKnowledgeEntityRepository } from "../../modules/knowledge/knowledgeEntityMongoRepository.js";
 import { MongoKnowledgeIndicatorRepository } from "../../modules/knowledge/knowledgeIndicatorMongoRepository.js";
 import { MongoKnowledgeRelationshipRepository } from "../../modules/knowledge/knowledgeRelationshipMongoRepository.js";
@@ -85,6 +90,10 @@ export function createApplicationContext(
   const entityMappingRepository = new MongoEntityMappingRepository();
   const interpretationResultRepository =
     new MongoInterpretationResultRepository();
+  const datasetPreparationRepository =
+    new MongoDatasetPreparationRepository();
+  const deterministicAnalysisRepository =
+    new MongoDeterministicAnalysisRepository();
   const projectKnowledgeModelRepository =
     new MongoProjectKnowledgeModelRepository();
   const knowledgeEntityRepository = new MongoKnowledgeEntityRepository();
@@ -107,6 +116,8 @@ export function createApplicationContext(
     privacySafeRepresentationRepository,
     entityMappingRepository,
     interpretationResultRepository,
+    datasetPreparationRepository,
+    deterministicAnalysisRepository,
     projectKnowledgeModelRepository,
     knowledgeEntityRepository,
     knowledgeRelationshipRepository,
@@ -176,9 +187,28 @@ export function createApplicationContext(
       privacySafeRepresentationRepository,
       entityMappingRepository,
     );
+  const datasetPreparationService = new DatasetPreparationService(
+    datasetPreparationRepository,
+    privacySafeRepresentationRepository,
+  );
+  const deterministicAnalysisService = new DeterministicAnalysisService(
+    deterministicAnalysisRepository,
+    privacySafeRepresentationRepository,
+  );
+  const quantitativeInterpretationSynthesisService =
+    new QuantitativeInterpretationSynthesisService(
+      interpretationResultRepository,
+      processingJobRepository,
+      activityRepository,
+      projectRepository,
+      pythonProcessingClient,
+    );
   const interpretationArtifactService = new InterpretationArtifactService(
     interpretationResultRepository,
     activityRepository,
+    datasetPreparationService,
+    deterministicAnalysisService,
+    quantitativeInterpretationSynthesisService,
     logger,
   );
   const processingJobService = new ProcessingJobService(
@@ -225,12 +255,17 @@ export function createApplicationContext(
     authorizationService,
     pythonProcessingClient,
     logger,
+    datasetPreparationService,
+    deterministicAnalysisService,
+    quantitativeInterpretationSynthesisService,
     projectKnowledgeBuilderService,
   );
   const dashboardCatalogAssemblerService = new DashboardCatalogAssemblerService(
     projectKnowledgeModelRepository,
     knowledgeEntityRepository,
     knowledgeIndicatorRepository,
+    datasetPreparationRepository,
+    deterministicAnalysisRepository,
   );
   const analyticsExecutionRepository = new MongoAnalyticsExecutionRepository();
   const analyticsResultRepository = new MongoAnalyticsResultRepository();

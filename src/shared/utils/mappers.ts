@@ -5,6 +5,11 @@ import type {
   AIArtifactStatus,
   AIArtifactType,
   AuthResponse,
+  DatasetPreparationRecord,
+  DeterministicAnalysisRecord,
+  InterpretationQuestionCode,
+  DatasetProfile,
+  InterpretationQuestionDomain,
   OrganizationSettings,
   OrganizationPermissions,
   OrganizationSummary,
@@ -38,6 +43,7 @@ import type {
   WorkspaceActivity,
   WorkspaceProject,
 } from "../contracts.js";
+import { classifyEvidenceModalityFromPayload } from "./evidenceModality.js";
 import { classifyInterpretationDataTypeFromPayload } from "./interpretationDataType.js";
 import {
   asRecord,
@@ -615,6 +621,7 @@ export function mapParsedRepresentation(record: {
   const interpretationDataType = classifyInterpretationDataTypeFromPayload(
     record.payload,
   );
+  const evidenceModality = classifyEvidenceModalityFromPayload(record.payload);
   return {
     id: record.id,
     organizationId: record.organizationId,
@@ -624,6 +631,7 @@ export function mapParsedRepresentation(record: {
     processingJobId: record.processingJobId,
     fileType: record.fileType,
     interpretationDataType,
+    evidenceModality,
     payload: (record.payload as Record<string, unknown>) ?? {},
     createdAt: toIso(record.createdAt),
     updatedAt: toIso(record.updatedAt),
@@ -640,10 +648,12 @@ export function mapParsedRepresentationPreview(record: {
   const paragraphs = asRecordArray(payload.paragraphs);
   const interpretationDataType =
     classifyInterpretationDataTypeFromPayload(payload);
+  const evidenceModality = classifyEvidenceModalityFromPayload(payload);
 
   return {
     fileType: record.fileType,
     interpretationDataType,
+    evidenceModality,
     sourceFileName: readString(metadata.sourceFileName),
     extension: readString(metadata.extension),
     contentType: readString(metadata.contentType),
@@ -715,6 +725,7 @@ export function mapPrivacySafeRepresentation(record: {
   const interpretationDataType = classifyInterpretationDataTypeFromPayload(
     record.payload,
   );
+  const evidenceModality = classifyEvidenceModalityFromPayload(record.payload);
   return {
     id: record.id,
     organizationId: record.organizationId,
@@ -725,6 +736,7 @@ export function mapPrivacySafeRepresentation(record: {
     privacyReviewId: record.privacyReviewId,
     parsedRepresentationId: record.parsedRepresentationId,
     interpretationDataType,
+    evidenceModality,
     payload: (record.payload as Record<string, unknown>) ?? {},
     createdAt: toIso(record.createdAt),
     updatedAt: toIso(record.updatedAt),
@@ -743,6 +755,8 @@ export function mapInterpretationResult(record: {
   previousInterpretationResultId: string | null;
   datasetType: string;
   overallConfidence: number;
+  evidenceRouting: InterpretationResultRecord["evidenceRouting"];
+  datasetProfile: DatasetProfile | null;
   entities: InterpretationEntity[];
   indicators: InterpretationIndicator[];
   relationships: InterpretationRelationship[];
@@ -752,8 +766,12 @@ export function mapInterpretationResult(record: {
     id: string;
     prompt: string;
     kind: InterpretationQuestionKind;
+    questionDomain: InterpretationQuestionDomain;
     options: string[] | null;
     isBlocking: boolean;
+    questionCode: InterpretationQuestionCode | null;
+    targetTableName: string | null;
+    targetColumnName: string | null;
     status: InterpretationQuestionStatus;
     answeredValue: string | null;
     answeredById: string | null;
@@ -761,6 +779,52 @@ export function mapInterpretationResult(record: {
   }>;
   warnings: InterpretationWarning[];
   goalAlignment: InterpretationGoalCoverage[];
+  datasetPreparation?: {
+    id: string;
+    organizationId: string;
+    projectId: string;
+    activityId: string | null;
+    uploadMetadataId: string;
+    privacySafeRepresentationId: string;
+    interpretationResultId: string;
+    status: DatasetPreparationRecord["status"];
+    blockingQuestionCount: number;
+    answeredBlockingQuestionCount: number;
+    unansweredBlockingQuestionIds: string[];
+    decisions: Array<{
+      questionId: string;
+      questionCode: InterpretationQuestionCode;
+      questionPrompt: string;
+      tableName: string | null;
+      columnName: string | null;
+      answeredValue: string;
+      answeredById: string | null;
+      answeredAt: Date | null;
+    }>;
+    decisionSummary: DatasetPreparationRecord["decisionSummary"];
+    preparedDataset: DatasetPreparationRecord["preparedDataset"];
+    createdAt: Date;
+    updatedAt: Date;
+  } | null;
+  deterministicAnalysis?: {
+    id: string;
+    organizationId: string;
+    projectId: string;
+    activityId: string | null;
+    uploadMetadataId: string;
+    privacySafeRepresentationId: string;
+    interpretationResultId: string;
+    datasetPreparationId: string;
+    status: DeterministicAnalysisRecord["status"];
+    metrics: DeterministicAnalysisRecord["metrics"];
+    distributions: DeterministicAnalysisRecord["distributions"];
+    trends: DeterministicAnalysisRecord["trends"];
+    subgroupBreakdowns: DeterministicAnalysisRecord["subgroupBreakdowns"];
+    warnings: DeterministicAnalysisRecord["warnings"];
+    candidateIndicators: DeterministicAnalysisRecord["candidateIndicators"];
+    createdAt: Date;
+    updatedAt: Date;
+  } | null;
   createdAt: Date;
   updatedAt: Date;
 }): InterpretationResultRecord {
@@ -776,6 +840,8 @@ export function mapInterpretationResult(record: {
     previousInterpretationResultId: record.previousInterpretationResultId,
     datasetType: record.datasetType,
     overallConfidence: record.overallConfidence,
+    evidenceRouting: record.evidenceRouting,
+    datasetProfile: record.datasetProfile,
     entities: record.entities,
     indicators: record.indicators,
     relationships: record.relationships,
@@ -785,8 +851,12 @@ export function mapInterpretationResult(record: {
       id: question.id,
       prompt: question.prompt,
       kind: question.kind,
+      questionDomain: question.questionDomain,
       options: question.options,
       isBlocking: question.isBlocking,
+      questionCode: question.questionCode,
+      targetTableName: question.targetTableName,
+      targetColumnName: question.targetColumnName,
       status: question.status,
       answeredValue: question.answeredValue,
       answeredById: question.answeredById,
@@ -794,6 +864,66 @@ export function mapInterpretationResult(record: {
     })),
     warnings: record.warnings,
     goalAlignment: record.goalAlignment,
+    datasetPreparation: record.datasetPreparation
+      ? {
+          id: record.datasetPreparation.id,
+          organizationId: record.datasetPreparation.organizationId,
+          projectId: record.datasetPreparation.projectId,
+          activityId: record.datasetPreparation.activityId,
+          uploadMetadataId: record.datasetPreparation.uploadMetadataId,
+          privacySafeRepresentationId:
+            record.datasetPreparation.privacySafeRepresentationId,
+          interpretationResultId: record.datasetPreparation.interpretationResultId,
+          status: record.datasetPreparation.status,
+          blockingQuestionCount: record.datasetPreparation.blockingQuestionCount,
+          answeredBlockingQuestionCount:
+            record.datasetPreparation.answeredBlockingQuestionCount,
+          unansweredBlockingQuestionIds:
+            record.datasetPreparation.unansweredBlockingQuestionIds,
+          decisions: record.datasetPreparation.decisions.map((decision) => ({
+            questionId: decision.questionId,
+            questionCode: decision.questionCode,
+            questionPrompt: decision.questionPrompt,
+            tableName: decision.tableName,
+            columnName: decision.columnName,
+            answeredValue: decision.answeredValue,
+            answeredById: decision.answeredById,
+            answeredAt: decision.answeredAt
+              ? toIso(decision.answeredAt)
+              : null,
+          })),
+          decisionSummary: record.datasetPreparation.decisionSummary,
+          preparedDataset: record.datasetPreparation.preparedDataset,
+          createdAt: toIso(record.datasetPreparation.createdAt),
+          updatedAt: toIso(record.datasetPreparation.updatedAt),
+        }
+      : null,
+    deterministicAnalysis: record.deterministicAnalysis
+      ? {
+          id: record.deterministicAnalysis.id,
+          organizationId: record.deterministicAnalysis.organizationId,
+          projectId: record.deterministicAnalysis.projectId,
+          activityId: record.deterministicAnalysis.activityId,
+          uploadMetadataId: record.deterministicAnalysis.uploadMetadataId,
+          privacySafeRepresentationId:
+            record.deterministicAnalysis.privacySafeRepresentationId,
+          interpretationResultId:
+            record.deterministicAnalysis.interpretationResultId,
+          datasetPreparationId:
+            record.deterministicAnalysis.datasetPreparationId,
+          status: record.deterministicAnalysis.status,
+          metrics: record.deterministicAnalysis.metrics,
+          distributions: record.deterministicAnalysis.distributions,
+          trends: record.deterministicAnalysis.trends,
+          subgroupBreakdowns:
+            record.deterministicAnalysis.subgroupBreakdowns,
+          warnings: record.deterministicAnalysis.warnings,
+          candidateIndicators:
+            record.deterministicAnalysis.candidateIndicators,
+          createdAt: toIso(record.deterministicAnalysis.createdAt),
+          updatedAt: toIso(record.deterministicAnalysis.updatedAt),
+        }
+      : null,
     createdAt: toIso(record.createdAt),
     updatedAt: toIso(record.updatedAt),
   };

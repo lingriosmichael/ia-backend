@@ -25,6 +25,10 @@ const EMPTY_CATALOG_CURATION: DashboardCuration = {
   fellBackToSelectionOnly: false,
 };
 
+function uniqueWarnings(messages: string[]): string[] {
+  return [...new Set(messages)];
+}
+
 /**
  * Section 11 of "Phase 5 — Deterministic Analytics.md": authorize, create
  * an execution record, assemble the catalog, call the Python curator,
@@ -170,9 +174,15 @@ export class AnalyticsExecutionService {
           curation,
           dataQuality: {
             recordsExcludedCount: catalog.omittedEntries.length,
-            warnings: catalog.omittedEntries.map((entry) => entry.reason),
+            warnings: uniqueWarnings([
+              ...catalog.omittedEntries.map((entry) => entry.reason),
+              ...catalog.qualitySignals.map((signal) => signal.message),
+            ]),
           },
-          limitations: catalog.omittedEntries.map((entry) => entry.reason),
+          limitations: uniqueWarnings([
+            ...catalog.omittedEntries.map((entry) => entry.reason),
+            ...catalog.qualitySignals.map((signal) => signal.message),
+          ]),
           generatedAt: new Date(),
         },
         databaseSession,

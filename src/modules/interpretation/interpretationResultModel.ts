@@ -4,6 +4,10 @@ import { createDocumentId } from "../../shared/database/documentId.js";
 import {
   indicatorRelevanceStageValues,
   interpretationIndicatorStatusValues,
+  interpretationQualitativeFindingCategoryValues,
+  interpretationQualitativeOutcomeAnchorTypeValues,
+  interpretationQuestionCodeValues,
+  interpretationQuestionDomainValues,
   interpretationQuestionKindValues,
   interpretationQuestionStatusValues,
   interpretationQualitativeFindingRelationValues,
@@ -103,6 +107,17 @@ const interpretationQualitativeFindingSchema = new Schema({
   relatedEntityIds: { type: [String], default: [] },
   relatedIndicatorIds: { type: [String], default: [] },
   supportingQuoteIds: { type: [String], default: [] },
+  category: {
+    type: String,
+    enum: [...interpretationQualitativeFindingCategoryValues],
+    default: "context_only",
+  },
+  outcomeReference: { type: String, default: null },
+  outcomeAnchorType: {
+    type: String,
+    enum: [...interpretationQualitativeOutcomeAnchorTypeValues],
+    default: "unanchored",
+  },
   relationToEvidence: {
     type: String,
     enum: [...interpretationQualitativeFindingRelationValues],
@@ -123,8 +138,20 @@ const interpretationQuestionSchema = new Schema({
     enum: [...interpretationQuestionKindValues],
     required: true,
   },
+  questionDomain: {
+    type: String,
+    enum: [...interpretationQuestionDomainValues],
+    default: "interpretation",
+  },
   options: { type: [String], default: null },
   isBlocking: { type: Boolean, default: false },
+  questionCode: {
+    type: String,
+    enum: [...interpretationQuestionCodeValues],
+    default: null,
+  },
+  targetTableName: { type: String, default: null },
+  targetColumnName: { type: String, default: null },
   status: {
     type: String,
     enum: [...interpretationQuestionStatusValues],
@@ -166,6 +193,8 @@ const interpretationResultSchema = new Schema(
     previousInterpretationResultId: { type: String, default: null },
     datasetType: { type: String, required: true },
     overallConfidence: { type: Number, required: true },
+    evidenceRouting: { type: Schema.Types.Mixed, default: null },
+    datasetProfile: { type: Schema.Types.Mixed, default: null },
     entities: { type: [interpretationEntitySchema], default: [] },
     indicators: { type: [interpretationIndicatorSchema], default: [] },
     relationships: { type: [interpretationRelationshipSchema], default: [] },

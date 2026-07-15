@@ -4,6 +4,7 @@ import type {
   InterpretationQuestionAnswerInput,
   InterpretationResultCreateInput,
   InterpretationResultPersistenceRecord,
+  InterpretationResultSynthesisUpdateInput,
 } from "./interpretationResultPersistence.js";
 
 export interface InterpretationResultRepository {
@@ -11,6 +12,11 @@ export interface InterpretationResultRepository {
     input: InterpretationResultCreateInput,
     session: DatabaseSession,
   ): Promise<InterpretationResultPersistenceRecord>;
+  replaceSynthesisArtifacts(
+    interpretationResultId: string,
+    input: InterpretationResultSynthesisUpdateInput,
+    session: DatabaseSession,
+  ): Promise<InterpretationResultPersistenceRecord | null>;
   findById(
     interpretationResultId: string,
     session: DatabaseSession,

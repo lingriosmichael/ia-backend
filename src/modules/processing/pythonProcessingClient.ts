@@ -73,6 +73,276 @@ interface PythonDatasetInterpretationResponse {
   acceptedAt: string;
 }
 
+interface QuantitativePreparedDatasetColumn {
+  name: string;
+  inferredType:
+    | "identifier"
+    | "numeric"
+    | "date"
+    | "categorical"
+    | "free_text"
+    | "boolean"
+    | "unknown"
+    | null;
+  role:
+    | "identifier"
+    | "primary_status"
+    | "primary_date"
+    | "measure"
+    | "subgroup"
+    | "free_text"
+    | "other";
+  positiveStatusValues: string[];
+  positiveStatusDefinitionText: string | null;
+  normalizationAccepted: boolean | null;
+}
+
+interface QuantitativePreparedDatasetTable {
+  name: string;
+  rowCount: number;
+  columnCount: number;
+  selectedRowGrain: string | null;
+  identifierColumn: string | null;
+  identifierHandling:
+    | "assume_unique"
+    | "allow_duplicate_rows_as_events"
+    | "deduplicate_by_identifier"
+    | "manual_review_required"
+    | null;
+  primaryStatusColumn: string | null;
+  primaryDateColumn: string | null;
+  columns: QuantitativePreparedDatasetColumn[];
+  notes: string[];
+}
+
+interface QuantitativePreparedDatasetSnapshot {
+  evidenceModality:
+    | "structured_quantitative"
+    | "structured_qualitative"
+    | "mixed_dual_track"
+    | "narrative_qualitative"
+    | "insufficiently_extracted";
+  isReadyForDeterministicAnalysis: boolean;
+  unresolvedRequirements: string[];
+  tables: QuantitativePreparedDatasetTable[];
+}
+
+interface DeterministicAnalysisMetric {
+  metricKey: string;
+  label: string;
+  description: string;
+  tableName: string;
+  sourceColumns: string[];
+  kind: "count" | "count_distinct" | "ratio" | "distribution" | "trend";
+  formula: string;
+  value: number | null;
+  unit: string | null;
+  components: Record<string, unknown>;
+}
+
+interface DeterministicAnalysisDistributionBucket {
+  value: string;
+  count: number;
+  ratio: number | null;
+}
+
+interface DeterministicAnalysisDistribution {
+  distributionKey: string;
+  label: string;
+  tableName: string;
+  columnName: string;
+  buckets: DeterministicAnalysisDistributionBucket[];
+}
+
+interface DeterministicAnalysisTrendPoint {
+  period: string;
+  rowCount: number;
+  positiveCount: number | null;
+  positiveRatio: number | null;
+}
+
+interface DeterministicAnalysisTrend {
+  trendKey: string;
+  label: string;
+  tableName: string;
+  dateColumnName: string;
+  positiveStatusColumnName: string | null;
+  points: DeterministicAnalysisTrendPoint[];
+}
+
+interface DeterministicAnalysisSubgroupSegment {
+  value: string;
+  rowCount: number;
+  positiveCount: number | null;
+  positiveRatio: number | null;
+}
+
+interface DeterministicAnalysisSubgroupBreakdown {
+  breakdownKey: string;
+  label: string;
+  tableName: string;
+  columnName: string;
+  segments: DeterministicAnalysisSubgroupSegment[];
+}
+
+interface DeterministicAnalysisWarning {
+  code: string;
+  message: string;
+}
+
+interface DeterministicAnalysisCandidateIndicator {
+  indicatorKey: string;
+  label: string;
+  description: string;
+  tableName: string;
+  formula: string;
+  value: number | null;
+  unit: string | null;
+  sourceColumns: string[];
+  groundingNote: string;
+}
+
+interface QuantitativeDeterministicAnalysis {
+  status: "not_applicable" | "awaiting_preparation" | "ready";
+  metrics: DeterministicAnalysisMetric[];
+  distributions: DeterministicAnalysisDistribution[];
+  trends: DeterministicAnalysisTrend[];
+  subgroupBreakdowns: DeterministicAnalysisSubgroupBreakdown[];
+  warnings: DeterministicAnalysisWarning[];
+  candidateIndicators: DeterministicAnalysisCandidateIndicator[];
+}
+
+interface QuantitativeSynthesisIndicatorValueFilter {
+  column: string;
+  acceptedValues: string[];
+}
+
+interface QuantitativeSynthesisIndicatorSuggestedCalculation {
+  operation:
+    | "count"
+    | "count_distinct"
+    | "sum"
+    | "mean"
+    | "ratio"
+    | "distribution"
+    | "trend";
+  column: string | null;
+  groupByColumn: string | null;
+  numerator: QuantitativeSynthesisIndicatorValueFilter | null;
+  denominator: QuantitativeSynthesisIndicatorValueFilter | null;
+  dateColumn: string | null;
+  valueFilter: QuantitativeSynthesisIndicatorValueFilter | null;
+}
+
+interface QuantitativeSynthesisIndicatorComputedValue {
+  sourceKind: "computed_from_table" | "extracted_from_text";
+  value: number | null;
+  unit: string | null;
+  components: Record<string, unknown>;
+  recordsIncluded: number;
+  recordsExcluded: number;
+  groundingStatus:
+    | "passed"
+    | "failed_column_not_found"
+    | "failed_number_not_in_text";
+}
+
+interface QuantitativeSynthesisIndicator {
+  name: string;
+  description: string;
+  confidence: number;
+  reason: string;
+  relatedFields: string[];
+  supportingParagraphKeys: string[];
+  relevanceStage: "output" | "outcome" | "impact" | null;
+  matchesStatedGoal: boolean;
+  suggestedCalculation: QuantitativeSynthesisIndicatorSuggestedCalculation | null;
+  computedValue: QuantitativeSynthesisIndicatorComputedValue | null;
+}
+
+interface QuantitativeSynthesisWarning {
+  message: string;
+  severity: "info" | "warning";
+}
+
+interface QuantitativeSynthesisGoalAlignment {
+  goalSummary: string;
+  isSupportedByData: boolean;
+  relatedIndicatorNames: string[];
+  gapExplanation: string | null;
+}
+
+interface QuantitativeInterpretationSynthesisInput {
+  datasetProfile: Record<string, unknown> | null;
+  preparedDataset: QuantitativePreparedDatasetSnapshot;
+  deterministicAnalysis: QuantitativeDeterministicAnalysis;
+  language: "de" | "en";
+  activityGoals: StartDatasetInterpretationActivityGoals | null;
+  projectGoals: StartDatasetInterpretationProjectGoals | null;
+}
+
+interface QuantitativeInterpretationSynthesisResponse {
+  datasetType: string;
+  overallConfidence: number;
+  indicators: QuantitativeSynthesisIndicator[];
+  warnings: QuantitativeSynthesisWarning[];
+  goalAlignment: QuantitativeSynthesisGoalAlignment[];
+}
+
+interface MixedSynthesisSupportingQuote {
+  id: string;
+  excerptText: string;
+  excerptKind: "direct" | "paraphrased";
+  speakerType:
+    | "participant"
+    | "caregiver"
+    | "staff"
+    | "volunteer"
+    | "evaluator"
+    | "unknown";
+  stage: "output" | "outcome" | "impact" | "context" | "risk";
+  confidence: number;
+  reason: string;
+  sourceReference: string;
+  privacyMode: "verbatim_safe" | "redacted" | "paraphrased_only";
+}
+
+interface MixedSynthesisQualitativeFinding {
+  id: string;
+  summary: string;
+  stage: "output" | "outcome" | "impact" | "context" | "risk";
+  confidence: number;
+  reason: string;
+  supportingQuoteIds: string[];
+  category:
+    | "outcome_support"
+    | "outcome_complication"
+    | "outcome_contradiction"
+    | "barrier"
+    | "enabler"
+    | "unintended_effect"
+    | "context_only";
+  outcomeReference: string | null;
+  outcomeAnchorType:
+    | "project_outcome"
+    | "project_impact"
+    | "activity_objective"
+    | "activity_success_indicator"
+    | "unanchored";
+  relationToEvidence: "reinforces" | "contradicts" | "complicates" | "context_only";
+}
+
+interface MixedInterpretationSynthesisInput {
+  datasetProfile: Record<string, unknown> | null;
+  preparedDataset: QuantitativePreparedDatasetSnapshot;
+  deterministicAnalysis: QuantitativeDeterministicAnalysis;
+  qualitativeFindings: MixedSynthesisQualitativeFinding[];
+  supportingQuotes: MixedSynthesisSupportingQuote[];
+  language: "de" | "en";
+  activityGoals: StartDatasetInterpretationActivityGoals | null;
+  projectGoals: StartDatasetInterpretationProjectGoals | null;
+}
+
 export class PythonProcessingClient {
   constructor(
     private readonly baseUrl: string,
@@ -197,5 +467,73 @@ export class PythonProcessingClient {
     }
 
     return response.json() as Promise<PythonDatasetInterpretationResponse>;
+  }
+
+  async synthesizeQuantitativeInterpretation(
+    input: QuantitativeInterpretationSynthesisInput,
+  ): Promise<QuantitativeInterpretationSynthesisResponse> {
+    const response = await fetch(
+      `${this.baseUrl}/processing/interpretation/quantitative-synthesis`,
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          ...this.authHeaders(),
+        },
+        body: JSON.stringify({
+          datasetProfile: input.datasetProfile,
+          preparedDataset: input.preparedDataset,
+          deterministicAnalysis: input.deterministicAnalysis,
+          language: input.language,
+          activityGoals: input.activityGoals,
+          projectGoals: input.projectGoals,
+        }),
+      },
+    );
+
+    if (!response.ok) {
+      throw new AppError(
+        "The Python processing service could not synthesize the quantitative interpretation.",
+        502,
+        "python_processing_quantitative_synthesis_unavailable",
+      );
+    }
+
+    return response.json() as Promise<QuantitativeInterpretationSynthesisResponse>;
+  }
+
+  async synthesizeMixedInterpretation(
+    input: MixedInterpretationSynthesisInput,
+  ): Promise<QuantitativeInterpretationSynthesisResponse> {
+    const response = await fetch(
+      `${this.baseUrl}/processing/interpretation/mixed-synthesis`,
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          ...this.authHeaders(),
+        },
+        body: JSON.stringify({
+          datasetProfile: input.datasetProfile,
+          preparedDataset: input.preparedDataset,
+          deterministicAnalysis: input.deterministicAnalysis,
+          qualitativeFindings: input.qualitativeFindings,
+          supportingQuotes: input.supportingQuotes,
+          language: input.language,
+          activityGoals: input.activityGoals,
+          projectGoals: input.projectGoals,
+        }),
+      },
+    );
+
+    if (!response.ok) {
+      throw new AppError(
+        "The Python processing service could not synthesize the mixed interpretation.",
+        502,
+        "python_processing_mixed_synthesis_unavailable",
+      );
+    }
+
+    return response.json() as Promise<QuantitativeInterpretationSynthesisResponse>;
   }
 }

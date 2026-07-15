@@ -80,17 +80,3 @@ export function classifyInterpretationDataTypeFromPayload(
 
   return "insufficiently_extracted";
 }
-
-export function isInterpretationDataTypeSupported(
-  interpretationDataType: InterpretationDataType,
-): boolean {
-  return interpretationDataType !== "insufficiently_extracted";
-}
-
-export function getInterpretationSupportState(
-  interpretationDataType: InterpretationDataType,
-): "supported" | "not_supported_yet" | "insufficiently_extracted" {
-  return interpretationDataType === "insufficiently_extracted"
-    ? "insufficiently_extracted"
-    : "supported";
-}

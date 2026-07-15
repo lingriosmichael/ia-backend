@@ -1,6 +1,16 @@
 import { databaseSession } from "../../shared/database/databaseClient.js";
 import type { FastifyBaseLogger } from "fastify";
 import type {
+  DatasetProfile,
+  DatasetProfileColumn,
+  DatasetProfileColumnType,
+  DatasetProfileDateSummary,
+  DatasetProfileIssue,
+  DatasetProfileIssueCode,
+  DatasetProfileNumericSummary,
+  DatasetProfileTable,
+  DatasetProfileValueCount,
+  EvidenceRoutingDecision,
   IndicatorCalculationOperation,
   IndicatorComputedValueGroundingStatus,
   IndicatorComputedValueSourceKind,
@@ -8,11 +18,14 @@ import type {
   InterpretationIndicatorComputedValue,
   InterpretationIndicatorSuggestedCalculation,
   InterpretationIndicatorValueFilter,
+  InterpretationQuestionCode,
   InterpretationQuestionKind,
   InterpretationWarningSeverity,
   ProcessingJobStatus,
 } from "../../shared/contracts.js";
 import {
+  datasetProfileColumnTypeValues,
+  datasetProfileIssueCodeValues,
   indicatorCalculationOperationValues,
   indicatorComputedValueGroundingStatusValues,
   indicatorComputedValueSourceKindValues,
@@ -33,6 +46,9 @@ import type {
 } from "./interpretationResultPersistence.js";
 import type { InterpretationResultRepository } from "./interpretationResultRepository.js";
 import { clearActivityInterpretationAcknowledgmentIfPresent } from "./interpretationReviewState.js";
+import { DatasetPreparationService } from "./datasetPreparationService.js";
+import { DeterministicAnalysisService } from "./deterministicAnalysisService.js";
+import { QuantitativeInterpretationSynthesisService } from "./quantitativeInterpretationSynthesisService.js";
 
 type ProcessingStatusDetails = Record<string, unknown> | null | undefined;
 
@@ -40,6 +56,15 @@ const interpretationQuestionKinds: readonly InterpretationQuestionKind[] = [
   "single_choice",
   "free_text",
   "merge_confirmation",
+];
+const interpretationQuestionDomains = ["preparation", "interpretation"] as const;
+const interpretationQuestionCodes: readonly InterpretationQuestionCode[] = [
+  "normalization_merge",
+  "row_grain",
+  "duplicate_identifier_resolution",
+  "primary_status_field",
+  "positive_status_values",
+  "primary_date_field",
 ];
 
 const interpretationWarningSeverities: readonly InterpretationWarningSeverity[] =
@@ -83,12 +108,164 @@ function readQuestionKind(value: unknown): InterpretationQuestionKind {
     : "free_text";
 }
 
+function readQuestionDomain(
+  value: unknown,
+): "preparation" | "interpretation" {
+  return interpretationQuestionDomains.includes(
+    value as (typeof interpretationQuestionDomains)[number],
+  )
+    ? (value as (typeof interpretationQuestionDomains)[number])
+    : "interpretation";
+}
+
+function readQuestionCode(value: unknown): InterpretationQuestionCode | null {
+  return interpretationQuestionCodes.includes(value as InterpretationQuestionCode)
+    ? (value as InterpretationQuestionCode)
+    : null;
+}
+
 function readWarningSeverity(value: unknown): InterpretationWarningSeverity {
   return interpretationWarningSeverities.includes(
     value as InterpretationWarningSeverity,
   )
     ? (value as InterpretationWarningSeverity)
     : "info";
+}
+
+function readDatasetProfileColumnType(
+  value: unknown,
+): DatasetProfileColumnType {
+  return datasetProfileColumnTypeValues.includes(value as DatasetProfileColumnType)
+    ? (value as DatasetProfileColumnType)
+    : "unknown";
+}
+
+function readDatasetProfileIssueCode(value: unknown): DatasetProfileIssueCode {
+  return datasetProfileIssueCodeValues.includes(value as DatasetProfileIssueCode)
+    ? (value as DatasetProfileIssueCode)
+    : "row_grain_ambiguous";
+}
+
+function readDatasetProfileValueCounts(
+  value: unknown,
+): DatasetProfileValueCount[] {
+  return readRecordArray(value).map((entry) => ({
+    value: readString(entry.value),
+    count: readNumber(entry.count),
+  }));
+}
+
+function readDatasetProfileNumericSummary(
+  value: unknown,
+): DatasetProfileNumericSummary | null {
+  if (!isRecord(value)) {
+    return null;
+  }
+  return {
+    min: readNumber(value.min),
+    max: readNumber(value.max),
+    mean: readNumber(value.mean),
+  };
+}
+
+function readDatasetProfileDateSummary(
+  value: unknown,
+): DatasetProfileDateSummary | null {
+  if (!isRecord(value)) {
+    return null;
+  }
+  const min = readNullableString(value.min);
+  const max = readNullableString(value.max);
+  if (!min || !max) {
+    return null;
+  }
+  return { min, max };
+}
+
+function readDatasetProfileColumns(value: unknown): DatasetProfileColumn[] {
+  return readRecordArray(value).map((entry) => ({
+    name: readString(entry.name, "unknown_column"),
+    inferredType: readDatasetProfileColumnType(entry.inferredType),
+    roleHints: readStringArray(entry.roleHints),
+    nullPercentage: readNumber(entry.nullPercentage),
+    distinctCount: readNumber(entry.distinctCount),
+    averageTextLength:
+      typeof entry.averageTextLength === "number" &&
+      Number.isFinite(entry.averageTextLength)
+        ? entry.averageTextLength
+        : null,
+    topValues: readDatasetProfileValueCounts(entry.topValues),
+    numericSummary: readDatasetProfileNumericSummary(entry.numericSummary),
+    dateSummary: readDatasetProfileDateSummary(entry.dateSummary),
+    duplicateNonNullValueCount: readNumber(entry.duplicateNonNullValueCount),
+  }));
+}
+
+function readDatasetProfileIssues(value: unknown): DatasetProfileIssue[] {
+  return readRecordArray(value).map((entry) => ({
+    code: readDatasetProfileIssueCode(entry.code),
+    severity: readWarningSeverity(entry.severity),
+    tableName: readString(entry.tableName, "table"),
+    columnName: readNullableString(entry.columnName),
+    message: readString(entry.message),
+  }));
+}
+
+function readDatasetProfileTables(value: unknown): DatasetProfileTable[] {
+  return readRecordArray(value).map((entry) => ({
+    name: readString(entry.name, "table"),
+    rowCount: readNumber(entry.rowCount),
+    columnCount: readNumber(entry.columnCount),
+    likelyIdentifierColumns: readStringArray(entry.likelyIdentifierColumns),
+    likelyStatusColumns: readStringArray(entry.likelyStatusColumns),
+    likelyStageColumns: readStringArray(entry.likelyStageColumns),
+    likelyDateColumns: readStringArray(entry.likelyDateColumns),
+    likelyMeasureColumns: readStringArray(entry.likelyMeasureColumns),
+    likelyFreeTextColumns: readStringArray(entry.likelyFreeTextColumns),
+    likelySubgroupColumns: readStringArray(entry.likelySubgroupColumns),
+    columns: readDatasetProfileColumns(entry.columns),
+  }));
+}
+
+function readDatasetProfile(value: unknown): DatasetProfile | null {
+  if (!isRecord(value)) {
+    return null;
+  }
+  return {
+    tableCount: readNumber(value.tableCount),
+    paragraphCount: readNumber(value.paragraphCount),
+    tables: readDatasetProfileTables(value.tables),
+    issues: readDatasetProfileIssues(value.issues),
+  };
+}
+
+function readEvidenceRouting(value: unknown): EvidenceRoutingDecision | null {
+  if (!isRecord(value)) {
+    return null;
+  }
+
+  const evidenceModality = readString(value.evidenceModality);
+  const decisionSource = readString(value.decisionSource);
+  if (
+    (evidenceModality !== "structured_quantitative" &&
+      evidenceModality !== "structured_qualitative" &&
+      evidenceModality !== "mixed_dual_track" &&
+      evidenceModality !== "narrative_qualitative" &&
+      evidenceModality !== "insufficiently_extracted") ||
+    (decisionSource !== "deterministic" &&
+      decisionSource !== "llm_tiebreaker")
+  ) {
+    return null;
+  }
+
+  return {
+    evidenceModality,
+    decisionSource,
+    routingConfidence: readNumber(value.routingConfidence),
+    quantitativeUtilityScore: readNumber(value.quantitativeUtilityScore),
+    qualitativeUtilityScore: readNumber(value.qualitativeUtilityScore),
+    reasons: readStringArray(value.reasons),
+  };
 }
 
 function readIndicatorRelevanceStage(
@@ -364,6 +541,27 @@ function mapQualitativeFindings(
     supportingQuoteIds: readStringArray(entry.supportingQuoteKeys)
       .map((quoteKey) => supportingQuoteIdByKey.get(quoteKey))
       .filter((id): id is string => Boolean(id)),
+    category: (() => {
+      const category = readString(entry.category);
+      return category === "outcome_support" ||
+        category === "outcome_complication" ||
+        category === "outcome_contradiction" ||
+        category === "barrier" ||
+        category === "enabler" ||
+        category === "unintended_effect"
+        ? category
+        : "context_only";
+    })(),
+    outcomeReference: readNullableString(entry.outcomeReference),
+    outcomeAnchorType: (() => {
+      const anchorType = readString(entry.outcomeAnchorType);
+      return anchorType === "project_outcome" ||
+        anchorType === "project_impact" ||
+        anchorType === "activity_objective" ||
+        anchorType === "activity_success_indicator"
+        ? anchorType
+        : "unanchored";
+    })(),
     relationToEvidence: (() => {
       const relation = readString(entry.relationToEvidence);
       return relation === "reinforces" ||
@@ -380,6 +578,7 @@ function mapQuestions(value: unknown): InterpretationQuestionCreateInput[] {
   return readRecordArray(value).map((entry) => ({
     prompt: readString(entry.prompt, "Can you confirm this interpretation?"),
     kind: readQuestionKind(entry.kind),
+    questionDomain: readQuestionDomain(entry.questionDomain),
     options: Array.isArray(entry.options)
       ? readStringArray(entry.options)
       : null,
@@ -387,6 +586,9 @@ function mapQuestions(value: unknown): InterpretationQuestionCreateInput[] {
       entry.isBlocking,
       readQuestionKind(entry.kind) !== "free_text",
     ),
+    questionCode: readQuestionCode(entry.questionCode),
+    targetTableName: readNullableString(entry.targetTableName),
+    targetColumnName: readNullableString(entry.targetColumnName),
   }));
 }
 
@@ -401,6 +603,9 @@ export class InterpretationArtifactService {
   constructor(
     private readonly interpretationResultRepository: InterpretationResultRepository,
     private readonly activityRepository: ActivityRepository,
+    private readonly datasetPreparationService: DatasetPreparationService,
+    private readonly deterministicAnalysisService: DeterministicAnalysisService,
+    private readonly quantitativeInterpretationSynthesisService: QuantitativeInterpretationSynthesisService,
     private readonly logger: FastifyBaseLogger,
   ) {}
 
@@ -462,7 +667,7 @@ export class InterpretationArtifactService {
       supportingQuoteIdByKey.set(quote.quoteKey, quote.id);
     }
 
-    await this.interpretationResultRepository.create(
+    const created = await this.interpretationResultRepository.create(
       {
         organizationId: job.organizationId,
         projectId: job.projectId,
@@ -474,6 +679,8 @@ export class InterpretationArtifactService {
         previousInterpretationResultId: previous?.id ?? null,
         datasetType: readString(interpretation.datasetType, "unknown"),
         overallConfidence: readNumber(interpretation.overallConfidence),
+        evidenceRouting: readEvidenceRouting(interpretation.evidenceRouting),
+        datasetProfile: readDatasetProfile(interpretation.datasetProfile),
         entities,
         indicators,
         relationships: mapRelationships(
@@ -498,6 +705,36 @@ export class InterpretationArtifactService {
       },
       databaseSession,
     );
+
+    const datasetPreparation =
+      await this.datasetPreparationService.syncForInterpretationResult(created);
+    const deterministicAnalysis =
+      await this.deterministicAnalysisService.syncForInterpretationResult(
+      created,
+      datasetPreparation,
+    );
+    const updatedPreparation =
+      deterministicAnalysis.status === "ready"
+        ? await this.datasetPreparationService.markAnalysisCompleted(
+            datasetPreparation,
+          )
+        : datasetPreparation;
+    try {
+      await this.quantitativeInterpretationSynthesisService.maybeSyncForInterpretationResult(
+        created,
+        updatedPreparation,
+        deterministicAnalysis,
+      );
+    } catch (error) {
+      this.logger.error(
+        {
+          interpretationResultId: created.id,
+          uploadMetadataId: created.uploadMetadataId,
+          error,
+        },
+        "quantitative interpretation synthesis could not be completed during artifact ingest",
+      );
+    }
 
     // A new interpretation result means the activity's knowledge just
     // changed — whether from a first-time upload or a re-run on existing

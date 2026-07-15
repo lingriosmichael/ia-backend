@@ -75,6 +75,17 @@ export class MongoPrivacySafeRepresentationRepository implements PrivacySafeRepr
     return toPrivacySafeRepresentationRecord(document);
   }
 
+  async findById(
+    privacySafeRepresentationId: string,
+    _session: DatabaseSession,
+  ): Promise<PrivacySafeRepresentationPersistenceRecord | null> {
+    const document = await PrivacySafeRepresentationMongoModel.findById(
+      privacySafeRepresentationId,
+    ).exec();
+
+    return toPrivacySafeRepresentationRecord(document);
+  }
+
   async findLatestByUploadMetadataIds(
     uploadMetadataIds: string[],
     _session: DatabaseSession,

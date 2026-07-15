@@ -25,11 +25,14 @@ import {
   hasPendingBlockingQuestions,
   isBlockingQuestion,
 } from "./interpretationReviewState.js";
+import { DatasetPreparationService } from "./datasetPreparationService.js";
 import {
-  classifyInterpretationDataTypeFromPayload,
-  getInterpretationSupportState,
-  isInterpretationDataTypeSupported,
-} from "../../shared/utils/interpretationDataType.js";
+  classifyEvidenceModalityFromPayload,
+  getEvidenceModalitySupportState,
+  isEvidenceModalitySupported,
+} from "../../shared/utils/evidenceModality.js";
+import { DeterministicAnalysisService } from "./deterministicAnalysisService.js";
+import { QuantitativeInterpretationSynthesisService } from "./quantitativeInterpretationSynthesisService.js";
 
 export class InterpretationService {
   constructor(
@@ -41,6 +44,9 @@ export class InterpretationService {
     private readonly authorizationService: AuthorizationService,
     private readonly pythonProcessingClient: PythonProcessingClient,
     private readonly logger: FastifyBaseLogger,
+    private readonly datasetPreparationService: DatasetPreparationService,
+    private readonly deterministicAnalysisService: DeterministicAnalysisService,
+    private readonly quantitativeInterpretationSynthesisService: QuantitativeInterpretationSynthesisService,
     private readonly projectKnowledgeBuilderService: ProjectKnowledgeBuilderService,
   ) {}
 
@@ -81,23 +87,23 @@ export class InterpretationService {
       );
     }
 
-    const interpretationDataType = classifyInterpretationDataTypeFromPayload(
+    const evidenceModality = classifyEvidenceModalityFromPayload(
       privacySafeRepresentation.payload,
     );
-    const interpretationSupportState = getInterpretationSupportState(
-      interpretationDataType,
+    const interpretationSupportState = getEvidenceModalitySupportState(
+      evidenceModality,
     );
 
-    if (!isInterpretationDataTypeSupported(interpretationDataType)) {
+    if (!isEvidenceModalitySupported(evidenceModality)) {
       throw new AppError(
         interpretationSupportState === "insufficiently_extracted"
           ? "This evidence does not contain enough extracted structure for reliable interpretation."
-          : "This evidence was parsed successfully, but its current data type is not yet supported for canonical interpretation.",
+          : "This evidence was parsed successfully, but its current modality is not yet supported for canonical interpretation.",
         409,
         interpretationSupportState === "insufficiently_extracted"
           ? "interpretation_data_type_insufficiently_extracted"
           : "interpretation_data_type_not_supported_yet",
-        { interpretationDataType },
+        { evidenceModality },
       );
     }
 
@@ -233,8 +239,36 @@ export class InterpretationService {
         uploads.map((upload) => upload.id),
         databaseSession,
       );
+    const preparations = await this.datasetPreparationService.findByInterpretationResultIds(
+      results.map((result) => result.id),
+    );
+    const deterministicAnalyses =
+      await this.deterministicAnalysisService.findByInterpretationResultIds(
+        results.map((result) => result.id),
+      );
+    const preparationByResultId = new Map(
+      preparations.map((preparation) => [
+        preparation.interpretationResultId,
+        preparation,
+      ]),
+    );
+    const deterministicAnalysisByResultId = new Map(
+      deterministicAnalyses.map((analysis) => [
+        analysis.interpretationResultId,
+        analysis,
+      ]),
+    );
 
-    return { results: results.map(mapInterpretationResult) };
+    return {
+      results: results.map((result) =>
+        mapInterpretationResult({
+          ...result,
+          datasetPreparation: preparationByResultId.get(result.id) ?? null,
+          deterministicAnalysis:
+            deterministicAnalysisByResultId.get(result.id) ?? null,
+        }),
+      ),
+    };
   }
 
   async getById(userId: string, interpretationResultId: string) {
@@ -253,7 +287,20 @@ export class InterpretationService {
 
     await this.authorizationService.canViewProject(userId, result.projectId);
 
-    return mapInterpretationResult(result);
+    const datasetPreparation =
+      await this.datasetPreparationService.findByInterpretationResultId(
+        result.id,
+      );
+    const deterministicAnalysis =
+      await this.deterministicAnalysisService.findByInterpretationResultId(
+        result.id,
+      );
+
+    return mapInterpretationResult({
+      ...result,
+      datasetPreparation,
+      deterministicAnalysis,
+    });
   }
 
   async answerQuestion(
@@ -308,8 +355,41 @@ export class InterpretationService {
         databaseSession,
       );
     }
+    const datasetPreparation =
+      await this.datasetPreparationService.syncForInterpretationResult(updated);
+    const deterministicAnalysis =
+      await this.deterministicAnalysisService.syncForInterpretationResult(
+        updated,
+        datasetPreparation,
+      );
+    const updatedPreparation =
+      deterministicAnalysis.status === "ready"
+        ? await this.datasetPreparationService.markAnalysisCompleted(
+            datasetPreparation,
+          )
+        : datasetPreparation;
+    const synthesized =
+      await this.quantitativeInterpretationSynthesisService.maybeSyncForInterpretationResult(
+        updated,
+        updatedPreparation,
+        deterministicAnalysis,
+      ).catch((error: unknown) => {
+        this.logger.error(
+          {
+            interpretationResultId: updated.id,
+            questionId,
+            error,
+          },
+          "quantitative interpretation synthesis could not be completed after a question answer",
+        );
+        return null;
+      });
 
-    return mapInterpretationResult(updated);
+    return mapInterpretationResult({
+      ...(synthesized ?? updated),
+      datasetPreparation: updatedPreparation,
+      deterministicAnalysis,
+    });
   }
 
   async setIndicatorStatus(
@@ -357,7 +437,20 @@ export class InterpretationService {
       );
     }
 
-    return mapInterpretationResult(updated);
+    const datasetPreparation =
+      await this.datasetPreparationService.findByInterpretationResultId(
+        updated.id,
+      );
+    const deterministicAnalysis =
+      await this.deterministicAnalysisService.findByInterpretationResultId(
+        updated.id,
+      );
+
+    return mapInterpretationResult({
+      ...updated,
+      datasetPreparation,
+      deterministicAnalysis,
+    });
   }
 
   async setQualitativeFindingStatus(
@@ -405,7 +498,20 @@ export class InterpretationService {
       );
     }
 
-    return mapInterpretationResult(updated);
+    const datasetPreparation =
+      await this.datasetPreparationService.findByInterpretationResultId(
+        updated.id,
+      );
+    const deterministicAnalysis =
+      await this.deterministicAnalysisService.findByInterpretationResultId(
+        updated.id,
+      );
+
+    return mapInterpretationResult({
+      ...updated,
+      datasetPreparation,
+      deterministicAnalysis,
+    });
   }
 
   async acknowledgeReview(
@@ -448,23 +554,22 @@ export class InterpretationService {
       );
     }
 
-    const unsupportedInterpretationDataTypes = privacySafeRepresentations
+    const unsupportedEvidenceModalities = privacySafeRepresentations
       .map((representation) =>
-        classifyInterpretationDataTypeFromPayload(representation.payload),
+        classifyEvidenceModalityFromPayload(representation.payload),
       )
       .filter(
-        (interpretationDataType) =>
-          !isInterpretationDataTypeSupported(interpretationDataType),
+        (evidenceModality) => !isEvidenceModalitySupported(evidenceModality),
       );
 
-    if (unsupportedInterpretationDataTypes.length > 0) {
+    if (unsupportedEvidenceModalities.length > 0) {
       throw new AppError(
-        "Every evidence file must be on a supported interpretation data type before this activity can be acknowledged.",
+        "Every evidence file must be on a supported evidence modality before this activity can be acknowledged.",
         409,
         "interpretation_review_incomplete",
         {
-          unsupportedInterpretationDataTypes: [
-            ...new Set(unsupportedInterpretationDataTypes),
+          unsupportedEvidenceModalities: [
+            ...new Set(unsupportedEvidenceModalities),
           ],
         },
       );

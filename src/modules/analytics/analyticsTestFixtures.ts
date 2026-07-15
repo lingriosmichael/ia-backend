@@ -9,6 +9,10 @@ import type { KnowledgeIndicatorPersistenceRecord } from "../knowledge/knowledge
 import type { KnowledgeIndicatorRepository } from "../knowledge/knowledgeIndicatorRepository.js";
 import type { ProjectKnowledgeModelPersistenceRecord } from "../knowledge/projectKnowledgeModelPersistence.js";
 import type { ProjectKnowledgeModelRepository } from "../knowledge/projectKnowledgeModelRepository.js";
+import type { DatasetPreparationPersistenceRecord } from "../interpretation/datasetPreparationPersistence.js";
+import type { DatasetPreparationRepository } from "../interpretation/datasetPreparationRepository.js";
+import type { DeterministicAnalysisPersistenceRecord } from "../interpretation/deterministicAnalysisPersistence.js";
+import type { DeterministicAnalysisRepository } from "../interpretation/deterministicAnalysisRepository.js";
 
 // Shared fake-dependency fixtures for exercising the analytics module's
 // services without a real MongoDB or a real Python service call — mirrors
@@ -108,6 +112,12 @@ export function makeThemeEntity(
         activityType: "mentoring",
         sourceReference: "Mentors reporting insufficient support",
         addedAt: NOW.toISOString(),
+        qualitativeContext: {
+          category: "barrier",
+          outcomeReference: "Participants sustain mentor relationships.",
+          outcomeAnchorType: "project_outcome",
+          relationToEvidence: "context_only",
+        },
       },
     ],
     createdAt: NOW,
@@ -174,6 +184,8 @@ export function createFakeKnowledgeRepositories(options: {
   model: ProjectKnowledgeModelPersistenceRecord | null;
   entities: KnowledgeEntityPersistenceRecord[];
   indicators: KnowledgeIndicatorPersistenceRecord[];
+  datasetPreparations?: DatasetPreparationPersistenceRecord[];
+  deterministicAnalyses?: DeterministicAnalysisPersistenceRecord[];
 }) {
   const projectKnowledgeModelRepository = {
     findByProjectId: async () => options.model,
@@ -187,9 +199,25 @@ export function createFakeKnowledgeRepositories(options: {
     listByProjectKnowledgeModelId: async () => options.indicators,
   } as unknown as KnowledgeIndicatorRepository;
 
+  const datasetPreparationRepository = {
+    findByInterpretationResultIds: async (interpretationResultIds: string[]) =>
+      (options.datasetPreparations ?? []).filter((record) =>
+        interpretationResultIds.includes(record.interpretationResultId),
+      ),
+  } as unknown as DatasetPreparationRepository;
+
+  const deterministicAnalysisRepository = {
+    findByInterpretationResultIds: async (interpretationResultIds: string[]) =>
+      (options.deterministicAnalyses ?? []).filter((record) =>
+        interpretationResultIds.includes(record.interpretationResultId),
+      ),
+  } as unknown as DeterministicAnalysisRepository;
+
   return {
     projectKnowledgeModelRepository,
     knowledgeEntityRepository,
     knowledgeIndicatorRepository,
+    datasetPreparationRepository,
+    deterministicAnalysisRepository,
   };
 }

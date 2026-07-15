@@ -94,6 +94,7 @@ function fakeCatalog(entryCount: number): EvidenceCatalog {
       },
     })),
     omittedEntries: [],
+    qualitySignals: [],
   };
 }
 

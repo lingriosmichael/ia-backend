@@ -1,4 +1,9 @@
-import type { KnowledgeIndicatorDeduplicationConfidence } from "../../shared/contracts.js";
+import type {
+  InterpretationQualitativeFindingCategory,
+  InterpretationQualitativeOutcomeAnchorType,
+  InterpretationWarningSeverity,
+  KnowledgeIndicatorDeduplicationConfidence,
+} from "../../shared/contracts.js";
 
 // Shared domain types for the analytics module — see
 // "Phase 5 — Deterministic Analytics.md" for the full design. Kept local
@@ -58,6 +63,9 @@ export interface EvidenceCatalogThemeEntry {
   label: string;
   description: string;
   quoteCount: number;
+  categories: InterpretationQualitativeFindingCategory[];
+  outcomeReferences: string[];
+  outcomeAnchorTypes: InterpretationQualitativeOutcomeAnchorType[];
   sourceActivityIds: string[];
   sourceUploadMetadataIds: string[];
 }
@@ -65,6 +73,24 @@ export interface EvidenceCatalogThemeEntry {
 export type EvidenceCatalogEntry =
   | EvidenceCatalogMetricEntry
   | EvidenceCatalogThemeEntry;
+
+export const evidenceCatalogQualitySignalSourceValues = [
+  "dataset_preparation",
+  "deterministic_analysis",
+  "catalog_assembly",
+] as const;
+export type EvidenceCatalogQualitySignalSource =
+  (typeof evidenceCatalogQualitySignalSourceValues)[number];
+
+export interface EvidenceCatalogQualitySignal {
+  signalId: string;
+  sourceType: EvidenceCatalogQualitySignalSource;
+  interpretationResultId: string;
+  activityId: string | null;
+  uploadMetadataId: string;
+  severity: InterpretationWarningSeverity;
+  message: string;
+}
 
 export interface EvidenceCatalogOmittedEntry {
   knowledgeEntityId: string;
@@ -77,6 +103,7 @@ export interface EvidenceCatalog {
   scope: AnalyticsScope;
   entries: EvidenceCatalogEntry[];
   omittedEntries: EvidenceCatalogOmittedEntry[];
+  qualitySignals: EvidenceCatalogQualitySignal[];
 }
 
 export interface DashboardCurationNarrative {

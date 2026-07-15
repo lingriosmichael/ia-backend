@@ -9,6 +9,9 @@ import type { ActivityRepository } from "../activity/activityRepository.js";
 import type { AuthorizationService } from "../../shared/auth/authorizationService.js";
 import type { PythonProcessingClient } from "../processing/pythonProcessingClient.js";
 import type { ProjectKnowledgeBuilderService } from "../knowledge/projectKnowledgeBuilderService.js";
+import type { DatasetPreparationService } from "./datasetPreparationService.js";
+import type { DeterministicAnalysisService } from "./deterministicAnalysisService.js";
+import type { QuantitativeInterpretationSynthesisService } from "./quantitativeInterpretationSynthesisService.js";
 
 const NOW = new Date("2026-01-01T00:00:00.000Z");
 
@@ -29,7 +32,12 @@ function createDependencies(options: { buildForProject: () => Promise<unknown> }
       {
         id: "psr-1",
         uploadMetadataId: "upload-1",
-        payload: { metadata: { interpretationDataType: "tabular_structured" } },
+        payload: {
+          metadata: {
+            interpretationDataType: "tabular_structured",
+            evidenceModality: "structured_quantitative",
+          },
+        },
       },
     ],
   } as unknown as PrivacySafeRepresentationRepository;
@@ -73,9 +81,72 @@ function createDependencies(options: { buildForProject: () => Promise<unknown> }
     error: () => {},
   } as unknown as import("fastify").FastifyBaseLogger;
 
+  const datasetPreparationService = {
+    findByInterpretationResultIds: async () => [],
+    findByInterpretationResultId: async () => null,
+    syncForInterpretationResult: async () => ({
+      id: "prep-1",
+      organizationId: "org-1",
+      projectId: "project-1",
+      activityId: "activity-1",
+      uploadMetadataId: "upload-1",
+      privacySafeRepresentationId: "psr-1",
+      interpretationResultId: "result-1",
+      status: "ready_for_analysis",
+      blockingQuestionCount: 0,
+      answeredBlockingQuestionCount: 0,
+      unansweredBlockingQuestionIds: [],
+      decisions: [],
+      decisionSummary: {
+        normalizationMerges: [],
+        rowGrains: [],
+        duplicateIdentifierResolutions: [],
+        primaryStatusFields: [],
+        positiveStatusDefinitions: [],
+        primaryDateFields: [],
+      },
+      createdAt: NOW,
+      updatedAt: NOW,
+    }),
+    markAnalysisCompleted: async (
+      preparation: Awaited<
+        ReturnType<DatasetPreparationService["syncForInterpretationResult"]>
+      >,
+    ) => ({
+      ...preparation,
+      status: "analysis_completed",
+    }),
+  } as unknown as DatasetPreparationService;
+
   const projectKnowledgeBuilderService = {
     buildForProject: options.buildForProject,
   } as unknown as ProjectKnowledgeBuilderService;
+  const deterministicAnalysisService = {
+    findByInterpretationResultIds: async () => [],
+    findByInterpretationResultId: async () => null,
+    syncForInterpretationResult: async () => ({
+      id: "analysis-1",
+      organizationId: "org-1",
+      projectId: "project-1",
+      activityId: "activity-1",
+      uploadMetadataId: "upload-1",
+      privacySafeRepresentationId: "psr-1",
+      interpretationResultId: "result-1",
+      datasetPreparationId: "prep-1",
+      status: "ready",
+      metrics: [],
+      distributions: [],
+      trends: [],
+      subgroupBreakdowns: [],
+      warnings: [],
+      candidateIndicators: [],
+      createdAt: NOW,
+      updatedAt: NOW,
+    }),
+  } as unknown as DeterministicAnalysisService;
+  const quantitativeInterpretationSynthesisService = {
+    maybeSyncForInterpretationResult: async () => null,
+  } as unknown as QuantitativeInterpretationSynthesisService;
 
   return {
     uploadMetadataRepository,
@@ -86,6 +157,9 @@ function createDependencies(options: { buildForProject: () => Promise<unknown> }
     authorizationService,
     pythonProcessingClient,
     logger,
+    datasetPreparationService,
+    deterministicAnalysisService,
+    quantitativeInterpretationSynthesisService,
     projectKnowledgeBuilderService,
   };
 }
@@ -111,6 +185,9 @@ test("acknowledging an activity triggers a Project Knowledge Model rebuild for i
     deps.authorizationService,
     deps.pythonProcessingClient,
     deps.logger,
+    deps.datasetPreparationService,
+    deps.deterministicAnalysisService,
+    deps.quantitativeInterpretationSynthesisService,
     deps.projectKnowledgeBuilderService,
   );
 
@@ -136,6 +213,9 @@ test("a rebuild failure never prevents the acknowledgment from succeeding", asyn
     deps.authorizationService,
     deps.pythonProcessingClient,
     deps.logger,
+    deps.datasetPreparationService,
+    deps.deterministicAnalysisService,
+    deps.quantitativeInterpretationSynthesisService,
     deps.projectKnowledgeBuilderService,
   );
 
