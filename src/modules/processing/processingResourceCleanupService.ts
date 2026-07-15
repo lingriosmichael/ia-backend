@@ -1,11 +1,12 @@
 import type { DatabaseSession } from "../../shared/database/databaseClient.js";
+import type { AnalyticsExecutionRepository } from "../analytics/analyticsExecutionRepository.js";
+import type { AnalyticsResultRepository } from "../analytics/analyticsResultRepository.js";
 import type { DeterministicAnalysisRepository } from "../interpretation/deterministicAnalysisRepository.js";
 import type { InterpretationResultRepository } from "../interpretation/interpretationResultRepository.js";
 import type { DatasetPreparationRepository } from "../interpretation/datasetPreparationRepository.js";
 import type { KnowledgeEntityRepository } from "../knowledge/knowledgeEntityRepository.js";
-import type { KnowledgeRelationshipRepository } from "../knowledge/knowledgeRelationshipRepository.js";
+import type { KnowledgeIndicatorRepository } from "../knowledge/knowledgeIndicatorRepository.js";
 import type { ProjectKnowledgeModelRepository } from "../knowledge/projectKnowledgeModelRepository.js";
-import type { EntityMappingRepository } from "./entityMappingRepository.js";
 import type { ParsedRepresentationRepository } from "./parsedRepresentationRepository.js";
 import type { PrivacyReviewRepository } from "./privacyReviewRepository.js";
 import type { PrivacySafeRepresentationRepository } from "./privacySafeRepresentationRepository.js";
@@ -15,13 +16,14 @@ export class ProcessingResourceCleanupService {
     private readonly parsedRepresentationRepository: ParsedRepresentationRepository,
     private readonly privacyReviewRepository: PrivacyReviewRepository,
     private readonly privacySafeRepresentationRepository: PrivacySafeRepresentationRepository,
-    private readonly entityMappingRepository: EntityMappingRepository,
     private readonly interpretationResultRepository: InterpretationResultRepository,
     private readonly datasetPreparationRepository: DatasetPreparationRepository,
     private readonly deterministicAnalysisRepository: DeterministicAnalysisRepository,
     private readonly projectKnowledgeModelRepository: ProjectKnowledgeModelRepository,
     private readonly knowledgeEntityRepository: KnowledgeEntityRepository,
-    private readonly knowledgeRelationshipRepository: KnowledgeRelationshipRepository,
+    private readonly knowledgeIndicatorRepository: KnowledgeIndicatorRepository,
+    private readonly analyticsExecutionRepository: AnalyticsExecutionRepository,
+    private readonly analyticsResultRepository: AnalyticsResultRepository,
   ) {}
 
   async deleteByProjectId(
@@ -35,19 +37,20 @@ export class ProcessingResourceCleanupService {
         projectId,
         session,
       ),
-      this.entityMappingRepository.deleteByProjectId(projectId, session),
       this.interpretationResultRepository.deleteByProjectId(projectId, session),
       this.datasetPreparationRepository.deleteByProjectId(projectId, session),
-      this.deterministicAnalysisRepository.deleteByProjectId(projectId, session),
-      this.knowledgeRelationshipRepository.deleteByProjectId(
+      this.deterministicAnalysisRepository.deleteByProjectId(
         projectId,
         session,
       ),
+      this.knowledgeIndicatorRepository.deleteByProjectId(projectId, session),
       this.knowledgeEntityRepository.deleteByProjectId(projectId, session),
       this.projectKnowledgeModelRepository.deleteByProjectId(
         projectId,
         session,
       ),
+      this.analyticsExecutionRepository.deleteByProjectId(projectId, session),
+      this.analyticsResultRepository.deleteByProjectId(projectId, session),
     ]);
   }
 
@@ -65,7 +68,6 @@ export class ProcessingResourceCleanupService {
         activityId,
         session,
       ),
-      this.entityMappingRepository.deleteByActivityId(activityId, session),
       this.interpretationResultRepository.deleteByActivityId(
         activityId,
         session,
@@ -92,10 +94,6 @@ export class ProcessingResourceCleanupService {
         session,
       ),
       this.privacySafeRepresentationRepository.deleteByUploadMetadataId(
-        uploadMetadataId,
-        session,
-      ),
-      this.entityMappingRepository.deleteByUploadMetadataId(
         uploadMetadataId,
         session,
       ),

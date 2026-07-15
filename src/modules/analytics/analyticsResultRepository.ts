@@ -14,4 +14,8 @@ export interface AnalyticsResultRepository {
     scope: AnalyticsScope,
     session: DatabaseSession,
   ): Promise<AnalyticsResultPersistenceRecord | null>;
+  deleteByProjectId(
+    projectId: string,
+    session: DatabaseSession,
+  ): Promise<number>;
 }

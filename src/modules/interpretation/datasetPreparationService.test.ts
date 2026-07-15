@@ -52,7 +52,9 @@ test("syncs quantitative preparation answers into a persisted preparation artifa
   let capturedInput: DatasetPreparationUpsertInput | null = null;
 
   const repository = {
-    upsertByInterpretationResultId: async (input: DatasetPreparationUpsertInput) => {
+    upsertByInterpretationResultId: async (
+      input: DatasetPreparationUpsertInput,
+    ) => {
       capturedInput = input;
       return {
         id: "prep-1",
@@ -113,7 +115,8 @@ test("syncs quantitative preparation answers into a persisted preparation artifa
         },
         {
           id: "question-2",
-          prompt: "Which values in the field 'status' should be treated as positive?",
+          prompt:
+            "Which values in the field 'status' should be treated as positive?",
           kind: "free_text",
           questionDomain: "preparation",
           options: null,
@@ -128,7 +131,8 @@ test("syncs quantitative preparation answers into a persisted preparation artifa
         },
         {
           id: "question-3",
-          prompt: "In the field 'status', do these values all mean the same thing: 'completed', 'complete'?",
+          prompt:
+            "In the field 'status', do these values all mean the same thing: 'completed', 'complete'?",
           kind: "merge_confirmation",
           questionDomain: "preparation",
           options: ["Yes, treat as one", "No, keep them separate"],
@@ -197,7 +201,9 @@ test("syncs quantitative preparation answers into a persisted preparation artifa
   assert.equal(quantitativeInput.status, "awaiting_answers");
   assert.equal(quantitativeInput.blockingQuestionCount, 3);
   assert.equal(quantitativeInput.answeredBlockingQuestionCount, 2);
-  assert.deepEqual(quantitativeInput.unansweredBlockingQuestionIds, ["question-3"]);
+  assert.deepEqual(quantitativeInput.unansweredBlockingQuestionIds, [
+    "question-3",
+  ]);
   assert.equal(quantitativeInput.decisions.length, 2);
   assert.equal(
     quantitativeInput.decisionSummary.rowGrains[0]?.tableName,
@@ -231,7 +237,9 @@ test("marks non-quantitative evidence as not applicable", async () => {
   let capturedInput: DatasetPreparationUpsertInput | null = null;
 
   const repository = {
-    upsertByInterpretationResultId: async (input: DatasetPreparationUpsertInput) => {
+    upsertByInterpretationResultId: async (
+      input: DatasetPreparationUpsertInput,
+    ) => {
       capturedInput = input;
       return {
         id: "prep-2",

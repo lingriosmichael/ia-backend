@@ -51,7 +51,10 @@ test("approvePrivacyReviewSchema accepts a 'rejected' decision with a real reaso
     },
   });
 
-  assert.equal(parsed.decisions?.fieldDecisions?.[0]?.reason, "This is the organization's shared inbox, not personal data.");
+  assert.equal(
+    parsed.decisions?.fieldDecisions?.[0]?.reason,
+    "This is the organization's shared inbox, not personal data.",
+  );
 });
 
 test("approvePrivacyReviewSchema accepts an 'approved' decision with no reason", () => {

@@ -71,8 +71,7 @@ export interface EvidenceCatalogThemeEntry {
 }
 
 export type EvidenceCatalogEntry =
-  | EvidenceCatalogMetricEntry
-  | EvidenceCatalogThemeEntry;
+  EvidenceCatalogMetricEntry | EvidenceCatalogThemeEntry;
 
 export const evidenceCatalogQualitySignalSourceValues = [
   "dataset_preparation",

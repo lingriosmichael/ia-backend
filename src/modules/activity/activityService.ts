@@ -1,8 +1,10 @@
 import { databaseSession } from "../../shared/database/databaseClient.js";
-import type { ResultRepository } from "../ai/artifact/resultRepository.js";
+import type { TransactionManager } from "../../shared/database/transactionManager.js";
 import type { ProcessingJobRepository } from "../ai/execution/processingJobRepository.js";
+import { ProjectDerivedStateInvalidationService } from "../analytics/projectDerivedStateInvalidationService.js";
 import { AppError } from "../../shared/errors/appError.js";
 import { AuthorizationService } from "../../shared/auth/authorizationService.js";
+import { clearActivityInterpretationAcknowledgmentIfPresent } from "../interpretation/interpretationReviewState.js";
 import { FileStorageService } from "../upload/fileStorageService.js";
 import { ProcessingResourceCleanupService } from "../processing/processingResourceCleanupService.js";
 import type { UploadMetadataRepository } from "../upload/uploadMetadataRepository.js";
@@ -15,9 +17,10 @@ export class ActivityService {
     private readonly authorizationService: AuthorizationService,
     private readonly uploadMetadataRepository: UploadMetadataRepository,
     private readonly fileStorageService: FileStorageService,
+    private readonly transactionManager: TransactionManager,
     private readonly processingJobRepository: ProcessingJobRepository,
-    private readonly resultRepository: ResultRepository,
     private readonly processingResourceCleanupService: ProcessingResourceCleanupService,
+    private readonly projectDerivedStateInvalidationService: ProjectDerivedStateInvalidationService,
   ) {}
 
   async listForProject(userId: string, projectId: string) {
@@ -197,21 +200,50 @@ export class ActivityService {
         databaseSession,
       );
 
-    await this.resultRepository.deleteByActivity(activityId, databaseSession);
-    await this.processingResourceCleanupService.deleteByActivityId(
-      activityId,
-      databaseSession,
+    const shouldInvalidateDerivedState = Boolean(
+      activity.interpretationAcknowledgedAt ||
+      activity.interpretationAcknowledgedById,
     );
-    await this.processingJobRepository.deleteByActivity(
-      activityId,
-      databaseSession,
-    );
-    await this.uploadMetadataRepository.deleteByActivity(
-      activityId,
-      databaseSession,
-    );
-    await this.activityRepository.deleteById(activityId, databaseSession);
-    await this.fileStorageService.deleteStoredFiles(storageKeys);
+
+    await this.transactionManager.runInTransaction(async (session) => {
+      if (shouldInvalidateDerivedState) {
+        await clearActivityInterpretationAcknowledgmentIfPresent(
+          this.activityRepository,
+          activityId,
+          session,
+        );
+        await this.projectDerivedStateInvalidationService.invalidateProject(
+          project.id,
+          session,
+        );
+      }
+
+      await this.processingResourceCleanupService.deleteByActivityId(
+        activityId,
+        session,
+      );
+      await this.processingJobRepository.deleteByActivity(activityId, session);
+      await this.uploadMetadataRepository.deleteByActivity(activityId, session);
+      await this.activityRepository.deleteById(activityId, session);
+    });
+
+    if (storageKeys.length > 0) {
+      // Filesystem deletion cannot participate in the database transaction.
+      // By this point every database record referencing these files is
+      // already gone, so a failure here can only leave unreferenced bytes
+      // on disk — not a dangling reference reachable through the API —
+      // which is why this step stays best-effort rather than failing the
+      // now-already-completed delete.
+      try {
+        await this.fileStorageService.deleteStoredFiles(storageKeys);
+      } catch (error) {
+        console.error("Failed to delete stored activity files.", {
+          activityId,
+          storageKeys,
+          error,
+        });
+      }
+    }
 
     return {
       id: activity.id,

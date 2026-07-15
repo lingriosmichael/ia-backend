@@ -140,7 +140,8 @@ function parsePositiveStatusValues(
   return observedValues.filter((value) => {
     const normalizedValue = normalizeText(value);
     return (
-      normalizedAnswer.includes(normalizedValue) || exactTokens.has(normalizedValue)
+      normalizedAnswer.includes(normalizedValue) ||
+      exactTokens.has(normalizedValue)
     );
   });
 }
@@ -179,7 +180,7 @@ function buildPreparedDatasetSnapshot(
     const rowCount =
       typeof payloadTable.rowCount === "number"
         ? payloadTable.rowCount
-        : profileTable?.rowCount ?? 0;
+        : (profileTable?.rowCount ?? 0);
 
     const rowGrainSelection = matchSelectionByTable(
       decisionSummary.rowGrains,
@@ -208,19 +209,19 @@ function buildPreparedDatasetSnapshot(
     const primaryStatusColumn =
       primaryStatusSelection?.value ??
       (profileTable?.likelyStatusColumns.length === 1
-        ? profileTable.likelyStatusColumns[0] ?? null
+        ? (profileTable.likelyStatusColumns[0] ?? null)
         : null);
     const primaryDateColumn =
       primaryDateSelection?.value ??
       (profileTable?.likelyDateColumns.length === 1
-        ? profileTable.likelyDateColumns[0] ?? null
+        ? (profileTable.likelyDateColumns[0] ?? null)
         : null);
     const positiveStatusSelection = profileTable
-      ? decisionSummary.positiveStatusDefinitions.find(
+      ? (decisionSummary.positiveStatusDefinitions.find(
           (selection) =>
             selection.tableName === tableName &&
             selection.columnName === primaryStatusColumn,
-        ) ?? null
+        ) ?? null)
       : null;
 
     const observedStatusValues =
@@ -232,7 +233,11 @@ function buildPreparedDatasetSnapshot(
       observedStatusValues,
     );
 
-    if (primaryStatusColumn && positiveStatusSelection && positiveStatusValues.length === 0) {
+    if (
+      primaryStatusColumn &&
+      positiveStatusSelection &&
+      positiveStatusValues.length === 0
+    ) {
       unresolvedRequirements.push(
         `Positive status definition for '${primaryStatusColumn}' in '${tableName}' could not be grounded to observed values.`,
       );
@@ -245,7 +250,8 @@ function buildPreparedDatasetSnapshot(
 
     const columns = payloadColumns.map((columnName) => {
       const profileColumn =
-        profileTable?.columns.find((column) => column.name === columnName) ?? null;
+        profileTable?.columns.find((column) => column.name === columnName) ??
+        null;
       const normalizationDecision = decisionSummary.normalizationMerges.find(
         (selection) => selection.columnName === columnName,
       );
@@ -321,8 +327,8 @@ function buildPreparationInput(
   evidenceModality: EvidenceModality,
   privacySafePayload: Record<string, unknown>,
 ): DatasetPreparationUpsertInput {
-  const preparationQuestions = result.questions.filter(
-    (question) => isPreparationQuestion(question),
+  const preparationQuestions = result.questions.filter((question) =>
+    isPreparationQuestion(question),
   );
   const answeredQuestions = preparationQuestions.filter(
     (question) => question.status === "answered" && question.answeredValue,
@@ -336,7 +342,7 @@ function buildPreparationInput(
       columnName: question.targetColumnName ?? null,
       value: question.answeredValue ?? "",
     };
-    decisionSummary[mapQuestionCodeToSummaryKey(question.questionCode!)] .push(
+    decisionSummary[mapQuestionCodeToSummaryKey(question.questionCode!)].push(
       selection,
     );
 
@@ -424,7 +430,12 @@ export class DatasetPreparationService {
         : "not_applicable";
 
     return this.datasetPreparationRepository.upsertByInterpretationResultId(
-      buildPreparationInput(result, status, evidenceModality, privacySafePayload),
+      buildPreparationInput(
+        result,
+        status,
+        evidenceModality,
+        privacySafePayload,
+      ),
       databaseSession,
     );
   }
@@ -446,8 +457,10 @@ export class DatasetPreparationService {
         interpretationResultId: preparation.interpretationResultId,
         status: "analysis_completed",
         blockingQuestionCount: preparation.blockingQuestionCount,
-        answeredBlockingQuestionCount: preparation.answeredBlockingQuestionCount,
-        unansweredBlockingQuestionIds: preparation.unansweredBlockingQuestionIds,
+        answeredBlockingQuestionCount:
+          preparation.answeredBlockingQuestionCount,
+        unansweredBlockingQuestionIds:
+          preparation.unansweredBlockingQuestionIds,
         decisions: preparation.decisions,
         decisionSummary: preparation.decisionSummary,
         preparedDataset: preparation.preparedDataset,

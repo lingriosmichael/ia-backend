@@ -170,7 +170,8 @@ export function createFakeAuthorization(
   } as unknown as ProjectRepository;
 
   const activityRepository = {
-    findById: async (activityId: string) => activityByIdMap.get(activityId) ?? null,
+    findById: async (activityId: string) =>
+      activityByIdMap.get(activityId) ?? null,
   } as unknown as ActivityRepository;
 
   return new AuthorizationService(

@@ -1,6 +1,10 @@
 import type { DatabaseSession } from "../../shared/database/databaseClient.js";
 import { createDocumentId } from "../../shared/database/documentId.js";
 import {
+  applyMongoSession,
+  getMongoSessionOptions,
+} from "../../shared/database/mongoSession.js";
+import {
   InvitationMongoModel,
   type InvitationMongoHydratedDocument,
 } from "./invitationModel.js";
@@ -35,53 +39,68 @@ function toInvitationRecord(
 export class MongoInvitationRepository implements InvitationRepository {
   async create(
     input: InvitationCreateInput,
-    _session: DatabaseSession,
+    session: DatabaseSession,
   ): Promise<InvitationPersistenceRecord> {
-    const document = await InvitationMongoModel.create({
-      _id: createDocumentId(),
-      ...input,
-    });
+    const [document] = await InvitationMongoModel.create(
+      [
+        {
+          _id: createDocumentId(),
+          ...input,
+        },
+      ],
+      getMongoSessionOptions(session),
+    );
 
     return toInvitationRecord(document) as InvitationPersistenceRecord;
   }
 
   async findById(
     invitationId: string,
-    _session: DatabaseSession,
+    session: DatabaseSession,
   ): Promise<InvitationPersistenceRecord | null> {
-    const document = await InvitationMongoModel.findById(invitationId).exec();
+    const document = await applyMongoSession(
+      InvitationMongoModel.findById(invitationId),
+      session,
+    ).exec();
     return toInvitationRecord(document);
   }
 
   async findPendingByEmail(
     organizationId: string,
     email: string,
-    _session: DatabaseSession,
+    session: DatabaseSession,
   ): Promise<InvitationPersistenceRecord | null> {
-    const document = await InvitationMongoModel.findOne({
-      organizationId,
-      email,
-      status: "pending",
-    }).exec();
+    const document = await applyMongoSession(
+      InvitationMongoModel.findOne({
+        organizationId,
+        email,
+        status: "pending",
+      }),
+      session,
+    ).exec();
 
     return toInvitationRecord(document);
   }
 
   async findByToken(
     token: string,
-    _session: DatabaseSession,
+    session: DatabaseSession,
   ): Promise<InvitationPersistenceRecord | null> {
-    const document = await InvitationMongoModel.findOne({ token }).exec();
+    const document = await applyMongoSession(
+      InvitationMongoModel.findOne({ token }),
+      session,
+    ).exec();
     return toInvitationRecord(document);
   }
 
   async listByOrganization(
     organizationId: string,
-    _session: DatabaseSession,
+    session: DatabaseSession,
   ): Promise<InvitationPersistenceRecord[]> {
-    const documents = await InvitationMongoModel.find({ organizationId })
-      .sort({ createdAt: -1 })
-      .exec();
+    const documents = await applyMongoSession(
+      InvitationMongoModel.find({ organizationId }).sort({ createdAt: -1 }),
+      session,
+    ).exec();
 
     return documents
       .map((document) => toInvitationRecord(document))
@@ -93,22 +112,25 @@ export class MongoInvitationRepository implements InvitationRepository {
   async markAccepted(
     invitationId: string,
     acceptedById: string,
-    _session: DatabaseSession,
+    session: DatabaseSession,
   ): Promise<InvitationPersistenceRecord | null> {
     // Atomic conditional update: only an invitation still "pending" can be
     // accepted, so two concurrent accept requests for the same token can't
     // both succeed — the second gets null and the caller turns that into a
     // clean 409 instead of silently double-accepting.
-    const document = await InvitationMongoModel.findOneAndUpdate(
-      { _id: invitationId, status: "pending" },
-      {
-        $set: {
-          status: "accepted",
-          acceptedById,
-          acceptedAt: new Date(),
+    const document = await applyMongoSession(
+      InvitationMongoModel.findOneAndUpdate(
+        { _id: invitationId, status: "pending" },
+        {
+          $set: {
+            status: "accepted",
+            acceptedById,
+            acceptedAt: new Date(),
+          },
         },
-      },
-      { returnDocument: "after" },
+        { returnDocument: "after" },
+      ),
+      session,
     ).exec();
 
     return toInvitationRecord(document);
@@ -116,16 +138,19 @@ export class MongoInvitationRepository implements InvitationRepository {
 
   async revoke(
     invitationId: string,
-    _session: DatabaseSession,
+    session: DatabaseSession,
   ): Promise<InvitationPersistenceRecord | null> {
-    const document = await InvitationMongoModel.findByIdAndUpdate(
-      invitationId,
-      {
-        $set: {
-          status: "revoked",
+    const document = await applyMongoSession(
+      InvitationMongoModel.findByIdAndUpdate(
+        invitationId,
+        {
+          $set: {
+            status: "revoked",
+          },
         },
-      },
-      { returnDocument: "after" },
+        { returnDocument: "after" },
+      ),
+      session,
     ).exec();
 
     return toInvitationRecord(document);

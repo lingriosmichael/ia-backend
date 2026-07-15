@@ -9,7 +9,6 @@ import type { ProjectKnowledgeModelRepository } from "./projectKnowledgeModelRep
 import type { ProjectKnowledgeModelPersistenceRecord } from "./projectKnowledgeModelPersistence.js";
 import type { KnowledgeEntityRepository } from "./knowledgeEntityRepository.js";
 import type { KnowledgeEntityPersistenceRecord } from "./knowledgeEntityPersistence.js";
-import type { KnowledgeRelationshipRepository } from "./knowledgeRelationshipRepository.js";
 import type { KnowledgeIndicatorRepository } from "./knowledgeIndicatorRepository.js";
 import type { KnowledgeIndicatorPersistenceRecord } from "./knowledgeIndicatorPersistence.js";
 import { ProjectKnowledgeBuilderService } from "./projectKnowledgeBuilderService.js";
@@ -364,63 +363,6 @@ export function createFakeRepositories(options: {
     },
   } as unknown as KnowledgeEntityRepository;
 
-  const relationships: {
-    projectKnowledgeModelId: string;
-    fromEntityId: string;
-    toEntityId: string;
-    relationshipType: string;
-    confidence: number;
-  }[] = [];
-
-  const knowledgeRelationshipRepository = {
-    listByProjectKnowledgeModelId: async () =>
-      relationships.map((relationship) => ({
-        ...relationship,
-        id: `${relationship.fromEntityId}-${relationship.toEntityId}-${relationship.relationshipType}`,
-        sourceInstances: [],
-        createdAt: NOW,
-        updatedAt: NOW,
-      })),
-    deleteByEntityIds: async (entityIds: string[]) => {
-      const idSet = new Set(entityIds);
-      let deletedCount = 0;
-      for (let index = relationships.length - 1; index >= 0; index -= 1) {
-        const relationship = relationships[index]!;
-        if (
-          idSet.has(relationship.fromEntityId) ||
-          idSet.has(relationship.toEntityId)
-        ) {
-          relationships.splice(index, 1);
-          deletedCount += 1;
-        }
-      }
-      return deletedCount;
-    },
-    create: async (input: {
-      projectKnowledgeModelId: string;
-      fromEntityId: string;
-      toEntityId: string;
-      relationshipType: string;
-      confidence: number;
-    }) => {
-      relationships.push(input);
-      return input as never;
-    },
-    createMany: async (
-      inputs: Array<{
-        id: string;
-        projectKnowledgeModelId: string;
-        fromEntityId: string;
-        toEntityId: string;
-        relationshipType: string;
-        confidence: number;
-      }>,
-    ) => {
-      relationships.push(...inputs);
-      return inputs as never;
-    },
-  } as unknown as KnowledgeRelationshipRepository;
-
   let knowledgeIndicators: KnowledgeIndicatorPersistenceRecord[] = [];
 
   const knowledgeIndicatorRepository = {
@@ -430,7 +372,9 @@ export function createFakeRepositories(options: {
       knowledgeIndicators = [];
       return deletedCount;
     },
-    create: async (input: Parameters<KnowledgeIndicatorRepository["create"]>[0]) => {
+    create: async (
+      input: Parameters<KnowledgeIndicatorRepository["create"]>[0],
+    ) => {
       const created: KnowledgeIndicatorPersistenceRecord = {
         id: `indicator-value-${knowledgeIndicators.length + 1}`,
         ...input,
@@ -461,10 +405,8 @@ export function createFakeRepositories(options: {
     interpretationResultRepository,
     projectKnowledgeModelRepository,
     knowledgeEntityRepository,
-    knowledgeRelationshipRepository,
     knowledgeIndicatorRepository,
     knowledgeEntities,
-    relationships,
     get knowledgeIndicators() {
       return knowledgeIndicators;
     },
@@ -479,7 +421,6 @@ export function buildService(repos: ReturnType<typeof createFakeRepositories>) {
     repos.interpretationResultRepository,
     repos.projectKnowledgeModelRepository,
     repos.knowledgeEntityRepository,
-    repos.knowledgeRelationshipRepository,
     repos.knowledgeIndicatorRepository,
   );
 }

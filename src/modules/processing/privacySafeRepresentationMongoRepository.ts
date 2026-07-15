@@ -1,5 +1,6 @@
 import type { DatabaseSession } from "../../shared/database/databaseClient.js";
 import { createDocumentId } from "../../shared/database/documentId.js";
+import { applyMongoSession } from "../../shared/database/mongoSession.js";
 import {
   PrivacySafeRepresentationMongoModel,
   type PrivacySafeRepresentationMongoHydratedDocument,
@@ -35,26 +36,29 @@ function toPrivacySafeRepresentationRecord(
 export class MongoPrivacySafeRepresentationRepository implements PrivacySafeRepresentationRepository {
   async upsertByProcessingJobId(
     input: PrivacySafeRepresentationUpsertInput,
-    _session: DatabaseSession,
+    session: DatabaseSession,
   ): Promise<PrivacySafeRepresentationPersistenceRecord> {
-    const document = await PrivacySafeRepresentationMongoModel.findOneAndUpdate(
-      { processingJobId: input.processingJobId },
-      {
-        $set: {
-          organizationId: input.organizationId,
-          projectId: input.projectId,
-          activityId: input.activityId,
-          uploadMetadataId: input.uploadMetadataId,
-          processingJobId: input.processingJobId,
-          privacyReviewId: input.privacyReviewId,
-          parsedRepresentationId: input.parsedRepresentationId,
-          payload: input.payload,
+    const document = await applyMongoSession(
+      PrivacySafeRepresentationMongoModel.findOneAndUpdate(
+        { processingJobId: input.processingJobId },
+        {
+          $set: {
+            organizationId: input.organizationId,
+            projectId: input.projectId,
+            activityId: input.activityId,
+            uploadMetadataId: input.uploadMetadataId,
+            processingJobId: input.processingJobId,
+            privacyReviewId: input.privacyReviewId,
+            parsedRepresentationId: input.parsedRepresentationId,
+            payload: input.payload,
+          },
+          $setOnInsert: {
+            _id: createDocumentId(),
+          },
         },
-        $setOnInsert: {
-          _id: createDocumentId(),
-        },
-      },
-      { upsert: true, returnDocument: "after" },
+        { upsert: true, returnDocument: "after" },
+      ),
+      session,
     ).exec();
 
     return toPrivacySafeRepresentationRecord(
@@ -64,23 +68,25 @@ export class MongoPrivacySafeRepresentationRepository implements PrivacySafeRepr
 
   async findLatestByUploadMetadataId(
     uploadMetadataId: string,
-    _session: DatabaseSession,
+    session: DatabaseSession,
   ): Promise<PrivacySafeRepresentationPersistenceRecord | null> {
-    const document = await PrivacySafeRepresentationMongoModel.findOne({
-      uploadMetadataId,
-    })
-      .sort({ createdAt: -1 })
-      .exec();
+    const document = await applyMongoSession(
+      PrivacySafeRepresentationMongoModel.findOne({
+        uploadMetadataId,
+      }).sort({ createdAt: -1 }),
+      session,
+    ).exec();
 
     return toPrivacySafeRepresentationRecord(document);
   }
 
   async findById(
     privacySafeRepresentationId: string,
-    _session: DatabaseSession,
+    session: DatabaseSession,
   ): Promise<PrivacySafeRepresentationPersistenceRecord | null> {
-    const document = await PrivacySafeRepresentationMongoModel.findById(
-      privacySafeRepresentationId,
+    const document = await applyMongoSession(
+      PrivacySafeRepresentationMongoModel.findById(privacySafeRepresentationId),
+      session,
     ).exec();
 
     return toPrivacySafeRepresentationRecord(document);
@@ -88,17 +94,18 @@ export class MongoPrivacySafeRepresentationRepository implements PrivacySafeRepr
 
   async findLatestByUploadMetadataIds(
     uploadMetadataIds: string[],
-    _session: DatabaseSession,
+    session: DatabaseSession,
   ): Promise<PrivacySafeRepresentationPersistenceRecord[]> {
     if (uploadMetadataIds.length === 0) {
       return [];
     }
 
-    const documents = await PrivacySafeRepresentationMongoModel.find({
-      uploadMetadataId: { $in: uploadMetadataIds },
-    })
-      .sort({ createdAt: -1 })
-      .exec();
+    const documents = await applyMongoSession(
+      PrivacySafeRepresentationMongoModel.find({
+        uploadMetadataId: { $in: uploadMetadataIds },
+      }).sort({ createdAt: -1 }),
+      session,
+    ).exec();
 
     const latestByUploadMetadataId = new Map<
       string,
@@ -120,31 +127,40 @@ export class MongoPrivacySafeRepresentationRepository implements PrivacySafeRepr
 
   async deleteByProjectId(
     projectId: string,
-    _session: DatabaseSession,
+    session: DatabaseSession,
   ): Promise<number> {
-    const result = await PrivacySafeRepresentationMongoModel.deleteMany({
-      projectId,
-    }).exec();
+    const result = await applyMongoSession(
+      PrivacySafeRepresentationMongoModel.deleteMany({
+        projectId,
+      }),
+      session,
+    ).exec();
     return result.deletedCount ?? 0;
   }
 
   async deleteByActivityId(
     activityId: string,
-    _session: DatabaseSession,
+    session: DatabaseSession,
   ): Promise<number> {
-    const result = await PrivacySafeRepresentationMongoModel.deleteMany({
-      activityId,
-    }).exec();
+    const result = await applyMongoSession(
+      PrivacySafeRepresentationMongoModel.deleteMany({
+        activityId,
+      }),
+      session,
+    ).exec();
     return result.deletedCount ?? 0;
   }
 
   async deleteByUploadMetadataId(
     uploadMetadataId: string,
-    _session: DatabaseSession,
+    session: DatabaseSession,
   ): Promise<number> {
-    const result = await PrivacySafeRepresentationMongoModel.deleteMany({
-      uploadMetadataId,
-    }).exec();
+    const result = await applyMongoSession(
+      PrivacySafeRepresentationMongoModel.deleteMany({
+        uploadMetadataId,
+      }),
+      session,
+    ).exec();
     return result.deletedCount ?? 0;
   }
 }

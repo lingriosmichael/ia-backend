@@ -1,5 +1,9 @@
 import type { DatabaseSession } from "../../shared/database/databaseClient.js";
 import { createDocumentId } from "../../shared/database/documentId.js";
+import {
+  applyMongoSession,
+  getMongoSessionOptions,
+} from "../../shared/database/mongoSession.js";
 import type { KnowledgeSourceInstance } from "../../shared/contracts.js";
 import {
   deleteAllByProjectId,
@@ -43,25 +47,30 @@ function toRecord(
 export class MongoKnowledgeEntityRepository implements KnowledgeEntityRepository {
   async create(
     input: KnowledgeEntityCreateInput,
-    _session: DatabaseSession,
+    session: DatabaseSession,
   ): Promise<KnowledgeEntityPersistenceRecord> {
-    const document = await KnowledgeEntityMongoModel.create({
-      _id: createDocumentId(),
-      projectKnowledgeModelId: input.projectKnowledgeModelId,
-      entityType: input.entityType,
-      canonicalLabel: input.canonicalLabel,
-      description: input.description,
-      attributes: input.attributes,
-      sourceInstances: input.sourceInstances.map(
-        toKnowledgeSourceInstanceDocument,
-      ),
-    });
+    const [document] = await KnowledgeEntityMongoModel.create(
+      [
+        {
+          _id: createDocumentId(),
+          projectKnowledgeModelId: input.projectKnowledgeModelId,
+          entityType: input.entityType,
+          canonicalLabel: input.canonicalLabel,
+          description: input.description,
+          attributes: input.attributes,
+          sourceInstances: input.sourceInstances.map(
+            toKnowledgeSourceInstanceDocument,
+          ),
+        },
+      ],
+      getMongoSessionOptions(session),
+    );
     return toRecord(document) as KnowledgeEntityPersistenceRecord;
   }
 
   async createMany(
     inputs: Array<KnowledgeEntityCreateInput & { id: string }>,
-    _session: DatabaseSession,
+    session: DatabaseSession,
   ): Promise<KnowledgeEntityPersistenceRecord[]> {
     if (inputs.length === 0) {
       return [];
@@ -83,11 +92,15 @@ export class MongoKnowledgeEntityRepository implements KnowledgeEntityRepository
           },
         },
       })),
+      getMongoSessionOptions(session),
     );
 
-    const documents = await KnowledgeEntityMongoModel.find({
-      _id: { $in: inputs.map((input) => input.id) },
-    }).exec();
+    const documents = await applyMongoSession(
+      KnowledgeEntityMongoModel.find({
+        _id: { $in: inputs.map((input) => input.id) },
+      }),
+      session,
+    ).exec();
     const byId = new Map(
       documents.map((document) => [document._id.toString(), document]),
     );
@@ -101,11 +114,14 @@ export class MongoKnowledgeEntityRepository implements KnowledgeEntityRepository
 
   async listByProjectKnowledgeModelId(
     projectKnowledgeModelId: string,
-    _session: DatabaseSession,
+    session: DatabaseSession,
   ): Promise<KnowledgeEntityPersistenceRecord[]> {
-    const documents = await KnowledgeEntityMongoModel.find({
-      projectKnowledgeModelId,
-    }).exec();
+    const documents = await applyMongoSession(
+      KnowledgeEntityMongoModel.find({
+        projectKnowledgeModelId,
+      }),
+      session,
+    ).exec();
     return documents
       .map(toRecord)
       .filter((record): record is KnowledgeEntityPersistenceRecord =>
@@ -116,16 +132,19 @@ export class MongoKnowledgeEntityRepository implements KnowledgeEntityRepository
   async addSourceInstance(
     knowledgeEntityId: string,
     sourceInstance: KnowledgeSourceInstance,
-    _session: DatabaseSession,
+    session: DatabaseSession,
   ): Promise<KnowledgeEntityPersistenceRecord | null> {
-    const document = await KnowledgeEntityMongoModel.findByIdAndUpdate(
-      knowledgeEntityId,
-      {
-        $push: {
-          sourceInstances: toKnowledgeSourceInstanceDocument(sourceInstance),
+    const document = await applyMongoSession(
+      KnowledgeEntityMongoModel.findByIdAndUpdate(
+        knowledgeEntityId,
+        {
+          $push: {
+            sourceInstances: toKnowledgeSourceInstanceDocument(sourceInstance),
+          },
         },
-      },
-      { new: true },
+        { new: true },
+      ),
+      session,
     ).exec();
     return toRecord(document);
   }
@@ -133,24 +152,29 @@ export class MongoKnowledgeEntityRepository implements KnowledgeEntityRepository
   async addSourceInstances(
     knowledgeEntityId: string,
     sourceInstances: KnowledgeSourceInstance[],
-    _session: DatabaseSession,
+    session: DatabaseSession,
   ): Promise<KnowledgeEntityPersistenceRecord | null> {
     if (sourceInstances.length === 0) {
-      const existing =
-        await KnowledgeEntityMongoModel.findById(knowledgeEntityId).exec();
+      const existing = await applyMongoSession(
+        KnowledgeEntityMongoModel.findById(knowledgeEntityId),
+        session,
+      ).exec();
       return toRecord(existing);
     }
 
-    const document = await KnowledgeEntityMongoModel.findByIdAndUpdate(
-      knowledgeEntityId,
-      {
-        $push: {
-          sourceInstances: {
-            $each: sourceInstances.map(toKnowledgeSourceInstanceDocument),
+    const document = await applyMongoSession(
+      KnowledgeEntityMongoModel.findByIdAndUpdate(
+        knowledgeEntityId,
+        {
+          $push: {
+            sourceInstances: {
+              $each: sourceInstances.map(toKnowledgeSourceInstanceDocument),
+            },
           },
         },
-      },
-      { new: true },
+        { new: true },
+      ),
+      session,
     ).exec();
     return toRecord(document);
   }
@@ -160,7 +184,7 @@ export class MongoKnowledgeEntityRepository implements KnowledgeEntityRepository
       knowledgeEntityId: string;
       sourceInstances: KnowledgeSourceInstance[];
     }>,
-    _session: DatabaseSession,
+    session: DatabaseSession,
   ): Promise<KnowledgeEntityPersistenceRecord[]> {
     const nonEmptyUpdates = updates.filter(
       (update) => update.sourceInstances.length > 0,
@@ -184,12 +208,18 @@ export class MongoKnowledgeEntityRepository implements KnowledgeEntityRepository
       },
     }));
 
-    await KnowledgeEntityMongoModel.bulkWrite(operations as never);
+    await KnowledgeEntityMongoModel.bulkWrite(
+      operations as never,
+      getMongoSessionOptions(session),
+    );
 
     const ids = nonEmptyUpdates.map((update) => update.knowledgeEntityId);
-    const documents = await KnowledgeEntityMongoModel.find({
-      _id: { $in: ids },
-    }).exec();
+    const documents = await applyMongoSession(
+      KnowledgeEntityMongoModel.find({
+        _id: { $in: ids },
+      }),
+      session,
+    ).exec();
     const byId = new Map(
       documents.map((document) => [document._id.toString(), document]),
     );
@@ -206,20 +236,23 @@ export class MongoKnowledgeEntityRepository implements KnowledgeEntityRepository
     uploadMetadataId: string,
     interpretationResultId: string,
     sourceReference: string,
-    _session: DatabaseSession,
+    session: DatabaseSession,
   ): Promise<KnowledgeEntityPersistenceRecord | null> {
-    const document = await KnowledgeEntityMongoModel.findByIdAndUpdate(
-      knowledgeEntityId,
-      {
-        $pull: {
-          sourceInstances: {
-            uploadMetadataId,
-            interpretationResultId,
-            sourceReference,
+    const document = await applyMongoSession(
+      KnowledgeEntityMongoModel.findByIdAndUpdate(
+        knowledgeEntityId,
+        {
+          $pull: {
+            sourceInstances: {
+              uploadMetadataId,
+              interpretationResultId,
+              sourceReference,
+            },
           },
         },
-      },
-      { new: true },
+        { new: true },
+      ),
+      session,
     ).exec();
     return toRecord(document);
   }
@@ -231,65 +264,72 @@ export class MongoKnowledgeEntityRepository implements KnowledgeEntityRepository
       interpretationResultId: string;
       sourceReference: string;
     }>,
-    _session: DatabaseSession,
+    session: DatabaseSession,
   ): Promise<KnowledgeEntityPersistenceRecord | null> {
     if (staleSourceInstances.length === 0) {
-      const existing =
-        await KnowledgeEntityMongoModel.findById(knowledgeEntityId).exec();
+      const existing = await applyMongoSession(
+        KnowledgeEntityMongoModel.findById(knowledgeEntityId),
+        session,
+      ).exec();
       return toRecord(existing);
     }
 
-    const document = await KnowledgeEntityMongoModel.findByIdAndUpdate(
-      knowledgeEntityId,
-      {
-        $pull: {
-          sourceInstances: {
-            $or: staleSourceInstances.map((instance) => ({
-              uploadMetadataId: instance.uploadMetadataId,
-              interpretationResultId: instance.interpretationResultId,
-              sourceReference: instance.sourceReference,
-            })),
+    const document = await applyMongoSession(
+      KnowledgeEntityMongoModel.findByIdAndUpdate(
+        knowledgeEntityId,
+        {
+          $pull: {
+            sourceInstances: {
+              $or: staleSourceInstances.map((instance) => ({
+                uploadMetadataId: instance.uploadMetadataId,
+                interpretationResultId: instance.interpretationResultId,
+                sourceReference: instance.sourceReference,
+              })),
+            },
           },
         },
-      },
-      { new: true },
+        { new: true },
+      ),
+      session,
     ).exec();
     return toRecord(document);
   }
 
-  async deleteMany(
-    ids: string[],
-    _session: DatabaseSession,
-  ): Promise<number> {
+  async deleteMany(ids: string[], session: DatabaseSession): Promise<number> {
     if (ids.length === 0) {
       return 0;
     }
 
-    const result = await KnowledgeEntityMongoModel.deleteMany({
-      _id: { $in: ids },
-    }).exec();
+    const result = await applyMongoSession(
+      KnowledgeEntityMongoModel.deleteMany({
+        _id: { $in: ids },
+      }),
+      session,
+    ).exec();
     return result.deletedCount ?? 0;
   }
 
   async deleteByProjectKnowledgeModelId(
     projectKnowledgeModelId: string,
-    _session: DatabaseSession,
+    session: DatabaseSession,
   ): Promise<number> {
     return deleteAllByField(
       KnowledgeEntityMongoModel,
       "projectKnowledgeModelId",
       projectKnowledgeModelId,
+      session,
     );
   }
 
   async deleteByProjectId(
     projectId: string,
-    _session: DatabaseSession,
+    session: DatabaseSession,
   ): Promise<number> {
     return deleteAllByProjectId(
       KnowledgeEntityMongoModel,
       ProjectKnowledgeModelMongoModel,
       projectId,
+      session,
     );
   }
 }

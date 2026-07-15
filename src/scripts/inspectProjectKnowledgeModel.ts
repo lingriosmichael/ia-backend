@@ -6,15 +6,14 @@ import {
 import { databaseSession } from "../shared/database/databaseClient.js";
 import { MongoProjectKnowledgeModelRepository } from "../modules/knowledge/projectKnowledgeModelMongoRepository.js";
 import { MongoKnowledgeEntityRepository } from "../modules/knowledge/knowledgeEntityMongoRepository.js";
-import { MongoKnowledgeRelationshipRepository } from "../modules/knowledge/knowledgeRelationshipMongoRepository.js";
 import { MongoKnowledgeIndicatorRepository } from "../modules/knowledge/knowledgeIndicatorMongoRepository.js";
 
 /**
  * Developer-only inspection tool — dumps a project's current Project
- * Knowledge Model (the model record plus every entity, relationship, and
- * indicator under it) as JSON. There is deliberately no HTTP route for
- * this: the PKM has no real consumer yet (that's Phase 5's job), and a
- * "dump the knowledge graph" endpoint is not something to expose over
+ * Knowledge Model (the model record plus every entity and indicator
+ * under it) as JSON. There is deliberately no HTTP route for this: the
+ * PKM has no real consumer yet (that's Phase 5's job), and a
+ * "dump the project knowledge state" endpoint is not something to expose over
  * HTTP speculatively, even behind auth. This is inspection tooling for
  * local development, not a product feature — run it directly:
  *
@@ -32,8 +31,6 @@ async function run() {
   const projectKnowledgeModelRepository =
     new MongoProjectKnowledgeModelRepository();
   const knowledgeEntityRepository = new MongoKnowledgeEntityRepository();
-  const knowledgeRelationshipRepository =
-    new MongoKnowledgeRelationshipRepository();
   const knowledgeIndicatorRepository = new MongoKnowledgeIndicatorRepository();
 
   const model = await projectKnowledgeModelRepository.findByProjectId(
@@ -48,12 +45,8 @@ async function run() {
     return;
   }
 
-  const [entities, relationships, indicators] = await Promise.all([
+  const [entities, indicators] = await Promise.all([
     knowledgeEntityRepository.listByProjectKnowledgeModelId(
-      model.id,
-      databaseSession,
-    ),
-    knowledgeRelationshipRepository.listByProjectKnowledgeModelId(
       model.id,
       databaseSession,
     ),
@@ -64,11 +57,9 @@ async function run() {
   ]);
 
   console.log(
-    `Project Knowledge Model ${model.id} for project ${projectId}: version ${model.version}, status ${model.status}, ${entities.length} entities, ${relationships.length} relationships, ${indicators.length} indicators.`,
+    `Project Knowledge Model ${model.id} for project ${projectId}: version ${model.version}, status ${model.status}, ${entities.length} entities, ${indicators.length} indicators.`,
   );
-  console.log(
-    JSON.stringify({ model, entities, relationships, indicators }, null, 2),
-  );
+  console.log(JSON.stringify({ model, entities, indicators }, null, 2));
 }
 
 run()

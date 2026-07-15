@@ -313,7 +313,6 @@ export class ProjectService {
           _count: {
             uploadMetadata: activityUploadCounts[activity.id] ?? 0,
             processingJobs: 0,
-            resultRecords: 0,
           },
         },
         userId,

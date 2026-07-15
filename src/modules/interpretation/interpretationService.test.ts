@@ -15,7 +15,9 @@ import type { QuantitativeInterpretationSynthesisService } from "./quantitativeI
 
 const NOW = new Date("2026-01-01T00:00:00.000Z");
 
-function createDependencies(options: { buildForProject: () => Promise<unknown> }) {
+function createDependencies(options: {
+  buildForProject: () => Promise<unknown>;
+}) {
   const uploadMetadataRepository = {
     listByActivityIds: async () => [
       {

@@ -7,9 +7,15 @@ import type { PythonAnalyticsCurationClient } from "./pythonAnalyticsCurationCli
 import type { AnalyticsExecutionRepository } from "./analyticsExecutionRepository.js";
 import type { AnalyticsExecutionPersistenceRecord } from "./analyticsExecutionPersistence.js";
 import type { AnalyticsResultRepository } from "./analyticsResultRepository.js";
-import type { DashboardCuration, EvidenceCatalog } from "./analyticsContracts.js";
+import type {
+  DashboardCuration,
+  EvidenceCatalog,
+} from "./analyticsContracts.js";
 import { CURATOR_MODEL_VERSION } from "./analyticsContracts.js";
-import { createFakeAuthorization, makeProject } from "./analyticsTestFixtures.js";
+import {
+  createFakeAuthorization,
+  makeProject,
+} from "./analyticsTestFixtures.js";
 
 function createFakeExecutionRepository() {
   const executions: AnalyticsExecutionPersistenceRecord[] = [];
@@ -41,7 +47,12 @@ function createFakeExecutionRepository() {
     },
     updateStatus: async (
       id: string,
-      update: { status: string; completedAt?: Date | null; errorCode?: string | null; errorMessage?: string | null },
+      update: {
+        status: string;
+        completedAt?: Date | null;
+        errorCode?: string | null;
+        errorMessage?: string | null;
+      },
     ) => {
       const index = executions.findIndex((execution) => execution.id === id);
       if (index === -1) {
@@ -129,7 +140,8 @@ test("generateForProject with a populated catalog calls the curator and complete
   } as unknown as DashboardCatalogAssemblerService;
   const { repository: executionRepository, executions } =
     createFakeExecutionRepository();
-  const { repository: resultRepository, results } = createFakeResultRepository();
+  const { repository: resultRepository, results } =
+    createFakeResultRepository();
   let curateCallCount = 0;
   const curationClient = {
     curate: async () => {
@@ -200,21 +212,22 @@ test("a stale Project Knowledge Model triggers a rebuild, then proceeds using th
       // triggered by the service itself) reports ready.
       return {
         catalog: fakeCatalog(1),
-        projectKnowledgeModelStatus: assembleCallCount === 1 ? "stale" : "ready",
+        projectKnowledgeModelStatus:
+          assembleCallCount === 1 ? "stale" : "ready",
       };
     },
   } as unknown as DashboardCatalogAssemblerService;
   const { repository: executionRepository } = createFakeExecutionRepository();
-  const { repository: resultRepository, results } = createFakeResultRepository();
+  const { repository: resultRepository, results } =
+    createFakeResultRepository();
   const curationClient = {
     curate: async () => PASSING_CURATION,
   } as unknown as PythonAnalyticsCurationClient;
   let buildCallCount = 0;
-  const projectKnowledgeBuilderService = createFakeProjectKnowledgeBuilderService(
-    () => {
+  const projectKnowledgeBuilderService =
+    createFakeProjectKnowledgeBuilderService(() => {
       buildCallCount += 1;
-    },
-  );
+    });
 
   const service = new AnalyticsExecutionService(
     authorizationService,
@@ -247,16 +260,16 @@ test("no Project Knowledge Model yet (never built) also triggers a rebuild inste
     },
   } as unknown as DashboardCatalogAssemblerService;
   const { repository: executionRepository } = createFakeExecutionRepository();
-  const { repository: resultRepository, results } = createFakeResultRepository();
+  const { repository: resultRepository, results } =
+    createFakeResultRepository();
   const curationClient = {
     curate: async () => PASSING_CURATION,
   } as unknown as PythonAnalyticsCurationClient;
   let buildCallCount = 0;
-  const projectKnowledgeBuilderService = createFakeProjectKnowledgeBuilderService(
-    () => {
+  const projectKnowledgeBuilderService =
+    createFakeProjectKnowledgeBuilderService(() => {
       buildCallCount += 1;
-    },
-  );
+    });
 
   const service = new AnalyticsExecutionService(
     authorizationService,
@@ -284,16 +297,16 @@ test("a Project Knowledge Model already being built is left alone, never trigger
     }),
   } as unknown as DashboardCatalogAssemblerService;
   const { repository: executionRepository } = createFakeExecutionRepository();
-  const { repository: resultRepository, results } = createFakeResultRepository();
+  const { repository: resultRepository, results } =
+    createFakeResultRepository();
   const curationClient = {
     curate: async () => PASSING_CURATION,
   } as unknown as PythonAnalyticsCurationClient;
   let buildCallCount = 0;
-  const projectKnowledgeBuilderService = createFakeProjectKnowledgeBuilderService(
-    () => {
+  const projectKnowledgeBuilderService =
+    createFakeProjectKnowledgeBuilderService(() => {
       buildCallCount += 1;
-    },
-  );
+    });
 
   const service = new AnalyticsExecutionService(
     authorizationService,
@@ -327,11 +340,10 @@ test("a ready Project Knowledge Model never triggers a redundant rebuild", async
     curate: async () => PASSING_CURATION,
   } as unknown as PythonAnalyticsCurationClient;
   let buildCallCount = 0;
-  const projectKnowledgeBuilderService = createFakeProjectKnowledgeBuilderService(
-    () => {
+  const projectKnowledgeBuilderService =
+    createFakeProjectKnowledgeBuilderService(() => {
       buildCallCount += 1;
-    },
-  );
+    });
 
   const service = new AnalyticsExecutionService(
     authorizationService,
@@ -359,7 +371,10 @@ test("a fallback curation marks the execution COMPLETED_WITH_WARNINGS, not COMPL
   const { repository: executionRepository } = createFakeExecutionRepository();
   const { repository: resultRepository } = createFakeResultRepository();
   const curationClient = {
-    curate: async () => ({ ...PASSING_CURATION, fellBackToSelectionOnly: true }),
+    curate: async () => ({
+      ...PASSING_CURATION,
+      fellBackToSelectionOnly: true,
+    }),
   } as unknown as PythonAnalyticsCurationClient;
 
   const service = new AnalyticsExecutionService(
@@ -416,7 +431,10 @@ test("generateForActivity rejects an activity that does not belong to the given 
   const activityByIdMap = new Map([
     ["activity-1", { id: "activity-1", projectId: "different-project" }],
   ]);
-  const authorizationService = createFakeAuthorization(project, activityByIdMap);
+  const authorizationService = createFakeAuthorization(
+    project,
+    activityByIdMap,
+  );
   const assembler = {
     assemble: async () => ({
       catalog: fakeCatalog(1),

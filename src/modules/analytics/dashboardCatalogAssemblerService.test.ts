@@ -100,7 +100,10 @@ test("an indicator entity with no computed value is listed as omitted, not silen
 
   assert.equal(catalog.entries.length, 0);
   assert.equal(catalog.omittedEntries.length, 1);
-  assert.equal(catalog.omittedEntries[0]!.knowledgeEntityId, "entity-indicator-1");
+  assert.equal(
+    catalog.omittedEntries[0]!.knowledgeEntityId,
+    "entity-indicator-1",
+  );
   assert.equal(catalog.qualitySignals.length, 0);
 });
 
@@ -172,7 +175,9 @@ test("dataset preparation and deterministic analysis warnings become catalog qua
         preparedDataset: {
           evidenceModality: "structured_quantitative",
           isReadyForDeterministicAnalysis: true,
-          unresolvedRequirements: ["Some cohort rows still need manual normalization."],
+          unresolvedRequirements: [
+            "Some cohort rows still need manual normalization.",
+          ],
           tables: [
             {
               name: "attendance",
@@ -184,7 +189,9 @@ test("dataset preparation and deterministic analysis warnings become catalog qua
               primaryStatusColumn: "status",
               primaryDateColumn: "date",
               columns: [],
-              notes: ["Status values were normalized from mixed language labels."],
+              notes: [
+                "Status values were normalized from mixed language labels.",
+              ],
             },
           ],
         },
@@ -210,7 +217,8 @@ test("dataset preparation and deterministic analysis warnings become catalog qua
         warnings: [
           {
             code: "sparse_denominator",
-            message: "One subgroup has too few rows for stable ratio interpretation.",
+            message:
+              "One subgroup has too few rows for stable ratio interpretation.",
           },
         ],
         candidateIndicators: [],

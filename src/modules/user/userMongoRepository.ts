@@ -1,5 +1,9 @@
 import type { DatabaseSession } from "../../shared/database/databaseClient.js";
 import { createDocumentId } from "../../shared/database/documentId.js";
+import {
+  applyMongoSession,
+  getMongoSessionOptions,
+} from "../../shared/database/mongoSession.js";
 import { UserMongoModel, type UserMongoHydratedDocument } from "./userModel.js";
 import type { UserRepository } from "./userRepository.js";
 import type {
@@ -27,31 +31,40 @@ function toUserRecord(
 export class MongoUserRepository implements UserRepository {
   async findByEmail(
     email: string,
-    _session: DatabaseSession,
+    session: DatabaseSession,
   ): Promise<UserPersistenceRecord | null> {
-    const document = await UserMongoModel.findOne({ email }).exec();
+    const document = await applyMongoSession(
+      UserMongoModel.findOne({ email }),
+      session,
+    ).exec();
     return toUserRecord(document);
   }
 
   async findById(
     id: string,
-    _session: DatabaseSession,
+    session: DatabaseSession,
   ): Promise<UserPersistenceRecord | null> {
-    const document = await UserMongoModel.findById(id).exec();
+    const document = await applyMongoSession(
+      UserMongoModel.findById(id),
+      session,
+    ).exec();
     return toUserRecord(document);
   }
 
   async findByIds(
     ids: string[],
-    _session: DatabaseSession,
+    session: DatabaseSession,
   ): Promise<UserPersistenceRecord[]> {
     if (ids.length === 0) {
       return [];
     }
 
-    const documents = await UserMongoModel.find({
-      _id: { $in: ids },
-    }).exec();
+    const documents = await applyMongoSession(
+      UserMongoModel.find({
+        _id: { $in: ids },
+      }),
+      session,
+    ).exec();
 
     return documents
       .map((document) => toUserRecord(document))
@@ -62,12 +75,17 @@ export class MongoUserRepository implements UserRepository {
 
   async create(
     input: UserCreateInput,
-    _session: DatabaseSession,
+    session: DatabaseSession,
   ): Promise<UserPersistenceRecord> {
-    const document = await UserMongoModel.create({
-      _id: createDocumentId(),
-      ...input,
-    });
+    const [document] = await UserMongoModel.create(
+      [
+        {
+          _id: createDocumentId(),
+          ...input,
+        },
+      ],
+      getMongoSessionOptions(session),
+    );
     return toUserRecord(document) as UserPersistenceRecord;
   }
 }

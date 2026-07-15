@@ -242,9 +242,7 @@ interface QuantitativeSynthesisIndicatorComputedValue {
   recordsIncluded: number;
   recordsExcluded: number;
   groundingStatus:
-    | "passed"
-    | "failed_column_not_found"
-    | "failed_number_not_in_text";
+    "passed" | "failed_column_not_found" | "failed_number_not_in_text";
 }
 
 interface QuantitativeSynthesisIndicator {
@@ -329,7 +327,8 @@ interface MixedSynthesisQualitativeFinding {
     | "activity_objective"
     | "activity_success_indicator"
     | "unanchored";
-  relationToEvidence: "reinforces" | "contradicts" | "complicates" | "context_only";
+  relationToEvidence:
+    "reinforces" | "contradicts" | "complicates" | "context_only";
 }
 
 interface MixedInterpretationSynthesisInput {

@@ -1,6 +1,10 @@
 import type { DatabaseSession } from "../../shared/database/databaseClient.js";
 import { createDocumentId } from "../../shared/database/documentId.js";
 import {
+  applyMongoSession,
+  getMongoSessionOptions,
+} from "../../shared/database/mongoSession.js";
+import {
   AnalyticsResultMongoModel,
   type AnalyticsResultMongoHydratedDocument,
 } from "./analyticsResultModel.js";
@@ -45,36 +49,55 @@ function toRecord(
 export class MongoAnalyticsResultRepository implements AnalyticsResultRepository {
   async create(
     input: AnalyticsResultCreateInput,
-    _session: DatabaseSession,
+    session: DatabaseSession,
   ): Promise<AnalyticsResultPersistenceRecord> {
-    const document = await AnalyticsResultMongoModel.create({
-      _id: createDocumentId(),
-      analyticsExecutionId: input.analyticsExecutionId,
-      organizationId: input.organizationId,
-      projectId: input.projectId,
-      activityId: input.activityId,
-      scopeType: input.scopeType,
-      catalogVersion: input.catalogVersion,
-      knowledgeModelVersion: input.knowledgeModelVersion,
-      catalog: input.catalog,
-      curation: input.curation,
-      dataQuality: input.dataQuality,
-      limitations: input.limitations,
-      generatedAt: input.generatedAt,
-    });
+    const [document] = await AnalyticsResultMongoModel.create(
+      [
+        {
+          _id: createDocumentId(),
+          analyticsExecutionId: input.analyticsExecutionId,
+          organizationId: input.organizationId,
+          projectId: input.projectId,
+          activityId: input.activityId,
+          scopeType: input.scopeType,
+          catalogVersion: input.catalogVersion,
+          knowledgeModelVersion: input.knowledgeModelVersion,
+          catalog: input.catalog,
+          curation: input.curation,
+          dataQuality: input.dataQuality,
+          limitations: input.limitations,
+          generatedAt: input.generatedAt,
+        },
+      ],
+      getMongoSessionOptions(session),
+    );
     return toRecord(document) as AnalyticsResultPersistenceRecord;
   }
 
   async findLatestByScope(
     scope: AnalyticsScope,
-    _session: DatabaseSession,
+    session: DatabaseSession,
   ): Promise<AnalyticsResultPersistenceRecord | null> {
-    const document = await AnalyticsResultMongoModel.findOne({
-      projectId: scope.projectId,
-      activityId: scope.activityId,
-    })
-      .sort({ createdAt: -1 })
-      .exec();
+    const document = await applyMongoSession(
+      AnalyticsResultMongoModel.findOne({
+        projectId: scope.projectId,
+        activityId: scope.activityId,
+      }).sort({ createdAt: -1 }),
+      session,
+    ).exec();
     return toRecord(document);
+  }
+
+  async deleteByProjectId(
+    projectId: string,
+    session: DatabaseSession,
+  ): Promise<number> {
+    const result = await applyMongoSession(
+      AnalyticsResultMongoModel.deleteMany({
+        projectId,
+      }),
+      session,
+    ).exec();
+    return result.deletedCount ?? 0;
   }
 }

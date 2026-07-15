@@ -21,4 +21,8 @@ export interface KnowledgeIndicatorRepository {
     projectKnowledgeModelId: string,
     session: DatabaseSession,
   ): Promise<number>;
+  deleteByProjectId(
+    projectId: string,
+    session: DatabaseSession,
+  ): Promise<number>;
 }

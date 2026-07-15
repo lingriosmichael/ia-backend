@@ -1,3 +1,5 @@
-export type DatabaseSession = undefined;
+import type { ClientSession } from "mongoose";
 
-export const databaseSession: DatabaseSession = undefined;
+export type DatabaseSession = ClientSession | null;
+
+export const databaseSession: DatabaseSession = null;

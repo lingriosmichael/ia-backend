@@ -5,7 +5,6 @@ import multipart from "@fastify/multipart";
 import rateLimit from "@fastify/rate-limit";
 import { registerActivityRoutes } from "./modules/activity/activityRoutes.js";
 import { registerAnalyticsRoutes } from "./modules/analytics/analyticsRoutes.js";
-import { registerResultRoutes } from "./modules/ai/artifact/resultRoutes.js";
 import { registerProcessingJobRoutes } from "./modules/ai/execution/processingJobRoutes.js";
 import { registerAuthRoutes } from "./modules/auth/authRoutes.js";
 import { registerHealthRoutes } from "./modules/health/healthRoutes.js";
@@ -165,11 +164,6 @@ export async function buildApp(config: BackendConfig) {
   await registerPrivacyReviewRoutes(
     app,
     context.privacyReviewController,
-    context.authenticate,
-  );
-  await registerResultRoutes(
-    app,
-    context.resultController,
     context.authenticate,
   );
   await registerInterpretationRoutes(

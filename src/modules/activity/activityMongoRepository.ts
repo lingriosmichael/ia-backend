@@ -1,5 +1,9 @@
 import type { DatabaseSession } from "../../shared/database/databaseClient.js";
 import { createDocumentId } from "../../shared/database/documentId.js";
+import {
+  applyMongoSession,
+  getMongoSessionOptions,
+} from "../../shared/database/mongoSession.js";
 import { AppError } from "../../shared/errors/appError.js";
 import {
   ActivityMongoModel,
@@ -44,38 +48,49 @@ function toActivityRecord(
 export class MongoActivityRepository implements ActivityRepository {
   async create(
     input: ActivityCreateInput,
-    _session: DatabaseSession,
+    session: DatabaseSession,
   ): Promise<ActivityPersistenceRecord> {
-    const document = await ActivityMongoModel.create({
-      _id: createDocumentId(),
-      ...input,
-      status: input.status ?? "active",
-    });
+    const [document] = await ActivityMongoModel.create(
+      [
+        {
+          _id: createDocumentId(),
+          ...input,
+          status: input.status ?? "active",
+        },
+      ],
+      getMongoSessionOptions(session),
+    );
 
     return toActivityRecord(document) as ActivityPersistenceRecord;
   }
 
   async findById(
     activityId: string,
-    _session: DatabaseSession,
+    session: DatabaseSession,
   ): Promise<ActivityPersistenceRecord | null> {
-    const document = await ActivityMongoModel.findById(activityId).exec();
+    const document = await applyMongoSession(
+      ActivityMongoModel.findById(activityId),
+      session,
+    ).exec();
     return toActivityRecord(document);
   }
 
   async update(
     activityId: string,
     input: ActivityUpdateInput,
-    _session: DatabaseSession,
+    session: DatabaseSession,
   ): Promise<ActivityPersistenceRecord> {
-    const document = await ActivityMongoModel.findByIdAndUpdate(
-      activityId,
-      {
-        $set: input,
-      },
-      {
-        returnDocument: "after",
-      },
+    const document = await applyMongoSession(
+      ActivityMongoModel.findByIdAndUpdate(
+        activityId,
+        {
+          $set: input,
+        },
+        {
+          returnDocument: "after",
+        },
+      ),
+      session,
     ).exec();
 
     const record = toActivityRecord(document);
@@ -89,11 +104,12 @@ export class MongoActivityRepository implements ActivityRepository {
 
   async listByProject(
     projectId: string,
-    _session: DatabaseSession,
+    session: DatabaseSession,
   ): Promise<ActivityPersistenceRecord[]> {
-    const documents = await ActivityMongoModel.find({ projectId })
-      .sort({ createdAt: 1 })
-      .exec();
+    const documents = await applyMongoSession(
+      ActivityMongoModel.find({ projectId }).sort({ createdAt: 1 }),
+      session,
+    ).exec();
 
     return documents
       .map((document) => toActivityRecord(document))
@@ -104,19 +120,20 @@ export class MongoActivityRepository implements ActivityRepository {
 
   async listByProjectIds(
     projectIds: string[],
-    _session: DatabaseSession,
+    session: DatabaseSession,
   ): Promise<ActivityPersistenceRecord[]> {
     if (projectIds.length === 0) {
       return [];
     }
 
-    const documents = await ActivityMongoModel.find({
-      projectId: {
-        $in: projectIds,
-      },
-    })
-      .sort({ projectId: 1, createdAt: 1 })
-      .exec();
+    const documents = await applyMongoSession(
+      ActivityMongoModel.find({
+        projectId: {
+          $in: projectIds,
+        },
+      }).sort({ projectId: 1, createdAt: 1 }),
+      session,
+    ).exec();
 
     return documents
       .map((document) => toActivityRecord(document))
@@ -127,10 +144,12 @@ export class MongoActivityRepository implements ActivityRepository {
 
   async deleteById(
     activityId: string,
-    _session: DatabaseSession,
+    session: DatabaseSession,
   ): Promise<ActivityPersistenceRecord | null> {
-    const document =
-      await ActivityMongoModel.findByIdAndDelete(activityId).exec();
+    const document = await applyMongoSession(
+      ActivityMongoModel.findByIdAndDelete(activityId),
+      session,
+    ).exec();
     return toActivityRecord(document);
   }
 }

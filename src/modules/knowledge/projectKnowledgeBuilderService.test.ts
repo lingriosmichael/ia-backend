@@ -199,10 +199,10 @@ test("rebuilding with unchanged input is idempotent for sourceInstances", async 
   assert.equal(indicatorEntities[0]?.sourceInstances.length, 1);
 });
 
-test("linking uses resolved merge identity even when labels differ only by case/spacing", async () => {
+test("theme and indicator entities both merge when labels differ only by case/spacing within one activity", async () => {
   // Both results are on the same activity (two of its own files) — Tier 2
   // merging only ever happens within one activity, so this is the
-  // realistic scenario for exercising the merge+link interaction.
+  // realistic scenario for exercising normalization + merge together.
   const activities = [
     makeActivity({ id: "activity-1", activityType: "mentoring" }),
   ];
@@ -297,8 +297,16 @@ test("linking uses resolved merge identity even when labels differ only by case/
   const service = buildService(repos);
   await service.buildForProject("project-1");
 
-  assert.equal(repos.relationships.length, 1);
-  assert.equal(repos.relationships[0]?.relationshipType, "reinforces");
+  const indicatorEntities = repos.knowledgeEntities.filter(
+    (entity) => entity.entityType === "indicator",
+  );
+  const themeEntities = repos.knowledgeEntities.filter(
+    (entity) => entity.entityType === "theme",
+  );
+  assert.equal(indicatorEntities.length, 1);
+  assert.equal(indicatorEntities[0]?.sourceInstances.length, 2);
+  assert.equal(themeEntities.length, 1);
+  assert.equal(themeEntities[0]?.sourceInstances.length, 2);
 });
 
 test("pruneStaleSourceInstances removes only the stale sourceReference", async () => {
@@ -449,7 +457,7 @@ test("an entity emptied of all source instances is deleted, not left as an orpha
   assert.equal(afterSecondBuild.length, 0);
 });
 
-test("deleting an activity's only evidence cascade-deletes both the orphaned entity and any relationship referencing it", async () => {
+test("deleting an activity's only evidence cascade-deletes the orphaned entities", async () => {
   const activities = [
     makeActivity({ id: "activity-1", activityType: "mentoring" }),
   ];
@@ -504,7 +512,6 @@ test("deleting an activity's only evidence cascade-deletes both the orphaned ent
   await service.buildForProject("project-1");
 
   assert.equal(repos.knowledgeEntities.length, 2);
-  assert.equal(repos.relationships.length, 1);
 
   // The activity (and therefore its upload/evidence) is gone on the next
   // build — modeling both an evidence deletion and an activity deletion,
@@ -523,11 +530,6 @@ test("deleting an activity's only evidence cascade-deletes both the orphaned ent
     repos.knowledgeEntities.length,
     0,
     "both the indicator and theme entities should be deleted, not left as empty orphans",
-  );
-  assert.equal(
-    repos.relationships.length,
-    0,
-    "a relationship referencing a deleted entity must not be left dangling",
   );
 });
 

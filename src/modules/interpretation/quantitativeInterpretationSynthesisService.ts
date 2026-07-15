@@ -103,7 +103,9 @@ function mapSuggestedCalculation(
   metric: DeterministicAnalysisPersistenceRecord["metrics"][number],
 ) {
   const sourceColumn = metric.sourceColumns[0] ?? null;
-  const positiveStatusValues = Array.isArray(metric.components.positiveStatusValues)
+  const positiveStatusValues = Array.isArray(
+    metric.components.positiveStatusValues,
+  )
     ? metric.components.positiveStatusValues.filter(
         (value): value is string => typeof value === "string",
       )
@@ -210,7 +212,10 @@ export class QuantitativeInterpretationSynthesisService {
       databaseSession,
     );
     const activity = result.activityId
-      ? await this.activityRepository.findById(result.activityId, databaseSession)
+      ? await this.activityRepository.findById(
+          result.activityId,
+          databaseSession,
+        )
       : null;
     const project = await this.projectRepository.findById(
       result.projectId,

@@ -1,8 +1,6 @@
 import {
   activityStatusValues,
   projectStatusValues,
-  resultRecordStatusValues,
-  resultRecordTypeValues,
 } from "../shared/contracts.js";
 import { z } from "zod";
 
@@ -30,7 +28,6 @@ export const idParamSchema = z.object({
   uploadMetadataId: z.string().min(1).optional(),
   evidenceId: z.string().min(1).optional(),
   processingJobId: z.string().min(1).optional(),
-  resultRecordId: z.string().min(1).optional(),
   interpretationResultId: z.string().min(1).optional(),
   questionId: z.string().min(1).optional(),
   indicatorId: z.string().min(1).optional(),
@@ -200,22 +197,12 @@ export const approvePrivacyReviewSchema = z.object({
       // decidedById/decidedAt are deliberately not accepted here: the
       // server stamps those itself from the authenticated caller, never
       // trusting a client-supplied identity or timestamp.
-      fieldDecisions: z.array(privacyReviewFieldDecisionSchema).max(200).optional(),
+      fieldDecisions: z
+        .array(privacyReviewFieldDecisionSchema)
+        .max(200)
+        .optional(),
     })
     .optional(),
-});
-
-export const createResultRecordSchema = z.object({
-  activityId: z.string().min(1).nullable().optional(),
-  uploadMetadataId: z.string().min(1).nullable().optional(),
-  processingJobId: z.string().min(1).nullable().optional(),
-  resultType: z.enum(resultRecordTypeValues),
-  payload: jsonPayloadSchema.optional(),
-});
-
-export const updateResultRecordSchema = z.object({
-  status: z.enum(resultRecordStatusValues).optional(),
-  payload: jsonPayloadSchema.nullable().optional(),
 });
 
 export const answerInterpretationQuestionSchema = z.object({

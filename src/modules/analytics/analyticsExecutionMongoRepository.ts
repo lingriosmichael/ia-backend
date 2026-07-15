@@ -1,6 +1,10 @@
 import type { DatabaseSession } from "../../shared/database/databaseClient.js";
 import { createDocumentId } from "../../shared/database/documentId.js";
 import {
+  applyMongoSession,
+  getMongoSessionOptions,
+} from "../../shared/database/mongoSession.js";
+import {
   AnalyticsExecutionMongoModel,
   type AnalyticsExecutionMongoHydratedDocument,
 } from "./analyticsExecutionModel.js";
@@ -35,59 +39,79 @@ function toRecord(
   } as AnalyticsExecutionPersistenceRecord;
 }
 
-export class MongoAnalyticsExecutionRepository
-  implements AnalyticsExecutionRepository
-{
+export class MongoAnalyticsExecutionRepository implements AnalyticsExecutionRepository {
   async create(
     input: AnalyticsExecutionCreateInput,
-    _session: DatabaseSession,
+    session: DatabaseSession,
   ): Promise<AnalyticsExecutionPersistenceRecord> {
-    const document = await AnalyticsExecutionMongoModel.create({
-      _id: createDocumentId(),
-      organizationId: input.organizationId,
-      projectId: input.projectId,
-      activityId: input.activityId,
-      scopeType: input.scopeType,
-      status: input.status,
-      startedAt: input.startedAt,
-    });
+    const [document] = await AnalyticsExecutionMongoModel.create(
+      [
+        {
+          _id: createDocumentId(),
+          organizationId: input.organizationId,
+          projectId: input.projectId,
+          activityId: input.activityId,
+          scopeType: input.scopeType,
+          status: input.status,
+          startedAt: input.startedAt,
+        },
+      ],
+      getMongoSessionOptions(session),
+    );
     return toRecord(document) as AnalyticsExecutionPersistenceRecord;
   }
 
   async updateStatus(
     id: string,
     update: AnalyticsExecutionStatusUpdate,
-    _session: DatabaseSession,
+    session: DatabaseSession,
   ): Promise<AnalyticsExecutionPersistenceRecord | null> {
-    const document = await AnalyticsExecutionMongoModel.findByIdAndUpdate(
-      id,
-      {
-        status: update.status,
-        ...(update.completedAt !== undefined
-          ? { completedAt: update.completedAt }
-          : {}),
-        ...(update.errorCode !== undefined
-          ? { errorCode: update.errorCode }
-          : {}),
-        ...(update.errorMessage !== undefined
-          ? { errorMessage: update.errorMessage }
-          : {}),
-      },
-      { new: true },
+    const document = await applyMongoSession(
+      AnalyticsExecutionMongoModel.findByIdAndUpdate(
+        id,
+        {
+          status: update.status,
+          ...(update.completedAt !== undefined
+            ? { completedAt: update.completedAt }
+            : {}),
+          ...(update.errorCode !== undefined
+            ? { errorCode: update.errorCode }
+            : {}),
+          ...(update.errorMessage !== undefined
+            ? { errorMessage: update.errorMessage }
+            : {}),
+        },
+        { new: true },
+      ),
+      session,
     ).exec();
     return toRecord(document);
   }
 
   async findLatestByScope(
     scope: AnalyticsScope,
-    _session: DatabaseSession,
+    session: DatabaseSession,
   ): Promise<AnalyticsExecutionPersistenceRecord | null> {
-    const document = await AnalyticsExecutionMongoModel.findOne({
-      projectId: scope.projectId,
-      activityId: scope.activityId,
-    })
-      .sort({ createdAt: -1 })
-      .exec();
+    const document = await applyMongoSession(
+      AnalyticsExecutionMongoModel.findOne({
+        projectId: scope.projectId,
+        activityId: scope.activityId,
+      }).sort({ createdAt: -1 }),
+      session,
+    ).exec();
     return toRecord(document);
+  }
+
+  async deleteByProjectId(
+    projectId: string,
+    session: DatabaseSession,
+  ): Promise<number> {
+    const result = await applyMongoSession(
+      AnalyticsExecutionMongoModel.deleteMany({
+        projectId,
+      }),
+      session,
+    ).exec();
+    return result.deletedCount ?? 0;
   }
 }

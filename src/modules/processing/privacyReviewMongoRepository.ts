@@ -1,6 +1,7 @@
 import type { PrivacyReviewDecisions } from "../../shared/contracts.js";
 import type { DatabaseSession } from "../../shared/database/databaseClient.js";
 import { createDocumentId } from "../../shared/database/documentId.js";
+import { applyMongoSession } from "../../shared/database/mongoSession.js";
 import {
   PrivacyReviewMongoModel,
   type PrivacyReviewMongoHydratedDocument,
@@ -39,28 +40,31 @@ function toPrivacyReviewRecord(
 export class MongoPrivacyReviewRepository implements PrivacyReviewRepository {
   async upsertByProcessingJobId(
     input: PrivacyReviewUpsertInput,
-    _session: DatabaseSession,
+    session: DatabaseSession,
   ): Promise<PrivacyReviewPersistenceRecord> {
-    const document = await PrivacyReviewMongoModel.findOneAndUpdate(
-      { processingJobId: input.processingJobId },
-      {
-        // Only findings are updated on an existing review — status,
-        // decisions, and approval fields must never be touched here, so a
-        // retried parse can't silently reset an already-resolved review.
-        $set: {
-          findings: input.findings,
+    const document = await applyMongoSession(
+      PrivacyReviewMongoModel.findOneAndUpdate(
+        { processingJobId: input.processingJobId },
+        {
+          // Only findings are updated on an existing review — status,
+          // decisions, and approval fields must never be touched here, so a
+          // retried parse can't silently reset an already-resolved review.
+          $set: {
+            findings: input.findings,
+          },
+          $setOnInsert: {
+            _id: createDocumentId(),
+            organizationId: input.organizationId,
+            projectId: input.projectId,
+            activityId: input.activityId,
+            uploadMetadataId: input.uploadMetadataId,
+            processingJobId: input.processingJobId,
+            status: "pending",
+          },
         },
-        $setOnInsert: {
-          _id: createDocumentId(),
-          organizationId: input.organizationId,
-          projectId: input.projectId,
-          activityId: input.activityId,
-          uploadMetadataId: input.uploadMetadataId,
-          processingJobId: input.processingJobId,
-          status: "pending",
-        },
-      },
-      { upsert: true, returnDocument: "after" },
+        { upsert: true, returnDocument: "after" },
+      ),
+      session,
     ).exec();
 
     return toPrivacyReviewRecord(document) as PrivacyReviewPersistenceRecord;
@@ -68,30 +72,36 @@ export class MongoPrivacyReviewRepository implements PrivacyReviewRepository {
 
   async findByProcessingJobId(
     processingJobId: string,
-    _session: DatabaseSession,
+    session: DatabaseSession,
   ): Promise<PrivacyReviewPersistenceRecord | null> {
-    const document = await PrivacyReviewMongoModel.findOne({
-      processingJobId,
-    }).exec();
+    const document = await applyMongoSession(
+      PrivacyReviewMongoModel.findOne({
+        processingJobId,
+      }),
+      session,
+    ).exec();
     return toPrivacyReviewRecord(document);
   }
 
   async approveIfPending(
     processingJobId: string,
     input: PrivacyReviewApproveInput,
-    _session: DatabaseSession,
+    session: DatabaseSession,
   ): Promise<PrivacyReviewPersistenceRecord | null> {
-    const document = await PrivacyReviewMongoModel.findOneAndUpdate(
-      { processingJobId, status: "pending" },
-      {
-        $set: {
-          status: "approved",
-          decisions: input.decisions,
-          approvedById: input.approvedById,
-          approvedAt: input.approvedAt,
+    const document = await applyMongoSession(
+      PrivacyReviewMongoModel.findOneAndUpdate(
+        { processingJobId, status: "pending" },
+        {
+          $set: {
+            status: "approved",
+            decisions: input.decisions,
+            approvedById: input.approvedById,
+            approvedAt: input.approvedAt,
+          },
         },
-      },
-      { returnDocument: "after" },
+        { returnDocument: "after" },
+      ),
+      session,
     ).exec();
 
     return toPrivacyReviewRecord(document);
@@ -99,31 +109,40 @@ export class MongoPrivacyReviewRepository implements PrivacyReviewRepository {
 
   async deleteByProjectId(
     projectId: string,
-    _session: DatabaseSession,
+    session: DatabaseSession,
   ): Promise<number> {
-    const result = await PrivacyReviewMongoModel.deleteMany({
-      projectId,
-    }).exec();
+    const result = await applyMongoSession(
+      PrivacyReviewMongoModel.deleteMany({
+        projectId,
+      }),
+      session,
+    ).exec();
     return result.deletedCount ?? 0;
   }
 
   async deleteByActivityId(
     activityId: string,
-    _session: DatabaseSession,
+    session: DatabaseSession,
   ): Promise<number> {
-    const result = await PrivacyReviewMongoModel.deleteMany({
-      activityId,
-    }).exec();
+    const result = await applyMongoSession(
+      PrivacyReviewMongoModel.deleteMany({
+        activityId,
+      }),
+      session,
+    ).exec();
     return result.deletedCount ?? 0;
   }
 
   async deleteByUploadMetadataId(
     uploadMetadataId: string,
-    _session: DatabaseSession,
+    session: DatabaseSession,
   ): Promise<number> {
-    const result = await PrivacyReviewMongoModel.deleteMany({
-      uploadMetadataId,
-    }).exec();
+    const result = await applyMongoSession(
+      PrivacyReviewMongoModel.deleteMany({
+        uploadMetadataId,
+      }),
+      session,
+    ).exec();
     return result.deletedCount ?? 0;
   }
 }

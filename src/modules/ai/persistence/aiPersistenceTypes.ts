@@ -1,8 +1,6 @@
 import type {
   ProcessingJobStatus,
   ProcessingJobType,
-  ResultRecordStatus,
-  ResultRecordType,
 } from "../../../shared/contracts.js";
 
 export type StructuredAIPayload = Record<string, unknown> | null;
@@ -40,35 +38,4 @@ export interface ProcessingJobUpdateInput {
   errorMessage?: string | null;
   startedAt?: Date | null;
   completedAt?: Date | null;
-}
-
-export interface ResultRecordPersistenceRecord {
-  id: string;
-  organizationId: string;
-  projectId: string;
-  activityId: string | null;
-  uploadMetadataId: string | null;
-  processingJobId: string | null;
-  createdById: string;
-  resultType: ResultRecordType;
-  status: ResultRecordStatus;
-  payload: StructuredAIPayload;
-  createdAt: Date;
-  updatedAt: Date;
-}
-
-export interface ResultRecordCreateInput {
-  organizationId: string;
-  projectId: string;
-  activityId: string | null;
-  uploadMetadataId: string | null;
-  processingJobId: string | null;
-  createdById: string;
-  resultType: ResultRecordType;
-  payload: StructuredAIPayload;
-}
-
-export interface ResultRecordUpdateInput {
-  status?: ResultRecordStatus;
-  payload?: StructuredAIPayload;
 }

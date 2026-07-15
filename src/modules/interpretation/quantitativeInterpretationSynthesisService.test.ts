@@ -38,7 +38,9 @@ function makeResult(
     qualitativeFindings: [],
     supportingQuotes: [],
     questions: [],
-    warnings: [{ id: "warning-1", message: "Existing warning", severity: "info" }],
+    warnings: [
+      { id: "warning-1", message: "Existing warning", severity: "info" },
+    ],
     goalAlignment: [],
     createdAt: NOW,
     updatedAt: NOW,
@@ -286,7 +288,8 @@ test("maps quantitative synthesis output back into the interpretation result", a
             value: 0.8,
             unit: "ratio",
             components: {
-              deterministicAnalysisMetricKey: "attendance::positive_status_ratio",
+              deterministicAnalysisMetricKey:
+                "attendance::positive_status_ratio",
             },
             recordsIncluded: 10,
             recordsExcluded: 0,
@@ -294,7 +297,12 @@ test("maps quantitative synthesis output back into the interpretation result", a
           },
         },
       ],
-      warnings: [{ message: "Review subgroup coverage before comparing cohorts.", severity: "warning" }],
+      warnings: [
+        {
+          message: "Review subgroup coverage before comparing cohorts.",
+          severity: "warning",
+        },
+      ],
       goalAlignment: [
         {
           goalSummary: "Increase program completion.",
@@ -329,10 +337,7 @@ test("maps quantitative synthesis output back into the interpretation result", a
   assert.equal(update.datasetType, "Participant completion dataset");
   assert.equal(update.overallConfidence, 0.88);
   assert.equal(update.indicators.length, 1);
-  assert.equal(
-    update.indicators[0]?.suggestedCalculation?.operation,
-    "ratio",
-  );
+  assert.equal(update.indicators[0]?.suggestedCalculation?.operation, "ratio");
   assert.equal(
     update.indicators[0]?.computedValue?.components
       ?.deterministicAnalysisMetricKey,
@@ -444,7 +449,9 @@ test("mixed dual-track synthesis preserves qualitative artifacts and adds reconc
 
   const pythonProcessingClient = {
     synthesizeQuantitativeInterpretation: async () => {
-      throw new Error("Should not call quantitative synthesis for mixed evidence.");
+      throw new Error(
+        "Should not call quantitative synthesis for mixed evidence.",
+      );
     },
     synthesizeMixedInterpretation: async () => {
       mixedSynthesisCallCount += 1;
@@ -456,7 +463,8 @@ test("mixed dual-track synthesis preserves qualitative artifacts and adds reconc
             name: "Participant completion rate",
             description: "Share of participants marked as completed.",
             confidence: 0.9,
-            reason: "Deterministic completion metric reconciled with narrative context.",
+            reason:
+              "Deterministic completion metric reconciled with narrative context.",
             relatedFields: ["status"],
             supportingParagraphKeys: [],
             relevanceStage: "outcome",
@@ -467,7 +475,8 @@ test("mixed dual-track synthesis preserves qualitative artifacts and adds reconc
               value: 0.8,
               unit: "ratio",
               components: {
-                deterministicAnalysisMetricKey: "attendance::positive_status_ratio",
+                deterministicAnalysisMetricKey:
+                  "attendance::positive_status_ratio",
               },
               recordsIncluded: 10,
               recordsExcluded: 0,
@@ -510,7 +519,8 @@ test("mixed dual-track synthesis preserves qualitative artifacts and adds reconc
           summary: "Participants reported stronger confidence over time.",
           stage: "outcome",
           confidence: 0.86,
-          reason: "Repeated participant reflections linked mentoring to confidence.",
+          reason:
+            "Repeated participant reflections linked mentoring to confidence.",
           relatedEntityIds: [],
           relatedIndicatorIds: [],
           supportingQuoteIds: ["quote-1"],
@@ -586,9 +596,6 @@ test("mixed dual-track synthesis preserves qualitative artifacts and adds reconc
   assert.equal(update.indicators.length, 1);
   assert.equal(update.qualitativeFindings.length, 1);
   assert.equal(update.supportingQuotes.length, 1);
-  assert.equal(
-    update.qualitativeFindings[0]?.category,
-    "outcome_support",
-  );
+  assert.equal(update.qualitativeFindings[0]?.category, "outcome_support");
   assert.equal(update.warnings.length, 2);
 });

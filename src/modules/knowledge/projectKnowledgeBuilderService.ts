@@ -15,8 +15,6 @@ import type { ProjectKnowledgeModelRepository } from "./projectKnowledgeModelRep
 import type { ProjectKnowledgeModelPersistenceRecord } from "./projectKnowledgeModelPersistence.js";
 import type { KnowledgeEntityRepository } from "./knowledgeEntityRepository.js";
 import type { KnowledgeEntityPersistenceRecord } from "./knowledgeEntityPersistence.js";
-import type { KnowledgeRelationshipRepository } from "./knowledgeRelationshipRepository.js";
-import type { KnowledgeRelationshipCreateInput } from "./knowledgeRelationshipPersistence.js";
 import type { KnowledgeIndicatorRepository } from "./knowledgeIndicatorRepository.js";
 import type { KnowledgeIndicatorCreateInput } from "./knowledgeIndicatorPersistence.js";
 
@@ -100,7 +98,6 @@ export class ProjectKnowledgeBuilderService {
     private readonly interpretationResultRepository: InterpretationResultRepository,
     private readonly projectKnowledgeModelRepository: ProjectKnowledgeModelRepository,
     private readonly knowledgeEntityRepository: KnowledgeEntityRepository,
-    private readonly knowledgeRelationshipRepository: KnowledgeRelationshipRepository,
     private readonly knowledgeIndicatorRepository: KnowledgeIndicatorRepository,
   ) {}
 
@@ -168,7 +165,6 @@ export class ProjectKnowledgeBuilderService {
       KnowledgeEntityType,
       KnowledgeEntityPersistenceRecord[]
     >();
-    const candidateEntityIdByKey = new Map<string, string>();
     const pendingSourceInstanceMerges = new Map<
       string,
       KnowledgeSourceInstance[]
@@ -192,7 +188,6 @@ export class ProjectKnowledgeBuilderService {
         projectKnowledgeModel.id,
         candidate,
         entitiesByType,
-        candidateEntityIdByKey,
         pendingSourceInstanceMerges,
         pendingEntityCreates,
       );
@@ -206,13 +201,6 @@ export class ProjectKnowledgeBuilderService {
     await this.flushPendingSourceInstanceMerges(
       entitiesByType,
       pendingSourceInstanceMerges,
-    );
-
-    await this.link(
-      projectKnowledgeModel.id,
-      interpretationResults,
-      entitiesByType,
-      candidateEntityIdByKey,
     );
 
     await this.persistKnowledgeIndicators(
@@ -322,12 +310,11 @@ export class ProjectKnowledgeBuilderService {
    * place so the caller's subsequent matching sees the pruned state.
    *
    * An entity that ends up with zero source instances is deleted
-   * outright, along with any relationship referencing it — never left
-   * behind as an empty orphan. This matters beyond tidiness:
-   * hasCompatibleActivity treats an entity with no known source
-   * instances as an unconstrained wildcard match, so an orphaned entity
-   * left in place would silently become eligible to false-merge with the
-   * next candidate of the same type, regardless of activity.
+   * outright, never left behind as an empty orphan. This matters beyond
+   * tidiness: hasCompatibleActivity treats an entity with no known
+   * source instances as an unconstrained wildcard match, so an orphaned
+   * entity left in place would silently become eligible to false-merge
+   * with the next candidate of the same type, regardless of activity.
    */
   private async pruneStaleSourceInstances(
     existingEntities: KnowledgeEntityPersistenceRecord[],
@@ -377,10 +364,6 @@ export class ProjectKnowledgeBuilderService {
     }
 
     if (emptiedEntityIds.length > 0) {
-      await this.knowledgeRelationshipRepository.deleteByEntityIds(
-        emptiedEntityIds,
-        databaseSession,
-      );
       await this.knowledgeEntityRepository.deleteMany(
         emptiedEntityIds,
         databaseSession,
@@ -402,7 +385,6 @@ export class ProjectKnowledgeBuilderService {
       KnowledgeEntityType,
       KnowledgeEntityPersistenceRecord[]
     >,
-    candidateEntityIdByKey: Map<string, string>,
     pendingSourceInstanceMerges: Map<string, KnowledgeSourceInstance[]>,
     pendingEntityCreates: Array<{
       id: string;
@@ -436,7 +418,6 @@ export class ProjectKnowledgeBuilderService {
               candidate.sourceInstance.sourceReference,
         );
 
-        let resolvedEntity = match;
         if (!alreadyRecorded) {
           const mergedEntity = {
             ...match,
@@ -446,20 +427,11 @@ export class ProjectKnowledgeBuilderService {
             ],
           };
           this.replaceInBucket(existingOfType, mergedEntity);
-          resolvedEntity = mergedEntity;
 
           const pending = pendingSourceInstanceMerges.get(match.id) ?? [];
           pending.push(candidate.sourceInstance);
           pendingSourceInstanceMerges.set(match.id, pending);
         }
-
-        candidateEntityIdByKey.set(
-          this.getCandidateKey(
-            candidate.sourceInstance.interpretationResultId,
-            candidate.sourceInstance.sourceReference,
-          ),
-          resolvedEntity.id,
-        );
         return;
       }
     }
@@ -488,13 +460,6 @@ export class ProjectKnowledgeBuilderService {
     });
     existingOfType.push(created);
     entitiesByType.set(candidate.entityType, existingOfType);
-    candidateEntityIdByKey.set(
-      this.getCandidateKey(
-        candidate.sourceInstance.interpretationResultId,
-        candidate.sourceInstance.sourceReference,
-      ),
-      created.id,
-    );
   }
 
   private async flushPendingEntityCreates(
@@ -558,13 +523,6 @@ export class ProjectKnowledgeBuilderService {
     return knownActivityIds.has(candidateInstance.activityId);
   }
 
-  private getCandidateKey(
-    interpretationResultId: string,
-    sourceReference: string,
-  ): string {
-    return `${interpretationResultId}::${sourceReference}`;
-  }
-
   private async flushPendingSourceInstanceMerges(
     entitiesByType: Map<
       KnowledgeEntityType,
@@ -598,119 +556,6 @@ export class ProjectKnowledgeBuilderService {
     if (index >= 0) {
       bucket[index] = updated;
     }
-  }
-
-  /** Link: map already-asserted relations (a qualitative finding's
-   * relationToEvidence) into project-scoped KnowledgeRelationship
-   * records. No new reasoning — purely restating an existing, verified
-   * link at a larger scope. */
-  private async link(
-    projectKnowledgeModelId: string,
-    interpretationResults: InterpretationResultPersistenceRecord[],
-    entitiesByType: Map<
-      KnowledgeEntityType,
-      KnowledgeEntityPersistenceRecord[]
-    >,
-    candidateEntityIdByKey: Map<string, string>,
-  ): Promise<void> {
-    const themeEntities = entitiesByType.get("theme") ?? [];
-    const indicatorEntities = entitiesByType.get("indicator") ?? [];
-    const existingRelationships =
-      await this.knowledgeRelationshipRepository.listByProjectKnowledgeModelId(
-        projectKnowledgeModelId,
-        databaseSession,
-      );
-    const relationshipKeySet = new Set(
-      existingRelationships.map((relationship) =>
-        this.getRelationshipKey(
-          relationship.fromEntityId,
-          relationship.toEntityId,
-          relationship.relationshipType,
-        ),
-      ),
-    );
-    const pendingRelationshipCreates: Array<
-      KnowledgeRelationshipCreateInput & { id: string }
-    > = [];
-
-    for (const result of interpretationResults) {
-      for (const finding of result.qualitativeFindings) {
-        if (
-          finding.status !== "kept" ||
-          finding.relationToEvidence === "context_only" ||
-          finding.relatedIndicatorIds.length === 0
-        ) {
-          continue;
-        }
-
-        const themeEntityId = candidateEntityIdByKey.get(
-          this.getCandidateKey(result.id, finding.summary),
-        );
-        const themeEntity = themeEntityId
-          ? themeEntities.find((entity) => entity.id === themeEntityId)
-          : undefined;
-        if (!themeEntity) {
-          continue;
-        }
-
-        const relatedIndicator = result.indicators.find((indicator) =>
-          finding.relatedIndicatorIds.includes(indicator.id),
-        );
-        const indicatorEntityId = relatedIndicator
-          ? candidateEntityIdByKey.get(
-              this.getCandidateKey(result.id, relatedIndicator.name),
-            )
-          : undefined;
-        const indicatorEntity = indicatorEntityId
-          ? indicatorEntities.find((entity) => entity.id === indicatorEntityId)
-          : undefined;
-        if (!indicatorEntity) {
-          continue;
-        }
-
-        const relationshipKey = this.getRelationshipKey(
-          themeEntity.id,
-          indicatorEntity.id,
-          finding.relationToEvidence,
-        );
-        if (relationshipKeySet.has(relationshipKey)) {
-          continue;
-        }
-
-        pendingRelationshipCreates.push({
-          id: createDocumentId(),
-          projectKnowledgeModelId,
-          fromEntityId: themeEntity.id,
-          toEntityId: indicatorEntity.id,
-          relationshipType: finding.relationToEvidence,
-          confidence: finding.confidence,
-          sourceInstances: [
-            {
-              uploadMetadataId: result.uploadMetadataId,
-              interpretationResultId: result.id,
-              activityId: result.activityId ?? "",
-              activityType: null,
-              sourceReference: finding.summary,
-              addedAt: new Date().toISOString(),
-            },
-          ],
-        });
-        relationshipKeySet.add(relationshipKey);
-      }
-    }
-
-    await this.knowledgeRelationshipRepository.createMany(
-      pendingRelationshipCreates,
-      databaseSession,
-    );
-  }
-
-  private getRelationshipKey(
-    fromEntityId: string,
-    toEntityId: string,
-    relationshipType: string,
-  ): string {
-    return `${fromEntityId}::${toEntityId}::${relationshipType}`;
   }
 
   /**

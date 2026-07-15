@@ -140,7 +140,6 @@ test("organization workspace enriches activity upload counts from the upload rep
 
   assert.equal(workspace.projects[0]?.activities[0]?.uploadMetadataCount, 3);
   assert.equal(workspace.projects[0]?.activities[0]?.processingJobCount, 0);
-  assert.equal(workspace.projects[0]?.activities[0]?.resultCount, 0);
 });
 
 test("organization update keeps top-level fields synchronized with organization settings", async () => {

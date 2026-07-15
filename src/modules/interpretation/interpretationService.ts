@@ -90,9 +90,8 @@ export class InterpretationService {
     const evidenceModality = classifyEvidenceModalityFromPayload(
       privacySafeRepresentation.payload,
     );
-    const interpretationSupportState = getEvidenceModalitySupportState(
-      evidenceModality,
-    );
+    const interpretationSupportState =
+      getEvidenceModalitySupportState(evidenceModality);
 
     if (!isEvidenceModalitySupported(evidenceModality)) {
       throw new AppError(
@@ -239,9 +238,10 @@ export class InterpretationService {
         uploads.map((upload) => upload.id),
         databaseSession,
       );
-    const preparations = await this.datasetPreparationService.findByInterpretationResultIds(
-      results.map((result) => result.id),
-    );
+    const preparations =
+      await this.datasetPreparationService.findByInterpretationResultIds(
+        results.map((result) => result.id),
+      );
     const deterministicAnalyses =
       await this.deterministicAnalysisService.findByInterpretationResultIds(
         results.map((result) => result.id),
@@ -368,12 +368,13 @@ export class InterpretationService {
             datasetPreparation,
           )
         : datasetPreparation;
-    const synthesized =
-      await this.quantitativeInterpretationSynthesisService.maybeSyncForInterpretationResult(
+    const synthesized = await this.quantitativeInterpretationSynthesisService
+      .maybeSyncForInterpretationResult(
         updated,
         updatedPreparation,
         deterministicAnalysis,
-      ).catch((error: unknown) => {
+      )
+      .catch((error: unknown) => {
         this.logger.error(
           {
             interpretationResultId: updated.id,

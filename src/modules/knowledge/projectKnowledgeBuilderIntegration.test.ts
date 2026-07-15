@@ -20,7 +20,7 @@ import {
  * parsed files. See "Phase 4 — Project Knowledge Model.md" and
  * "Code Review Remediation Plan — 2026-07-13.md" item 19's neighboring
  * validation-sprint discussion for why fixture-level was chosen over a
- * live end-to-end run: this exercises the exact merge/link/prune
+ * live end-to-end run: this exercises the exact merge/prune/rebuild
  * contract deterministically, without requiring MongoDB or the Python
  * service to be running.
  *
@@ -37,12 +37,11 @@ import {
  * - the same indicator label with an unrelated description within one
  *   activity that must NOT merge (Tier 2's description-similarity guard)
  * - two qualitative findings that disagree about the same indicator
- *   (reinforces vs. contradicts) — both must survive as separate
- *   relationships, since resolving the conflict is not this layer's job
+ *   (reinforces vs. contradicts) — both must survive as separate theme
+ *   entities, since resolving the conflict is not this layer's job
  * - a rejected duplicate that must not attach anywhere
  * - an unacknowledged activity's data, which must be fully invisible
- * - a context_only finding, which must produce a theme entity but no
- *   relationship
+ * - a context_only finding, which must still produce a theme entity
  */
 
 const activities: ActivityPersistenceRecord[] = [
@@ -304,11 +303,6 @@ const interpretationResults: InterpretationResultPersistenceRecord[] = [
         reason:
           "narrative interviews described longer wait times outside the city",
         relationToEvidence: "complicates",
-        // relatedIndicatorIds can only resolve within the same
-        // InterpretationResult (see link()'s per-result indicator
-        // lookup) — this finding has no indicator in *this* file, so it
-        // correctly produces a theme entity with no relationship rather
-        // than a false cross-file link.
         relatedIndicatorIds: [],
       }),
     ],
@@ -316,7 +310,7 @@ const interpretationResults: InterpretationResultPersistenceRecord[] = [
 
   // --- Sessions: the conflicting-signal case. Two findings in the same
   // file disagree about the same indicator; both must survive as
-  // distinct relationships. Also a rejected duplicate indicator that
+  // distinct theme entities. Also a rejected duplicate indicator that
   // must never attach anywhere.
   makeInterpretationResult({
     id: "result-sessions-xlsx",
@@ -507,7 +501,7 @@ test("integration: identical wording across two different activities never merge
   );
 });
 
-test("integration: conflicting qualitative signals about the same indicator both survive", async () => {
+test("integration: conflicting qualitative signals about the same indicator both survive as separate themes", async () => {
   const repos = buildFixtureRepos();
   const service = buildService(repos);
   await service.buildForProject("project-1");
@@ -521,19 +515,22 @@ test("integration: conflicting qualitative signals about the same indicator both
   // The rejected duplicate from the feedback CSV must never attach.
   assert.equal(sessionAttendanceEntity!.sourceInstances.length, 1);
 
-  const relationshipsToAttendance = repos.relationships.filter(
-    (relationship) => relationship.toEntityId === sessionAttendanceEntity!.id,
+  const conflictingThemes = repos.knowledgeEntities.filter(
+    (entity) =>
+      entity.entityType === "theme" &&
+      (entity.canonicalLabel === "Attendance strong in urban cohort pairs" ||
+        entity.canonicalLabel === "Attendance weak in rural cohort pairs"),
   );
-  assert.equal(relationshipsToAttendance.length, 2);
   assert.deepEqual(
-    relationshipsToAttendance
-      .map((relationship) => relationship.relationshipType)
-      .sort(),
-    ["contradicts", "reinforces"],
+    conflictingThemes.map((entity) => entity.canonicalLabel).sort(),
+    [
+      "Attendance strong in urban cohort pairs",
+      "Attendance weak in rural cohort pairs",
+    ],
   );
 });
 
-test("integration: a context_only finding produces a theme entity but no relationship", async () => {
+test("integration: a context_only finding still produces a theme entity", async () => {
   const repos = buildFixtureRepos();
   const service = buildService(repos);
   await service.buildForProject("project-1");
@@ -544,13 +541,6 @@ test("integration: a context_only finding produces a theme entity but no relatio
       entity.canonicalLabel === "Case studies show strong long-term outcomes",
   );
   assert.ok(contextOnlyTheme, "the theme entity should still be created");
-
-  const relationshipsInvolvingTheme = repos.relationships.filter(
-    (relationship) =>
-      relationship.fromEntityId === contextOnlyTheme!.id ||
-      relationship.toEntityId === contextOnlyTheme!.id,
-  );
-  assert.equal(relationshipsInvolvingTheme.length, 0);
 });
 
 test("integration: an unacknowledged activity's identical-looking data never attaches", async () => {
@@ -571,7 +561,7 @@ test("integration: an unacknowledged activity's identical-looking data never att
   );
 });
 
-test("integration: provenance is complete for every entity and relationship", async () => {
+test("integration: provenance is complete for every entity", async () => {
   const repos = buildFixtureRepos();
   const service = buildService(repos);
   await service.buildForProject("project-1");
@@ -602,17 +592,6 @@ test("integration: provenance is complete for every entity and relationship", as
       assert.ok(knownResultIds.has(instance.interpretationResultId));
       assert.ok(instance.sourceReference.length > 0);
     }
-  }
-
-  for (const relationship of repos.relationships as unknown as Array<{
-    fromEntityId: string;
-    toEntityId: string;
-  }>) {
-    const entityIds = new Set(
-      repos.knowledgeEntities.map((entity) => entity.id),
-    );
-    assert.ok(entityIds.has(relationship.fromEntityId));
-    assert.ok(entityIds.has(relationship.toEntityId));
   }
 
   // Confirms the mixed-format claim itself: entities in this build really
@@ -714,7 +693,6 @@ test("integration: rebuilding twice over unchanged input is idempotent across th
 
   await service.buildForProject("project-1");
   const entityCountAfterFirstBuild = repos.knowledgeEntities.length;
-  const relationshipCountAfterFirstBuild = repos.relationships.length;
   const sourceInstanceCountsAfterFirstBuild = repos.knowledgeEntities
     .map((entity) => entity.sourceInstances.length)
     .sort();
@@ -722,7 +700,6 @@ test("integration: rebuilding twice over unchanged input is idempotent across th
   await service.buildForProject("project-1");
 
   assert.equal(repos.knowledgeEntities.length, entityCountAfterFirstBuild);
-  assert.equal(repos.relationships.length, relationshipCountAfterFirstBuild);
   assert.deepEqual(
     repos.knowledgeEntities
       .map((entity) => entity.sourceInstances.length)

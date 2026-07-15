@@ -20,4 +20,8 @@ export interface AnalyticsExecutionRepository {
     scope: AnalyticsScope,
     session: DatabaseSession,
   ): Promise<AnalyticsExecutionPersistenceRecord | null>;
+  deleteByProjectId(
+    projectId: string,
+    session: DatabaseSession,
+  ): Promise<number>;
 }

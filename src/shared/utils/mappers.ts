@@ -2,8 +2,6 @@ import type {
   ActivitySummary,
   ActivityStatus,
   ActivityPermissions,
-  AIArtifactStatus,
-  AIArtifactType,
   AuthResponse,
   DatasetPreparationRecord,
   DeterministicAnalysisRecord,
@@ -36,7 +34,6 @@ import type {
   PrivacySafeRepresentationRecord,
   ProjectStatus,
   ProjectSummary,
-  ResultRecord,
   UploadMetadataStatus,
   UploadMetadataRecord,
   UserSummary,
@@ -377,7 +374,6 @@ export function mapWorkspaceActivity(
     _count: {
       uploadMetadata: number;
       processingJobs: number;
-      resultRecords: number;
     };
   },
   currentUserId: string,
@@ -386,7 +382,6 @@ export function mapWorkspaceActivity(
     ...mapActivity(activity, currentUserId),
     uploadMetadataCount: activity._count.uploadMetadata,
     processingJobCount: activity._count.processingJobs,
-    resultCount: activity._count.resultRecords,
   };
 }
 
@@ -449,7 +444,6 @@ export function mapWorkspace(record: {
       updatedAt: Date;
       _count: {
         processingJobs: number;
-        resultRecords: number;
         uploadMetadata: number;
       };
     }>;
@@ -573,36 +567,6 @@ export function mapProcessingJob(record: {
     updatedAt: toIso(record.updatedAt),
     startedAt: record.startedAt ? toIso(record.startedAt) : null,
     completedAt: record.completedAt ? toIso(record.completedAt) : null,
-  };
-}
-
-export function mapResultRecord(record: {
-  id: string;
-  organizationId: string;
-  projectId: string;
-  activityId: string | null;
-  uploadMetadataId: string | null;
-  processingJobId: string | null;
-  createdById: string;
-  resultType: AIArtifactType;
-  status: AIArtifactStatus;
-  payload: unknown;
-  createdAt: Date;
-  updatedAt: Date;
-}): ResultRecord {
-  return {
-    id: record.id,
-    organizationId: record.organizationId,
-    projectId: record.projectId,
-    activityId: record.activityId,
-    uploadMetadataId: record.uploadMetadataId,
-    processingJobId: record.processingJobId,
-    createdById: record.createdById,
-    resultType: record.resultType,
-    status: record.status,
-    payload: (record.payload as Record<string, unknown> | null) ?? null,
-    createdAt: toIso(record.createdAt),
-    updatedAt: toIso(record.updatedAt),
   };
 }
 
@@ -873,9 +837,11 @@ export function mapInterpretationResult(record: {
           uploadMetadataId: record.datasetPreparation.uploadMetadataId,
           privacySafeRepresentationId:
             record.datasetPreparation.privacySafeRepresentationId,
-          interpretationResultId: record.datasetPreparation.interpretationResultId,
+          interpretationResultId:
+            record.datasetPreparation.interpretationResultId,
           status: record.datasetPreparation.status,
-          blockingQuestionCount: record.datasetPreparation.blockingQuestionCount,
+          blockingQuestionCount:
+            record.datasetPreparation.blockingQuestionCount,
           answeredBlockingQuestionCount:
             record.datasetPreparation.answeredBlockingQuestionCount,
           unansweredBlockingQuestionIds:
@@ -888,9 +854,7 @@ export function mapInterpretationResult(record: {
             columnName: decision.columnName,
             answeredValue: decision.answeredValue,
             answeredById: decision.answeredById,
-            answeredAt: decision.answeredAt
-              ? toIso(decision.answeredAt)
-              : null,
+            answeredAt: decision.answeredAt ? toIso(decision.answeredAt) : null,
           })),
           decisionSummary: record.datasetPreparation.decisionSummary,
           preparedDataset: record.datasetPreparation.preparedDataset,
@@ -915,11 +879,9 @@ export function mapInterpretationResult(record: {
           metrics: record.deterministicAnalysis.metrics,
           distributions: record.deterministicAnalysis.distributions,
           trends: record.deterministicAnalysis.trends,
-          subgroupBreakdowns:
-            record.deterministicAnalysis.subgroupBreakdowns,
+          subgroupBreakdowns: record.deterministicAnalysis.subgroupBreakdowns,
           warnings: record.deterministicAnalysis.warnings,
-          candidateIndicators:
-            record.deterministicAnalysis.candidateIndicators,
+          candidateIndicators: record.deterministicAnalysis.candidateIndicators,
           createdAt: toIso(record.deterministicAnalysis.createdAt),
           updatedAt: toIso(record.deterministicAnalysis.updatedAt),
         }

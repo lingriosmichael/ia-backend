@@ -46,14 +46,14 @@ function makeResult(
     scopeType: "PROJECT",
     catalogVersion: "3.0",
     knowledgeModelVersion: 1,
-      catalog: {
-        catalogVersion: "3.0",
-        knowledgeModelVersion: 1,
-        scope: { type: "PROJECT", projectId: "project-1", activityId: null },
-        entries: [],
-        omittedEntries: [],
-        qualitySignals: [],
-      },
+    catalog: {
+      catalogVersion: "3.0",
+      knowledgeModelVersion: 1,
+      scope: { type: "PROJECT", projectId: "project-1", activityId: null },
+      entries: [],
+      omittedEntries: [],
+      qualitySignals: [],
+    },
     curation: {
       featuredEntryIds: [],
       narrative: [],
@@ -84,20 +84,22 @@ function createFakeRepos(options: {
 
   const analyticsExecutionRepository = {
     findLatestByScope: async () => currentExecution,
-    updateStatus: async (
-      _id: string,
-      update: { status: string },
-    ) => {
+    updateStatus: async (_id: string, update: { status: string }) => {
       if (!currentExecution) {
         return null;
       }
-      currentExecution = { ...currentExecution, status: update.status } as AnalyticsExecutionPersistenceRecord;
+      currentExecution = {
+        ...currentExecution,
+        status: update.status,
+      } as AnalyticsExecutionPersistenceRecord;
       return currentExecution;
     },
+    deleteByProjectId: async () => 0,
   } as unknown as AnalyticsExecutionRepository;
 
   const analyticsResultRepository = {
     findLatestByScope: async () => options.result,
+    deleteByProjectId: async () => 0,
   } as unknown as AnalyticsResultRepository;
 
   return {
@@ -143,7 +145,10 @@ test("a completed result matching the current model/curator version is not marke
     repos.analyticsResultRepository,
   );
 
-  const { execution } = await service.getProjectAnalytics("user-1", "project-1");
+  const { execution } = await service.getProjectAnalytics(
+    "user-1",
+    "project-1",
+  );
 
   assert.equal(execution!.status, "COMPLETED");
 });
@@ -163,10 +168,14 @@ test("a Project Knowledge Model version bump marks a completed result STALE", as
     repos.analyticsResultRepository,
   );
 
-  const { execution } = await service.getProjectAnalytics("user-1", "project-1");
+  const { execution, result } = await service.getProjectAnalytics(
+    "user-1",
+    "project-1",
+  );
 
   assert.equal(execution!.status, "STALE");
   assert.equal(repos.getCurrentExecution()!.status, "STALE");
+  assert.equal(result, null);
 });
 
 test("a curator model version mismatch also marks a completed result STALE", async () => {
@@ -194,9 +203,61 @@ test("a curator model version mismatch also marks a completed result STALE", asy
     repos.analyticsResultRepository,
   );
 
-  const { execution } = await service.getProjectAnalytics("user-1", "project-1");
+  const { execution, result } = await service.getProjectAnalytics(
+    "user-1",
+    "project-1",
+  );
 
   assert.equal(execution!.status, "STALE");
+  assert.equal(result, null);
+});
+
+test("a stale Project Knowledge Model status hides the cached analytics result", async () => {
+  const project = makeProject();
+  const authorizationService = createFakeAuthorization(project);
+  const repos = createFakeRepos({
+    model: makeKnowledgeModel({ status: "stale", version: 1 }),
+    execution: makeExecution({ status: "COMPLETED" }),
+    result: makeResult({ knowledgeModelVersion: 1 }),
+  });
+  const service = new AnalyticsQueryService(
+    authorizationService,
+    repos.projectKnowledgeModelRepository,
+    repos.analyticsExecutionRepository,
+    repos.analyticsResultRepository,
+  );
+
+  const { execution, result } = await service.getProjectAnalytics(
+    "user-1",
+    "project-1",
+  );
+
+  assert.equal(execution!.status, "STALE");
+  assert.equal(result, null);
+});
+
+test("a non-live execution never exposes an old analytics result", async () => {
+  const project = makeProject();
+  const authorizationService = createFakeAuthorization(project);
+  const repos = createFakeRepos({
+    model: makeKnowledgeModel({ version: 1 }),
+    execution: makeExecution({ status: "STALE" }),
+    result: makeResult({ knowledgeModelVersion: 1 }),
+  });
+  const service = new AnalyticsQueryService(
+    authorizationService,
+    repos.projectKnowledgeModelRepository,
+    repos.analyticsExecutionRepository,
+    repos.analyticsResultRepository,
+  );
+
+  const { execution, result } = await service.getProjectAnalytics(
+    "user-1",
+    "project-1",
+  );
+
+  assert.equal(execution!.status, "STALE");
+  assert.equal(result, null);
 });
 
 test("a completed empty-catalog result with no Project Knowledge Model is not marked stale", async () => {
@@ -220,7 +281,10 @@ test("a completed empty-catalog result with no Project Knowledge Model is not ma
     repos.analyticsResultRepository,
   );
 
-  const { execution } = await service.getProjectAnalytics("user-1", "project-1");
+  const { execution } = await service.getProjectAnalytics(
+    "user-1",
+    "project-1",
+  );
 
   assert.equal(execution!.status, "COMPLETED");
 });
@@ -240,7 +304,10 @@ test("a result computed from a real model that has since disappeared is marked s
     repos.analyticsResultRepository,
   );
 
-  const { execution } = await service.getProjectAnalytics("user-1", "project-1");
+  const { execution } = await service.getProjectAnalytics(
+    "user-1",
+    "project-1",
+  );
 
   assert.equal(execution!.status, "STALE");
 });
@@ -250,7 +317,10 @@ test("a FAILED execution is returned as-is, never re-checked for staleness", asy
   const authorizationService = createFakeAuthorization(project);
   const repos = createFakeRepos({
     model: makeKnowledgeModel({ version: 99 }),
-    execution: makeExecution({ status: "FAILED", errorCode: "analytics_generation_failed" }),
+    execution: makeExecution({
+      status: "FAILED",
+      errorCode: "analytics_generation_failed",
+    }),
     result: null,
   });
   const service = new AnalyticsQueryService(
@@ -260,7 +330,10 @@ test("a FAILED execution is returned as-is, never re-checked for staleness", asy
     repos.analyticsResultRepository,
   );
 
-  const { execution } = await service.getProjectAnalytics("user-1", "project-1");
+  const { execution } = await service.getProjectAnalytics(
+    "user-1",
+    "project-1",
+  );
 
   assert.equal(execution!.status, "FAILED");
 });

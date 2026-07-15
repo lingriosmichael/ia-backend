@@ -54,25 +54,6 @@ export type ProcessingJobType = (typeof processingJobTypeValues)[number];
 export const aiExecutionTypeValues = processingJobTypeValues;
 export type AIExecutionType = ProcessingJobType;
 
-export const resultRecordStatusValues = [
-  "pending",
-  "available",
-  "archived",
-] as const;
-export type ResultRecordStatus = (typeof resultRecordStatusValues)[number];
-export const aiArtifactStatusValues = resultRecordStatusValues;
-export type AIArtifactStatus = ResultRecordStatus;
-
-export const resultRecordTypeValues = [
-  "semantic_summary",
-  "activity_snapshot",
-  "project_snapshot",
-  "other",
-] as const;
-export type ResultRecordType = (typeof resultRecordTypeValues)[number];
-export const aiArtifactTypeValues = resultRecordTypeValues;
-export type AIArtifactType = ResultRecordType;
-
 export interface UserSummary {
   id: string;
   email: string;
@@ -259,22 +240,6 @@ export interface ProcessingJobRecord {
   completedAt: string | null;
 }
 export type AIExecutionRecord = ProcessingJobRecord;
-
-export interface ResultRecord {
-  id: string;
-  organizationId: string;
-  projectId: string;
-  activityId: string | null;
-  uploadMetadataId: string | null;
-  processingJobId: string | null;
-  resultType: AIArtifactType;
-  status: AIArtifactStatus;
-  payload: Record<string, unknown> | null;
-  createdById: string;
-  createdAt: string;
-  updatedAt: string;
-}
-export type AIArtifactRecord = ResultRecord;
 
 export interface ActivityUploadResponse {
   upload: UploadMetadataRecord;
@@ -1057,7 +1022,6 @@ export interface DeleteActivityResponse {
 export interface WorkspaceActivity extends ActivitySummary {
   uploadMetadataCount: number;
   processingJobCount: number;
-  resultCount: number;
 }
 
 export interface WorkspaceProject extends ProjectSummary {
@@ -1259,21 +1223,6 @@ export interface ApprovePrivacyReviewResponse {
   job: ProcessingJobRecord;
 }
 
-export interface CreateResultRecordRequest {
-  activityId?: string | null;
-  uploadMetadataId?: string | null;
-  processingJobId?: string | null;
-  resultType: ResultRecordType;
-  payload?: Record<string, unknown>;
-}
-export type CreateAIArtifactRequest = CreateResultRecordRequest;
-
-export interface UpdateResultRecordRequest {
-  status?: ResultRecordStatus;
-  payload?: Record<string, unknown> | null;
-}
-export type UpdateAIArtifactRequest = UpdateResultRecordRequest;
-
 export interface ApiErrorPayload {
   code: string;
   message: string;
@@ -1315,17 +1264,6 @@ export const knowledgeEntityTypeValues = [
   "evidence_source",
 ] as const;
 export type KnowledgeEntityType = (typeof knowledgeEntityTypeValues)[number];
-
-export const knowledgeRelationshipTypeValues = [
-  "attended",
-  "completed",
-  "observed_in",
-  "reinforces",
-  "contradicts",
-  "complicates",
-] as const;
-export type KnowledgeRelationshipType =
-  (typeof knowledgeRelationshipTypeValues)[number];
 
 // Carried on a KnowledgeSourceInstance when the indicator it came from had
 // a computedValue (see "Phase 4 — Project Knowledge Model.md", "Indicator

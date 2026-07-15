@@ -46,7 +46,9 @@ function filterSourceInstancesForScope(
 }
 
 function uniqueStrings(values: Array<string | null | undefined>): string[] {
-  return [...new Set(values.filter((value): value is string => Boolean(value)))];
+  return [
+    ...new Set(values.filter((value): value is string => Boolean(value))),
+  ];
 }
 
 /**
@@ -71,7 +73,10 @@ export class DashboardCatalogAssemblerService {
       databaseSession,
     );
     if (!model) {
-      return { catalog: emptyCatalog(scope), projectKnowledgeModelStatus: null };
+      return {
+        catalog: emptyCatalog(scope),
+        projectKnowledgeModelStatus: null,
+      };
     }
 
     const [entities, indicators] = await Promise.all([
@@ -94,7 +99,10 @@ export class DashboardCatalogAssemblerService {
     const scopedInterpretationResultIds = new Set<string>();
 
     for (const indicator of indicators) {
-      if (scope.type === "ACTIVITY" && indicator.activityId !== scope.activityId) {
+      if (
+        scope.type === "ACTIVITY" &&
+        indicator.activityId !== scope.activityId
+      ) {
         continue;
       }
       const entity = entityById.get(indicator.knowledgeEntityId);
@@ -108,7 +116,9 @@ export class DashboardCatalogAssemblerService {
         scope,
       );
       for (const sourceInstance of relevantSourceInstances) {
-        scopedInterpretationResultIds.add(sourceInstance.interpretationResultId);
+        scopedInterpretationResultIds.add(
+          sourceInstance.interpretationResultId,
+        );
       }
       metricEntries.push({
         entryId: indicator.id,
@@ -122,7 +132,8 @@ export class DashboardCatalogAssemblerService {
         provenance: {
           knowledgeEntityId: entity.id,
           uploadMetadataId: indicator.sourceEvidence.uploadMetadataId,
-          interpretationResultId: indicator.sourceEvidence.interpretationResultId,
+          interpretationResultId:
+            indicator.sourceEvidence.interpretationResultId,
           sourceReference: indicator.sourceEvidence.sourceReference,
         },
       });
@@ -133,13 +144,17 @@ export class DashboardCatalogAssemblerService {
 
     for (const entity of entities) {
       if (entity.entityType === "theme") {
-        const relevantInstances =
-          filterSourceInstancesForScope(entity.sourceInstances, scope);
+        const relevantInstances = filterSourceInstancesForScope(
+          entity.sourceInstances,
+          scope,
+        );
         if (relevantInstances.length === 0) {
           continue;
         }
         for (const sourceInstance of relevantInstances) {
-          scopedInterpretationResultIds.add(sourceInstance.interpretationResultId);
+          scopedInterpretationResultIds.add(
+            sourceInstance.interpretationResultId,
+          );
         }
         themeEntries.push({
           entryId: entity.id,
@@ -154,7 +169,8 @@ export class DashboardCatalogAssemblerService {
           ) as EvidenceCatalogThemeEntry["categories"],
           outcomeReferences: uniqueStrings(
             relevantInstances.map(
-              (instance) => instance.qualitativeContext?.outcomeReference ?? null,
+              (instance) =>
+                instance.qualitativeContext?.outcomeReference ?? null,
             ),
           ),
           outcomeAnchorTypes: uniqueStrings(
@@ -164,7 +180,9 @@ export class DashboardCatalogAssemblerService {
             ),
           ) as EvidenceCatalogThemeEntry["outcomeAnchorTypes"],
           sourceActivityIds: [
-            ...new Set(relevantInstances.map((instance) => instance.activityId)),
+            ...new Set(
+              relevantInstances.map((instance) => instance.activityId),
+            ),
           ],
           sourceUploadMetadataIds: [
             ...new Set(
@@ -182,7 +200,9 @@ export class DashboardCatalogAssemblerService {
         );
         const inScope = relevantSourceInstances.length > 0;
         for (const sourceInstance of relevantSourceInstances) {
-          scopedInterpretationResultIds.add(sourceInstance.interpretationResultId);
+          scopedInterpretationResultIds.add(
+            sourceInstance.interpretationResultId,
+          );
         }
         if (inScope && !indicatorEntityIdsWithValue.has(entity.id)) {
           omittedEntries.push({
@@ -194,9 +214,9 @@ export class DashboardCatalogAssemblerService {
       }
     }
 
-    const qualitySignals = await this.buildQualitySignals(
-      [...scopedInterpretationResultIds],
-    );
+    const qualitySignals = await this.buildQualitySignals([
+      ...scopedInterpretationResultIds,
+    ]);
 
     return {
       catalog: {
@@ -276,7 +296,10 @@ export class DashboardCatalogAssemblerService {
         continue;
       }
 
-      for (const [index, requirement] of preparedDataset.unresolvedRequirements.entries()) {
+      for (const [
+        index,
+        requirement,
+      ] of preparedDataset.unresolvedRequirements.entries()) {
         registerSignal({
           signalId: `prep-unresolved:${preparation.id}:${index}`,
           sourceType: "dataset_preparation",

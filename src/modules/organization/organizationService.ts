@@ -297,7 +297,6 @@ export class OrganizationService {
             _count: {
               uploadMetadata: number;
               processingJobs: number;
-              resultRecords: number;
             };
           }
         >
@@ -314,7 +313,6 @@ export class OrganizationService {
         _count: {
           uploadMetadata: activityUploadCounts[activity.id] ?? 0,
           processingJobs: 0,
-          resultRecords: 0,
         },
       };
 

@@ -295,7 +295,9 @@ test("marks deterministic analysis as awaiting preparation when the prepared dat
       preparedDataset: {
         evidenceModality: "structured_quantitative",
         isReadyForDeterministicAnalysis: false,
-        unresolvedRequirements: ["Primary status column still needs confirmation."],
+        unresolvedRequirements: [
+          "Primary status column still needs confirmation.",
+        ],
         tables: [],
       },
     }),

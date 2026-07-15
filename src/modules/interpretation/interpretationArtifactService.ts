@@ -57,7 +57,10 @@ const interpretationQuestionKinds: readonly InterpretationQuestionKind[] = [
   "free_text",
   "merge_confirmation",
 ];
-const interpretationQuestionDomains = ["preparation", "interpretation"] as const;
+const interpretationQuestionDomains = [
+  "preparation",
+  "interpretation",
+] as const;
 const interpretationQuestionCodes: readonly InterpretationQuestionCode[] = [
   "normalization_merge",
   "row_grain",
@@ -108,9 +111,7 @@ function readQuestionKind(value: unknown): InterpretationQuestionKind {
     : "free_text";
 }
 
-function readQuestionDomain(
-  value: unknown,
-): "preparation" | "interpretation" {
+function readQuestionDomain(value: unknown): "preparation" | "interpretation" {
   return interpretationQuestionDomains.includes(
     value as (typeof interpretationQuestionDomains)[number],
   )
@@ -119,7 +120,9 @@ function readQuestionDomain(
 }
 
 function readQuestionCode(value: unknown): InterpretationQuestionCode | null {
-  return interpretationQuestionCodes.includes(value as InterpretationQuestionCode)
+  return interpretationQuestionCodes.includes(
+    value as InterpretationQuestionCode,
+  )
     ? (value as InterpretationQuestionCode)
     : null;
 }
@@ -135,13 +138,17 @@ function readWarningSeverity(value: unknown): InterpretationWarningSeverity {
 function readDatasetProfileColumnType(
   value: unknown,
 ): DatasetProfileColumnType {
-  return datasetProfileColumnTypeValues.includes(value as DatasetProfileColumnType)
+  return datasetProfileColumnTypeValues.includes(
+    value as DatasetProfileColumnType,
+  )
     ? (value as DatasetProfileColumnType)
     : "unknown";
 }
 
 function readDatasetProfileIssueCode(value: unknown): DatasetProfileIssueCode {
-  return datasetProfileIssueCodeValues.includes(value as DatasetProfileIssueCode)
+  return datasetProfileIssueCodeValues.includes(
+    value as DatasetProfileIssueCode,
+  )
     ? (value as DatasetProfileIssueCode)
     : "row_grain_ambiguous";
 }
@@ -252,8 +259,7 @@ function readEvidenceRouting(value: unknown): EvidenceRoutingDecision | null {
       evidenceModality !== "mixed_dual_track" &&
       evidenceModality !== "narrative_qualitative" &&
       evidenceModality !== "insufficiently_extracted") ||
-    (decisionSource !== "deterministic" &&
-      decisionSource !== "llm_tiebreaker")
+    (decisionSource !== "deterministic" && decisionSource !== "llm_tiebreaker")
   ) {
     return null;
   }
@@ -710,9 +716,9 @@ export class InterpretationArtifactService {
       await this.datasetPreparationService.syncForInterpretationResult(created);
     const deterministicAnalysis =
       await this.deterministicAnalysisService.syncForInterpretationResult(
-      created,
-      datasetPreparation,
-    );
+        created,
+        datasetPreparation,
+      );
     const updatedPreparation =
       deterministicAnalysis.status === "ready"
         ? await this.datasetPreparationService.markAnalysisCompleted(

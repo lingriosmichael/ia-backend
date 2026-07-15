@@ -1,5 +1,6 @@
 import type { DatabaseSession } from "../../shared/database/databaseClient.js";
 import { createDocumentId } from "../../shared/database/documentId.js";
+import { applyMongoSession } from "../../shared/database/mongoSession.js";
 import {
   ParsedRepresentationMongoModel,
   type ParsedRepresentationMongoHydratedDocument,
@@ -34,25 +35,28 @@ function toParsedRepresentationRecord(
 export class MongoParsedRepresentationRepository implements ParsedRepresentationRepository {
   async upsertByProcessingJobId(
     input: ParsedRepresentationUpsertInput,
-    _session: DatabaseSession,
+    session: DatabaseSession,
   ): Promise<ParsedRepresentationPersistenceRecord> {
-    const document = await ParsedRepresentationMongoModel.findOneAndUpdate(
-      { processingJobId: input.processingJobId },
-      {
-        $set: {
-          organizationId: input.organizationId,
-          projectId: input.projectId,
-          activityId: input.activityId,
-          uploadMetadataId: input.uploadMetadataId,
-          processingJobId: input.processingJobId,
-          fileType: input.fileType,
-          payload: input.payload,
+    const document = await applyMongoSession(
+      ParsedRepresentationMongoModel.findOneAndUpdate(
+        { processingJobId: input.processingJobId },
+        {
+          $set: {
+            organizationId: input.organizationId,
+            projectId: input.projectId,
+            activityId: input.activityId,
+            uploadMetadataId: input.uploadMetadataId,
+            processingJobId: input.processingJobId,
+            fileType: input.fileType,
+            payload: input.payload,
+          },
+          $setOnInsert: {
+            _id: createDocumentId(),
+          },
         },
-        $setOnInsert: {
-          _id: createDocumentId(),
-        },
-      },
-      { upsert: true, returnDocument: "after" },
+        { upsert: true, returnDocument: "after" },
+      ),
+      session,
     ).exec();
 
     return toParsedRepresentationRecord(
@@ -62,41 +66,53 @@ export class MongoParsedRepresentationRepository implements ParsedRepresentation
 
   async findByProcessingJobId(
     processingJobId: string,
-    _session: DatabaseSession,
+    session: DatabaseSession,
   ): Promise<ParsedRepresentationPersistenceRecord | null> {
-    const document = await ParsedRepresentationMongoModel.findOne({
-      processingJobId,
-    }).exec();
+    const document = await applyMongoSession(
+      ParsedRepresentationMongoModel.findOne({
+        processingJobId,
+      }),
+      session,
+    ).exec();
     return toParsedRepresentationRecord(document);
   }
 
   async deleteByProjectId(
     projectId: string,
-    _session: DatabaseSession,
+    session: DatabaseSession,
   ): Promise<number> {
-    const result = await ParsedRepresentationMongoModel.deleteMany({
-      projectId,
-    }).exec();
+    const result = await applyMongoSession(
+      ParsedRepresentationMongoModel.deleteMany({
+        projectId,
+      }),
+      session,
+    ).exec();
     return result.deletedCount ?? 0;
   }
 
   async deleteByActivityId(
     activityId: string,
-    _session: DatabaseSession,
+    session: DatabaseSession,
   ): Promise<number> {
-    const result = await ParsedRepresentationMongoModel.deleteMany({
-      activityId,
-    }).exec();
+    const result = await applyMongoSession(
+      ParsedRepresentationMongoModel.deleteMany({
+        activityId,
+      }),
+      session,
+    ).exec();
     return result.deletedCount ?? 0;
   }
 
   async deleteByUploadMetadataId(
     uploadMetadataId: string,
-    _session: DatabaseSession,
+    session: DatabaseSession,
   ): Promise<number> {
-    const result = await ParsedRepresentationMongoModel.deleteMany({
-      uploadMetadataId,
-    }).exec();
+    const result = await applyMongoSession(
+      ParsedRepresentationMongoModel.deleteMany({
+        uploadMetadataId,
+      }),
+      session,
+    ).exec();
     return result.deletedCount ?? 0;
   }
 }

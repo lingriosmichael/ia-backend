@@ -1,4 +1,5 @@
 import type { DatabaseSession } from "../../shared/database/databaseClient.js";
+import { applyMongoSession } from "../../shared/database/mongoSession.js";
 import type {
   DatasetPreparationDecisionSummary,
   PreparedDatasetSnapshot,
@@ -58,33 +59,34 @@ function toDatasetPreparationRecord(
   };
 }
 
-export class MongoDatasetPreparationRepository
-  implements DatasetPreparationRepository
-{
+export class MongoDatasetPreparationRepository implements DatasetPreparationRepository {
   async upsertByInterpretationResultId(
     input: DatasetPreparationUpsertInput,
-    _session: DatabaseSession,
+    session: DatabaseSession,
   ): Promise<DatasetPreparationPersistenceRecord> {
-    const document = await DatasetPreparationMongoModel.findOneAndUpdate(
-      { interpretationResultId: input.interpretationResultId },
-      {
-        $set: {
-          organizationId: input.organizationId,
-          projectId: input.projectId,
-          activityId: input.activityId,
-          uploadMetadataId: input.uploadMetadataId,
-          privacySafeRepresentationId: input.privacySafeRepresentationId,
-          interpretationResultId: input.interpretationResultId,
-          status: input.status,
-          blockingQuestionCount: input.blockingQuestionCount,
-          answeredBlockingQuestionCount: input.answeredBlockingQuestionCount,
-          unansweredBlockingQuestionIds: input.unansweredBlockingQuestionIds,
-          decisions: input.decisions,
-          decisionSummary: input.decisionSummary,
-          preparedDataset: input.preparedDataset,
+    const document = await applyMongoSession(
+      DatasetPreparationMongoModel.findOneAndUpdate(
+        { interpretationResultId: input.interpretationResultId },
+        {
+          $set: {
+            organizationId: input.organizationId,
+            projectId: input.projectId,
+            activityId: input.activityId,
+            uploadMetadataId: input.uploadMetadataId,
+            privacySafeRepresentationId: input.privacySafeRepresentationId,
+            interpretationResultId: input.interpretationResultId,
+            status: input.status,
+            blockingQuestionCount: input.blockingQuestionCount,
+            answeredBlockingQuestionCount: input.answeredBlockingQuestionCount,
+            unansweredBlockingQuestionIds: input.unansweredBlockingQuestionIds,
+            decisions: input.decisions,
+            decisionSummary: input.decisionSummary,
+            preparedDataset: input.preparedDataset,
+          },
         },
-      },
-      { upsert: true, returnDocument: "after" },
+        { upsert: true, returnDocument: "after" },
+      ),
+      session,
     ).exec();
 
     return toDatasetPreparationRecord(
@@ -94,25 +96,31 @@ export class MongoDatasetPreparationRepository
 
   async findByInterpretationResultId(
     interpretationResultId: string,
-    _session: DatabaseSession,
+    session: DatabaseSession,
   ): Promise<DatasetPreparationPersistenceRecord | null> {
-    const document = await DatasetPreparationMongoModel.findOne({
-      interpretationResultId,
-    }).exec();
+    const document = await applyMongoSession(
+      DatasetPreparationMongoModel.findOne({
+        interpretationResultId,
+      }),
+      session,
+    ).exec();
     return toDatasetPreparationRecord(document);
   }
 
   async findByInterpretationResultIds(
     interpretationResultIds: string[],
-    _session: DatabaseSession,
+    session: DatabaseSession,
   ): Promise<DatasetPreparationPersistenceRecord[]> {
     if (interpretationResultIds.length === 0) {
       return [];
     }
 
-    const documents = await DatasetPreparationMongoModel.find({
-      interpretationResultId: { $in: interpretationResultIds },
-    }).exec();
+    const documents = await applyMongoSession(
+      DatasetPreparationMongoModel.find({
+        interpretationResultId: { $in: interpretationResultIds },
+      }),
+      session,
+    ).exec();
 
     return documents
       .map((document) => toDatasetPreparationRecord(document))
@@ -124,31 +132,40 @@ export class MongoDatasetPreparationRepository
 
   async deleteByProjectId(
     projectId: string,
-    _session: DatabaseSession,
+    session: DatabaseSession,
   ): Promise<number> {
-    const result = await DatasetPreparationMongoModel.deleteMany({
-      projectId,
-    }).exec();
+    const result = await applyMongoSession(
+      DatasetPreparationMongoModel.deleteMany({
+        projectId,
+      }),
+      session,
+    ).exec();
     return result.deletedCount ?? 0;
   }
 
   async deleteByActivityId(
     activityId: string,
-    _session: DatabaseSession,
+    session: DatabaseSession,
   ): Promise<number> {
-    const result = await DatasetPreparationMongoModel.deleteMany({
-      activityId,
-    }).exec();
+    const result = await applyMongoSession(
+      DatasetPreparationMongoModel.deleteMany({
+        activityId,
+      }),
+      session,
+    ).exec();
     return result.deletedCount ?? 0;
   }
 
   async deleteByUploadMetadataId(
     uploadMetadataId: string,
-    _session: DatabaseSession,
+    session: DatabaseSession,
   ): Promise<number> {
-    const result = await DatasetPreparationMongoModel.deleteMany({
-      uploadMetadataId,
-    }).exec();
+    const result = await applyMongoSession(
+      DatasetPreparationMongoModel.deleteMany({
+        uploadMetadataId,
+      }),
+      session,
+    ).exec();
     return result.deletedCount ?? 0;
   }
 }

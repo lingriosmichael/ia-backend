@@ -1,11 +1,14 @@
 import { databaseSession } from "../../shared/database/databaseClient.js";
+import type { TransactionManager } from "../../shared/database/transactionManager.js";
 import type { ProcessingJobRepository } from "../ai/execution/processingJobRepository.js";
+import { ProjectDerivedStateInvalidationService } from "../analytics/projectDerivedStateInvalidationService.js";
 import { AppError } from "../../shared/errors/appError.js";
 import { AuthorizationService } from "../../shared/auth/authorizationService.js";
+import type { ActivityRepository } from "../activity/activityRepository.js";
 import { mapUploadMetadata } from "../../shared/utils/mappers.js";
 import { ActivityService } from "../activity/activityService.js";
+import { clearActivityInterpretationAcknowledgmentIfPresent } from "../interpretation/interpretationReviewState.js";
 import { ProcessingResourceCleanupService } from "../processing/processingResourceCleanupService.js";
-import type { ResultRepository } from "../ai/artifact/resultRepository.js";
 import type { UserRepository } from "../user/userRepository.js";
 import { FileStorageService } from "./fileStorageService.js";
 import type { UploadMetadataPersistenceRecord } from "./uploadMetadataPersistence.js";
@@ -22,9 +25,11 @@ export class UploadMetadataService {
     private readonly authorizationService: AuthorizationService,
     private readonly fileStorageService: FileStorageService,
     private readonly userRepository: UserRepository,
+    private readonly transactionManager: TransactionManager,
+    private readonly activityRepository: ActivityRepository,
     private readonly processingJobRepository: ProcessingJobRepository,
-    private readonly resultRepository: ResultRepository,
     private readonly processingResourceCleanupService: ProcessingResourceCleanupService,
+    private readonly projectDerivedStateInvalidationService: ProjectDerivedStateInvalidationService,
   ) {}
 
   async listByActivity(userId: string, activityId: string) {
@@ -282,25 +287,57 @@ export class UploadMetadataService {
       );
     }
 
-    await this.resultRepository.deleteByUploadMetadataId(
-      uploadMetadataId,
-      databaseSession,
-    );
-    await this.processingResourceCleanupService.deleteByUploadMetadataId(
-      uploadMetadataId,
-      databaseSession,
-    );
-    await this.processingJobRepository.deleteByUploadMetadataId(
-      uploadMetadataId,
-      databaseSession,
-    );
-    await this.uploadMetadataRepository.deleteById(
-      uploadMetadataId,
-      databaseSession,
-    );
+    await this.transactionManager.runInTransaction(async (session) => {
+      if (record.activityId) {
+        const activity = await this.activityRepository.findById(
+          record.activityId,
+          session,
+        );
+
+        if (
+          activity &&
+          (activity.interpretationAcknowledgedAt ||
+            activity.interpretationAcknowledgedById)
+        ) {
+          await clearActivityInterpretationAcknowledgmentIfPresent(
+            this.activityRepository,
+            record.activityId,
+            session,
+          );
+          await this.projectDerivedStateInvalidationService.invalidateProject(
+            record.projectId,
+            session,
+          );
+        }
+      }
+
+      await this.processingResourceCleanupService.deleteByUploadMetadataId(
+        uploadMetadataId,
+        session,
+      );
+      await this.processingJobRepository.deleteByUploadMetadataId(
+        uploadMetadataId,
+        session,
+      );
+      await this.uploadMetadataRepository.deleteById(uploadMetadataId, session);
+    });
 
     if (record.storageKey && !record.originalFileDeletedAt) {
-      await this.fileStorageService.deleteStoredFiles([record.storageKey]);
+      // Filesystem deletion cannot participate in the database transaction.
+      // By this point every database record referencing this file is
+      // already gone, so a failure here can only leave unreferenced bytes
+      // on disk — not a dangling reference reachable through the API —
+      // which is why this step stays best-effort rather than failing the
+      // now-already-completed delete.
+      try {
+        await this.fileStorageService.deleteStoredFiles([record.storageKey]);
+      } catch (error) {
+        console.error("Failed to delete stored upload file.", {
+          uploadMetadataId,
+          storageKey: record.storageKey,
+          error,
+        });
+      }
     }
 
     return {

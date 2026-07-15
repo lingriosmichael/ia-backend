@@ -7,7 +7,7 @@ import {
 } from "../auth/authenticate.js";
 import { AuthorizationService } from "../auth/authorizationService.js";
 import { createRequireInternalServiceSecretMiddleware } from "../auth/requireInternalServiceSecret.js";
-import { NoopTransactionManager } from "../database/transactionManager.js";
+import { MongoTransactionManager } from "../database/transactionManager.js";
 import { ActivityController } from "../../modules/activity/activityController.js";
 import { MongoActivityRepository } from "../../modules/activity/activityMongoRepository.js";
 import { ActivityService } from "../../modules/activity/activityService.js";
@@ -16,11 +16,9 @@ import { AnalyticsExecutionService } from "../../modules/analytics/analyticsExec
 import { MongoAnalyticsExecutionRepository } from "../../modules/analytics/analyticsExecutionMongoRepository.js";
 import { AnalyticsQueryService } from "../../modules/analytics/analyticsQueryService.js";
 import { MongoAnalyticsResultRepository } from "../../modules/analytics/analyticsResultMongoRepository.js";
+import { ProjectDerivedStateInvalidationService } from "../../modules/analytics/projectDerivedStateInvalidationService.js";
 import { DashboardCatalogAssemblerService } from "../../modules/analytics/dashboardCatalogAssemblerService.js";
 import { PythonAnalyticsCurationClient } from "../../modules/analytics/pythonAnalyticsCurationClient.js";
-import { ResultController } from "../../modules/ai/artifact/resultController.js";
-import { MongoResultRepository } from "../../modules/ai/artifact/resultRecordMongoRepository.js";
-import { ResultRecordService } from "../../modules/ai/artifact/resultRecordService.js";
 import { MongoProcessingJobRepository } from "../../modules/ai/execution/processingJobMongoRepository.js";
 import { ProcessingJobController } from "../../modules/ai/execution/processingJobController.js";
 import { ProcessingJobService } from "../../modules/ai/execution/processingJobService.js";
@@ -41,13 +39,11 @@ import { InterpretationService } from "../../modules/interpretation/interpretati
 import { QuantitativeInterpretationSynthesisService } from "../../modules/interpretation/quantitativeInterpretationSynthesisService.js";
 import { MongoKnowledgeEntityRepository } from "../../modules/knowledge/knowledgeEntityMongoRepository.js";
 import { MongoKnowledgeIndicatorRepository } from "../../modules/knowledge/knowledgeIndicatorMongoRepository.js";
-import { MongoKnowledgeRelationshipRepository } from "../../modules/knowledge/knowledgeRelationshipMongoRepository.js";
 import { MongoProjectKnowledgeModelRepository } from "../../modules/knowledge/projectKnowledgeModelMongoRepository.js";
 import { ProjectKnowledgeBuilderService } from "../../modules/knowledge/projectKnowledgeBuilderService.js";
 import { OrganizationController } from "../../modules/organization/organizationController.js";
 import { MongoOrganizationRepository } from "../../modules/organization/organizationMongoRepository.js";
 import { OrganizationService } from "../../modules/organization/organizationService.js";
-import { MongoEntityMappingRepository } from "../../modules/processing/entityMappingMongoRepository.js";
 import { EvidenceProcessingService } from "../../modules/processing/evidenceProcessingService.js";
 import { EvidenceProcessingArtifactService } from "../../modules/processing/evidenceProcessingArtifactService.js";
 import { MongoParsedRepresentationRepository } from "../../modules/processing/parsedRepresentationMongoRepository.js";
@@ -72,7 +68,7 @@ export function createApplicationContext(
   config: BackendConfig,
   logger: FastifyBaseLogger,
 ) {
-  const transactionManager = new NoopTransactionManager();
+  const transactionManager = new MongoTransactionManager();
   const emailService = createEmailService(config);
   const userRepository = new MongoUserRepository();
   const organizationRepository = new MongoOrganizationRepository();
@@ -81,25 +77,28 @@ export function createApplicationContext(
   const activityRepository = new MongoActivityRepository();
   const uploadMetadataRepository = new MongoUploadMetadataRepository();
   const processingJobRepository = new MongoProcessingJobRepository();
-  const resultRepository = new MongoResultRepository();
   const parsedRepresentationRepository =
     new MongoParsedRepresentationRepository();
   const privacyReviewRepository = new MongoPrivacyReviewRepository();
   const privacySafeRepresentationRepository =
     new MongoPrivacySafeRepresentationRepository();
-  const entityMappingRepository = new MongoEntityMappingRepository();
   const interpretationResultRepository =
     new MongoInterpretationResultRepository();
-  const datasetPreparationRepository =
-    new MongoDatasetPreparationRepository();
+  const datasetPreparationRepository = new MongoDatasetPreparationRepository();
   const deterministicAnalysisRepository =
     new MongoDeterministicAnalysisRepository();
   const projectKnowledgeModelRepository =
     new MongoProjectKnowledgeModelRepository();
   const knowledgeEntityRepository = new MongoKnowledgeEntityRepository();
-  const knowledgeRelationshipRepository =
-    new MongoKnowledgeRelationshipRepository();
   const knowledgeIndicatorRepository = new MongoKnowledgeIndicatorRepository();
+  const analyticsExecutionRepository = new MongoAnalyticsExecutionRepository();
+  const analyticsResultRepository = new MongoAnalyticsResultRepository();
+  const projectDerivedStateInvalidationService =
+    new ProjectDerivedStateInvalidationService(
+      projectKnowledgeModelRepository,
+      analyticsExecutionRepository,
+      analyticsResultRepository,
+    );
   const projectKnowledgeBuilderService = new ProjectKnowledgeBuilderService(
     projectRepository,
     activityRepository,
@@ -107,20 +106,20 @@ export function createApplicationContext(
     interpretationResultRepository,
     projectKnowledgeModelRepository,
     knowledgeEntityRepository,
-    knowledgeRelationshipRepository,
     knowledgeIndicatorRepository,
   );
   const processingResourceCleanupService = new ProcessingResourceCleanupService(
     parsedRepresentationRepository,
     privacyReviewRepository,
     privacySafeRepresentationRepository,
-    entityMappingRepository,
     interpretationResultRepository,
     datasetPreparationRepository,
     deterministicAnalysisRepository,
     projectKnowledgeModelRepository,
     knowledgeEntityRepository,
-    knowledgeRelationshipRepository,
+    knowledgeIndicatorRepository,
+    analyticsExecutionRepository,
+    analyticsResultRepository,
   );
   const authorizationService = new AuthorizationService(
     organizationRepository,
@@ -161,9 +160,10 @@ export function createApplicationContext(
     authorizationService,
     uploadMetadataRepository,
     fileStorageService,
+    transactionManager,
     processingJobRepository,
-    resultRepository,
     processingResourceCleanupService,
+    projectDerivedStateInvalidationService,
   );
   const uploadMetadataService = new UploadMetadataService(
     uploadMetadataRepository,
@@ -171,9 +171,11 @@ export function createApplicationContext(
     authorizationService,
     fileStorageService,
     userRepository,
+    transactionManager,
+    activityRepository,
     processingJobRepository,
-    resultRepository,
     processingResourceCleanupService,
+    projectDerivedStateInvalidationService,
   );
   const pythonProcessingClient = new PythonProcessingClient(
     config.PYTHON_SERVICE_URL,
@@ -185,7 +187,6 @@ export function createApplicationContext(
       parsedRepresentationRepository,
       privacyReviewRepository,
       privacySafeRepresentationRepository,
-      entityMappingRepository,
     );
   const datasetPreparationService = new DatasetPreparationService(
     datasetPreparationRepository,
@@ -234,12 +235,6 @@ export function createApplicationContext(
     privacyReviewRepository,
     parsedRepresentationRepository,
   );
-  const resultRecordService = new ResultRecordService(
-    resultRepository,
-    uploadMetadataRepository,
-    processingJobRepository,
-    authorizationService,
-  );
   const activityUploadService = new ActivityUploadService(
     activityService,
     fileStorageService,
@@ -267,8 +262,6 @@ export function createApplicationContext(
     datasetPreparationRepository,
     deterministicAnalysisRepository,
   );
-  const analyticsExecutionRepository = new MongoAnalyticsExecutionRepository();
-  const analyticsResultRepository = new MongoAnalyticsResultRepository();
   const pythonAnalyticsCurationClient = new PythonAnalyticsCurationClient(
     config.PYTHON_SERVICE_URL,
     config.PYTHON_SERVICE_SHARED_SECRET,
@@ -318,7 +311,6 @@ export function createApplicationContext(
     ),
     processingJobController: new ProcessingJobController(processingJobService),
     privacyReviewController: new PrivacyReviewController(privacyReviewService),
-    resultController: new ResultController(resultRecordService),
     interpretationController: new InterpretationController(
       interpretationService,
     ),

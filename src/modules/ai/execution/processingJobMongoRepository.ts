@@ -4,6 +4,10 @@ import {
 } from "./processingJobModel.js";
 import type { DatabaseSession } from "../../../shared/database/databaseClient.js";
 import { createDocumentId } from "../../../shared/database/documentId.js";
+import {
+  applyMongoSession,
+  getMongoSessionOptions,
+} from "../../../shared/database/mongoSession.js";
 import { isMongoDuplicateKeyError } from "../../../shared/database/mongoErrors.js";
 import { AppError } from "../../../shared/errors/appError.js";
 import { activeProcessingJobStatusValues } from "../../../shared/contracts.js";
@@ -45,14 +49,19 @@ function toPlainProcessingJob(
 export class MongoProcessingJobRepository implements ProcessingJobRepository {
   async create(
     input: ProcessingJobCreateInput,
-    _session: DatabaseSession,
+    session: DatabaseSession,
   ): Promise<ProcessingJobPersistenceRecord> {
     try {
-      const document = await ProcessingJobMongoModel.create({
-        _id: createDocumentId(),
-        ...input,
-        status: "queued",
-      });
+      const [document] = await ProcessingJobMongoModel.create(
+        [
+          {
+            _id: createDocumentId(),
+            ...input,
+            status: "queued",
+          },
+        ],
+        getMongoSessionOptions(session),
+      );
 
       return toPlainProcessingJob(document) as ProcessingJobPersistenceRecord;
     } catch (error) {
@@ -70,19 +79,23 @@ export class MongoProcessingJobRepository implements ProcessingJobRepository {
 
   async findById(
     executionId: string,
-    _session: DatabaseSession,
+    session: DatabaseSession,
   ): Promise<ProcessingJobPersistenceRecord | null> {
-    const document = await ProcessingJobMongoModel.findById(executionId).exec();
+    const document = await applyMongoSession(
+      ProcessingJobMongoModel.findById(executionId),
+      session,
+    ).exec();
     return toPlainProcessingJob(document);
   }
 
   async listByActivity(
     activityId: string,
-    _session: DatabaseSession,
+    session: DatabaseSession,
   ): Promise<ProcessingJobPersistenceRecord[]> {
-    const documents = await ProcessingJobMongoModel.find({ activityId })
-      .sort({ createdAt: -1 })
-      .exec();
+    const documents = await applyMongoSession(
+      ProcessingJobMongoModel.find({ activityId }).sort({ createdAt: -1 }),
+      session,
+    ).exec();
 
     return documents
       .map((document) => toPlainProcessingJob(document))
@@ -94,7 +107,7 @@ export class MongoProcessingJobRepository implements ProcessingJobRepository {
   async listRecentByProject(
     projectId: string,
     limit: number,
-    _session: DatabaseSession,
+    session: DatabaseSession,
   ): Promise<
     Array<
       Pick<
@@ -103,16 +116,18 @@ export class MongoProcessingJobRepository implements ProcessingJobRepository {
       >
     >
   > {
-    const documents = await ProcessingJobMongoModel.find({ projectId })
-      .sort({ createdAt: -1 })
-      .limit(limit)
-      .select({
-        _id: 1,
-        activityId: 1,
-        status: 1,
-        createdAt: 1,
-      })
-      .exec();
+    const documents = await applyMongoSession(
+      ProcessingJobMongoModel.find({ projectId })
+        .sort({ createdAt: -1 })
+        .limit(limit)
+        .select({
+          _id: 1,
+          activityId: 1,
+          status: 1,
+          createdAt: 1,
+        }),
+      session,
+    ).exec();
 
     return documents.map((document) => ({
       id: document._id.toString(),
@@ -124,13 +139,13 @@ export class MongoProcessingJobRepository implements ProcessingJobRepository {
 
   async countByActivityIds(
     activityIds: string[],
-    _session: DatabaseSession,
+    session: DatabaseSession,
   ): Promise<Record<string, number>> {
     if (activityIds.length === 0) {
       return {};
     }
 
-    const groupedDocuments = await ProcessingJobMongoModel.aggregate<{
+    const aggregate = ProcessingJobMongoModel.aggregate<{
       _id: string | null;
       count: number;
     }>([
@@ -147,7 +162,13 @@ export class MongoProcessingJobRepository implements ProcessingJobRepository {
           count: { $sum: 1 },
         },
       },
-    ]).exec();
+    ]);
+
+    if (session) {
+      aggregate.session(session);
+    }
+
+    const groupedDocuments = await aggregate.exec();
 
     return Object.fromEntries(
       groupedDocuments
@@ -162,63 +183,76 @@ export class MongoProcessingJobRepository implements ProcessingJobRepository {
   async countByProjectStatuses(
     projectId: string,
     statuses: ProcessingJobPersistenceRecord["status"][],
-    _session: DatabaseSession,
+    session: DatabaseSession,
   ): Promise<number> {
-    return ProcessingJobMongoModel.countDocuments({
-      projectId,
-      status: {
-        $in: statuses,
-      },
-    }).exec();
+    return applyMongoSession(
+      ProcessingJobMongoModel.countDocuments({
+        projectId,
+        status: {
+          $in: statuses,
+        },
+      }),
+      session,
+    ).exec();
   }
 
   async findActiveByUploadMetadataId(
     uploadMetadataId: string,
-    _session: DatabaseSession,
+    session: DatabaseSession,
   ): Promise<ProcessingJobPersistenceRecord | null> {
-    const document = await ProcessingJobMongoModel.findOne({
-      uploadMetadataId,
-      status: { $in: [...activeProcessingJobStatusValues] },
-    })
-      .sort({ createdAt: -1 })
-      .exec();
+    const document = await applyMongoSession(
+      ProcessingJobMongoModel.findOne({
+        uploadMetadataId,
+        status: { $in: [...activeProcessingJobStatusValues] },
+      }).sort({ createdAt: -1 }),
+      session,
+    ).exec();
 
     return toPlainProcessingJob(document);
   }
 
   async deleteByActivity(
     activityId: string,
-    _session: DatabaseSession,
+    session: DatabaseSession,
   ): Promise<number> {
-    const result = await ProcessingJobMongoModel.deleteMany({
-      activityId,
-    }).exec();
+    const result = await applyMongoSession(
+      ProcessingJobMongoModel.deleteMany({
+        activityId,
+      }),
+      session,
+    ).exec();
     return result.deletedCount ?? 0;
   }
 
   async deleteByUploadMetadataId(
     uploadMetadataId: string,
-    _session: DatabaseSession,
+    session: DatabaseSession,
   ): Promise<number> {
-    const result = await ProcessingJobMongoModel.deleteMany({
-      uploadMetadataId,
-    }).exec();
+    const result = await applyMongoSession(
+      ProcessingJobMongoModel.deleteMany({
+        uploadMetadataId,
+      }),
+      session,
+    ).exec();
     return result.deletedCount ?? 0;
   }
 
   async update(
     executionId: string,
     input: ProcessingJobUpdateInput,
-    _session: DatabaseSession,
+    session: DatabaseSession,
   ): Promise<ProcessingJobPersistenceRecord> {
-    const document = await ProcessingJobMongoModel.findByIdAndUpdate(
-      executionId,
-      {
-        $set: input,
-      },
-      {
-        returnDocument: "after",
-      },
+    const document = await applyMongoSession(
+      ProcessingJobMongoModel.findByIdAndUpdate(
+        executionId,
+        {
+          $set: input,
+        },
+        {
+          returnDocument: "after",
+        },
+      ),
+      session,
     ).exec();
 
     const record = toPlainProcessingJob(document);
@@ -237,20 +271,23 @@ export class MongoProcessingJobRepository implements ProcessingJobRepository {
   async cancelIfActive(
     processingJobId: string,
     completedAt: Date,
-    _session: DatabaseSession,
+    session: DatabaseSession,
   ): Promise<ProcessingJobPersistenceRecord | null> {
-    const document = await ProcessingJobMongoModel.findOneAndUpdate(
-      {
-        _id: processingJobId,
-        status: { $in: [...activeProcessingJobStatusValues] },
-      },
-      {
-        $set: {
-          status: "cancelled",
-          completedAt,
+    const document = await applyMongoSession(
+      ProcessingJobMongoModel.findOneAndUpdate(
+        {
+          _id: processingJobId,
+          status: { $in: [...activeProcessingJobStatusValues] },
         },
-      },
-      { returnDocument: "after" },
+        {
+          $set: {
+            status: "cancelled",
+            completedAt,
+          },
+        },
+        { returnDocument: "after" },
+      ),
+      session,
     ).exec();
 
     return toPlainProcessingJob(document);

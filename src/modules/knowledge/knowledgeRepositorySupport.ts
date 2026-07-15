@@ -1,5 +1,7 @@
 import type { Model } from "mongoose";
 import type { KnowledgeSourceInstance } from "../../shared/contracts.js";
+import type { DatabaseSession } from "../../shared/database/databaseClient.js";
+import { getMongoSessionOptions } from "../../shared/database/mongoSession.js";
 
 type SourceInstanceDocumentShape = {
   uploadMetadataId: string;
@@ -40,8 +42,11 @@ export async function deleteAllByField<TDocument>(
   model: Model<TDocument>,
   field: string,
   value: string,
+  session: DatabaseSession,
 ): Promise<number> {
-  const result = await model.deleteMany({ [field]: value }).exec();
+  const result = await model
+    .deleteMany({ [field]: value }, getMongoSessionOptions(session))
+    .exec();
   return result.deletedCount ?? 0;
 }
 
@@ -49,9 +54,10 @@ export async function deleteAllByProjectId<TDocument>(
   model: Model<TDocument>,
   projectKnowledgeModelModel: Model<{ projectId: string }>,
   projectId: string,
+  session: DatabaseSession,
 ): Promise<number> {
   const projectKnowledgeModels = await projectKnowledgeModelModel
-    .find({ projectId }, { _id: 1 })
+    .find({ projectId }, { _id: 1 }, getMongoSessionOptions(session))
     .exec();
   const projectKnowledgeModelIds = projectKnowledgeModels.map((modelRecord) =>
     modelRecord._id.toString(),
@@ -61,9 +67,12 @@ export async function deleteAllByProjectId<TDocument>(
   }
 
   const result = await model
-    .deleteMany({
-      projectKnowledgeModelId: { $in: projectKnowledgeModelIds },
-    })
+    .deleteMany(
+      {
+        projectKnowledgeModelId: { $in: projectKnowledgeModelIds },
+      },
+      getMongoSessionOptions(session),
+    )
     .exec();
   return result.deletedCount ?? 0;
 }

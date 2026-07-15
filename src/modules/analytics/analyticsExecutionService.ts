@@ -66,10 +66,8 @@ export class AnalyticsExecutionService {
     projectId: string,
     activityId: string,
   ): Promise<AnalyticsExecutionPersistenceRecord> {
-    const { project, activity } = await this.authorizationService.canViewActivity(
-      userId,
-      activityId,
-    );
+    const { project, activity } =
+      await this.authorizationService.canViewActivity(userId, activityId);
     if (activity.projectId !== projectId) {
       throw new AppError(
         "This activity does not belong to the given project.",

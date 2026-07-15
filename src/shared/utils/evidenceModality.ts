@@ -39,7 +39,14 @@ const ROUTING_STATUS_TERMS = [
   "recommended",
   "recommendation",
 ] as const;
-const ROUTING_DATE_TERMS = ["date", "day", "week", "month", "year", "time"] as const;
+const ROUTING_DATE_TERMS = [
+  "date",
+  "day",
+  "week",
+  "month",
+  "year",
+  "time",
+] as const;
 const ROUTING_MEASURE_TERMS = [
   "count",
   "score",
@@ -86,7 +93,9 @@ function readPrimitiveStringArray(value: unknown): string[] {
   }
   return value
     .map((entry) =>
-      typeof entry === "string" || typeof entry === "number" || typeof entry === "boolean"
+      typeof entry === "string" ||
+      typeof entry === "number" ||
+      typeof entry === "boolean"
         ? String(entry)
         : null,
     )
@@ -167,7 +176,9 @@ function clampRoutingScore(value: number): number {
   return Math.round(Math.max(0, Math.min(1, value)) * 1000) / 1000;
 }
 
-function classifyTableOnlyModality(payload: Record<string, unknown>): EvidenceModality {
+function classifyTableOnlyModality(
+  payload: Record<string, unknown>,
+): EvidenceModality {
   const tables = asRecordArray(payload.tables);
   let quantitativeSignalColumns = 0;
   let longTextColumns = 0;
@@ -193,7 +204,8 @@ function classifyTableOnlyModality(payload: Record<string, unknown>): EvidenceMo
           ? 0
           : sampleValues.reduce((total, value) => total + value.length, 0) /
             sampleValues.length;
-      const uniqueValueCount = readNumber(profile.uniqueValueCount) ?? sampleValues.length;
+      const uniqueValueCount =
+        readNumber(profile.uniqueValueCount) ?? sampleValues.length;
 
       const numericHint =
         dtype.includes("int") ||
@@ -207,7 +219,9 @@ function classifyTableOnlyModality(payload: Record<string, unknown>): EvidenceMo
             Math.ceil(sampleValues.length / 2));
       const longTextHint =
         averageLength >= LONG_TEXT_AVERAGE_CHARS ||
-        sampleValues.some((value) => value.length >= LONG_TEXT_SINGLE_SAMPLE_CHARS);
+        sampleValues.some(
+          (value) => value.length >= LONG_TEXT_SINGLE_SAMPLE_CHARS,
+        );
       const shortCategoricalHint =
         !numericHint &&
         !dateHint &&
@@ -219,7 +233,10 @@ function classifyTableOnlyModality(payload: Record<string, unknown>): EvidenceMo
       if (longTextHint) {
         longTextColumns += 1;
       }
-      if (longTextHint && sampleValues.filter((value) => value.trim().length > 0).length >= 2) {
+      if (
+        longTextHint &&
+        sampleValues.filter((value) => value.trim().length > 0).length >= 2
+      ) {
         populatedLongTextColumns += 1;
       }
       if (numericHint || dateHint || shortCategoricalHint) {
@@ -234,10 +251,16 @@ function classifyTableOnlyModality(payload: Record<string, unknown>): EvidenceMo
       if (dateHint || fieldNameContainsAny(columnName, ROUTING_DATE_TERMS)) {
         dateLikeColumns += 1;
       }
-      if (numericHint || fieldNameContainsAny(columnName, ROUTING_MEASURE_TERMS)) {
+      if (
+        numericHint ||
+        fieldNameContainsAny(columnName, ROUTING_MEASURE_TERMS)
+      ) {
         measureLikeColumns += 1;
       }
-      if (longTextHint || fieldNameContainsAny(columnName, ROUTING_LONG_TEXT_TERMS)) {
+      if (
+        longTextHint ||
+        fieldNameContainsAny(columnName, ROUTING_LONG_TEXT_TERMS)
+      ) {
         freeTextNamedColumns += 1;
       }
     }
@@ -245,7 +268,8 @@ function classifyTableOnlyModality(payload: Record<string, unknown>): EvidenceMo
 
   const quantitativeColumnRatio =
     totalColumns === 0 ? 0 : quantitativeSignalColumns / totalColumns;
-  const longTextColumnRatio = totalColumns === 0 ? 0 : longTextColumns / totalColumns;
+  const longTextColumnRatio =
+    totalColumns === 0 ? 0 : longTextColumns / totalColumns;
   const structuredMetricCueRatio =
     [
       identifierLikeColumns > 0,

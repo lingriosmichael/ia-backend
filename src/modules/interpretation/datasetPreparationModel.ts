@@ -29,7 +29,12 @@ const datasetPreparationSchema = new Schema(
     activityId: { type: String, default: null, index: true },
     uploadMetadataId: { type: String, required: true, index: true },
     privacySafeRepresentationId: { type: String, required: true, index: true },
-    interpretationResultId: { type: String, required: true, unique: true, index: true },
+    interpretationResultId: {
+      type: String,
+      required: true,
+      unique: true,
+      index: true,
+    },
     status: {
       type: String,
       enum: [...datasetPreparationStatusValues],

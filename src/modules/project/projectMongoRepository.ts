@@ -1,5 +1,9 @@
 import type { DatabaseSession } from "../../shared/database/databaseClient.js";
 import { createDocumentId } from "../../shared/database/documentId.js";
+import {
+  applyMongoSession,
+  getMongoSessionOptions,
+} from "../../shared/database/mongoSession.js";
 import { AppError } from "../../shared/errors/appError.js";
 import {
   ProjectMongoModel,
@@ -50,36 +54,45 @@ function toProjectRecord(
 export class MongoProjectRepository implements ProjectRepository {
   async create(
     input: ProjectCreateInput,
-    _session: DatabaseSession,
+    session: DatabaseSession,
   ): Promise<ProjectPersistenceRecord> {
-    const document = await ProjectMongoModel.create({
-      _id: createDocumentId(),
-      ...input,
-      status: input.status ?? "planning",
-    });
+    const [document] = await ProjectMongoModel.create(
+      [
+        {
+          _id: createDocumentId(),
+          ...input,
+          status: input.status ?? "planning",
+        },
+      ],
+      getMongoSessionOptions(session),
+    );
 
     return toProjectRecord(document) as ProjectPersistenceRecord;
   }
 
   async findById(
     projectId: string,
-    _session: DatabaseSession,
+    session: DatabaseSession,
   ): Promise<ProjectPersistenceRecord | null> {
-    const document = await ProjectMongoModel.findById(projectId).exec();
+    const document = await applyMongoSession(
+      ProjectMongoModel.findById(projectId),
+      session,
+    ).exec();
     return toProjectRecord(document);
   }
 
   async findDeleteContext(
     projectId: string,
-    _session: DatabaseSession,
+    session: DatabaseSession,
   ): Promise<{ id: string; name: string; organizationId: string } | null> {
-    const document = await ProjectMongoModel.findById(projectId)
-      .select({
+    const document = await applyMongoSession(
+      ProjectMongoModel.findById(projectId).select({
         _id: 1,
         name: 1,
         organizationId: 1,
-      })
-      .exec();
+      }),
+      session,
+    ).exec();
 
     if (!document) {
       return null;
@@ -95,16 +108,19 @@ export class MongoProjectRepository implements ProjectRepository {
   async update(
     projectId: string,
     input: ProjectUpdateInput,
-    _session: DatabaseSession,
+    session: DatabaseSession,
   ): Promise<ProjectPersistenceRecord> {
-    const document = await ProjectMongoModel.findByIdAndUpdate(
-      projectId,
-      {
-        $set: input,
-      },
-      {
-        returnDocument: "after",
-      },
+    const document = await applyMongoSession(
+      ProjectMongoModel.findByIdAndUpdate(
+        projectId,
+        {
+          $set: input,
+        },
+        {
+          returnDocument: "after",
+        },
+      ),
+      session,
     ).exec();
 
     const record = toProjectRecord(document);
@@ -119,16 +135,19 @@ export class MongoProjectRepository implements ProjectRepository {
   async transferOwnership(
     projectId: string,
     newOwnerId: string,
-    _session: DatabaseSession,
+    session: DatabaseSession,
   ): Promise<ProjectPersistenceRecord> {
-    const document = await ProjectMongoModel.findByIdAndUpdate(
-      projectId,
-      {
-        $set: { ownerId: newOwnerId },
-      },
-      {
-        returnDocument: "after",
-      },
+    const document = await applyMongoSession(
+      ProjectMongoModel.findByIdAndUpdate(
+        projectId,
+        {
+          $set: { ownerId: newOwnerId },
+        },
+        {
+          returnDocument: "after",
+        },
+      ),
+      session,
     ).exec();
 
     const record = toProjectRecord(document);
@@ -142,11 +161,12 @@ export class MongoProjectRepository implements ProjectRepository {
 
   async listByOrganization(
     organizationId: string,
-    _session: DatabaseSession,
+    session: DatabaseSession,
   ): Promise<ProjectPersistenceRecord[]> {
-    const documents = await ProjectMongoModel.find({ organizationId })
-      .sort({ createdAt: -1 })
-      .exec();
+    const documents = await applyMongoSession(
+      ProjectMongoModel.find({ organizationId }).sort({ createdAt: -1 }),
+      session,
+    ).exec();
 
     return documents
       .map((document) => toProjectRecord(document))
@@ -158,11 +178,14 @@ export class MongoProjectRepository implements ProjectRepository {
   async listByOrganizationForOwner(
     organizationId: string,
     ownerId: string,
-    _session: DatabaseSession,
+    session: DatabaseSession,
   ): Promise<ProjectPersistenceRecord[]> {
-    const documents = await ProjectMongoModel.find({ organizationId, ownerId })
-      .sort({ createdAt: -1 })
-      .exec();
+    const documents = await applyMongoSession(
+      ProjectMongoModel.find({ organizationId, ownerId }).sort({
+        createdAt: -1,
+      }),
+      session,
+    ).exec();
 
     return documents
       .map((document) => toProjectRecord(document))
@@ -173,14 +196,15 @@ export class MongoProjectRepository implements ProjectRepository {
 
   async delete(
     projectId: string,
-    _session: DatabaseSession,
+    session: DatabaseSession,
   ): Promise<{ id: string; organizationId: string }> {
-    const document = await ProjectMongoModel.findByIdAndDelete(projectId)
-      .select({
+    const document = await applyMongoSession(
+      ProjectMongoModel.findByIdAndDelete(projectId).select({
         _id: 1,
         organizationId: 1,
-      })
-      .exec();
+      }),
+      session,
+    ).exec();
 
     if (!document) {
       throw new AppError("Project not found.", 404, "project_not_found");

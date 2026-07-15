@@ -90,9 +90,8 @@ test(
     const activityRepository = {} as ActivityRepository;
 
     const transactionManager = {
-      runInTransaction: async <T>(
-        operation: (session: undefined) => Promise<T>,
-      ) => operation(undefined),
+      runInTransaction: async <T>(operation: (session: null) => Promise<T>) =>
+        operation(null),
     } as unknown as TransactionManager;
     const userRepository = {} as UserRepository;
     const processingResourceCleanupService = {
@@ -207,9 +206,8 @@ test(
     const activityRepository = {} as ActivityRepository;
 
     const transactionManager = {
-      runInTransaction: async <T>(
-        operation: (session: undefined) => Promise<T>,
-      ) => operation(undefined),
+      runInTransaction: async <T>(operation: (session: null) => Promise<T>) =>
+        operation(null),
     } as unknown as TransactionManager;
     const userRepository = {} as UserRepository;
     const processingResourceCleanupService = {
@@ -319,9 +317,8 @@ test(
     const activityRepository = {} as ActivityRepository;
 
     const transactionManager = {
-      runInTransaction: async <T>(
-        operation: (session: undefined) => Promise<T>,
-      ) => operation(undefined),
+      runInTransaction: async <T>(operation: (session: null) => Promise<T>) =>
+        operation(null),
     } as unknown as TransactionManager;
     const userRepository = {} as UserRepository;
     const processingResourceCleanupService = {
@@ -468,7 +465,6 @@ test(
 
     assert.equal(overview.activities[0]?.uploadMetadataCount, 2);
     assert.equal(overview.activities[0]?.processingJobCount, 0);
-    assert.equal(overview.activities[0]?.resultCount, 0);
     assert.equal(overview.metrics.insightCount, 0);
     assert.equal(overview.metrics.pendingInsightCount, 0);
     assert.equal(overview.metrics.failedJobCount, 0);

@@ -5,10 +5,16 @@ import type { AnalyticsExecutionRepository } from "./analyticsExecutionRepositor
 import type { AnalyticsExecutionPersistenceRecord } from "./analyticsExecutionPersistence.js";
 import type { AnalyticsResultRepository } from "./analyticsResultRepository.js";
 import type { AnalyticsResultPersistenceRecord } from "./analyticsResultPersistence.js";
-import { CURATOR_MODEL_VERSION, type AnalyticsScope } from "./analyticsContracts.js";
+import {
+  CURATOR_MODEL_VERSION,
+  type AnalyticsScope,
+} from "./analyticsContracts.js";
 import { AppError } from "../../shared/errors/appError.js";
 
-const LIVE_EXECUTION_STATUSES = new Set(["COMPLETED", "COMPLETED_WITH_WARNINGS"]);
+const LIVE_EXECUTION_STATUSES = new Set([
+  "COMPLETED",
+  "COMPLETED_WITH_WARNINGS",
+]);
 
 export interface AnalyticsQueryResult {
   execution: AnalyticsExecutionPersistenceRecord | null;
@@ -58,20 +64,39 @@ export class AnalyticsQueryService {
     return this.getForScope({ type: "ACTIVITY", projectId, activityId });
   }
 
-  private async getForScope(scope: AnalyticsScope): Promise<AnalyticsQueryResult> {
+  private async getForScope(
+    scope: AnalyticsScope,
+  ): Promise<AnalyticsQueryResult> {
     const [execution, result] = await Promise.all([
-      this.analyticsExecutionRepository.findLatestByScope(scope, databaseSession),
+      this.analyticsExecutionRepository.findLatestByScope(
+        scope,
+        databaseSession,
+      ),
       this.analyticsResultRepository.findLatestByScope(scope, databaseSession),
     ]);
 
-    if (!execution || !result || !LIVE_EXECUTION_STATUSES.has(execution.status)) {
-      return { execution, result };
+    if (!execution || !result) {
+      return { execution, result: null };
+    }
+
+    if (!LIVE_EXECUTION_STATUSES.has(execution.status)) {
+      return { execution, result: null };
     }
 
     const model = await this.projectKnowledgeModelRepository.findByProjectId(
       scope.projectId,
       databaseSession,
     );
+
+    if (model && model.status !== "ready") {
+      const updated = await this.analyticsExecutionRepository.updateStatus(
+        execution.id,
+        { status: "STALE" },
+        databaseSession,
+      );
+      return { execution: updated ?? execution, result: null };
+    }
+
     // A result computed with no Project Knowledge Model at all carries
     // knowledgeModelVersion: 0 (see DashboardCatalogAssemblerService's
     // emptyCatalog). If there's still no model, that result is still
@@ -92,6 +117,6 @@ export class AnalyticsQueryService {
       { status: "STALE" },
       databaseSession,
     );
-    return { execution: updated ?? execution, result };
+    return { execution: updated ?? execution, result: null };
   }
 }

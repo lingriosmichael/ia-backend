@@ -4,7 +4,6 @@ import type {
   DeterministicAnalysisDistribution,
   DeterministicAnalysisDistributionBucket,
   DeterministicAnalysisMetric,
-  DeterministicAnalysisStatus,
   DeterministicAnalysisSubgroupBreakdown,
   DeterministicAnalysisSubgroupSegment,
   DeterministicAnalysisTrend,
@@ -25,18 +24,14 @@ import type { InterpretationResultPersistenceRecord } from "./interpretationResu
 const MAX_DISTRIBUTION_BUCKETS = 10;
 const MAX_SUBGROUP_SEGMENTS = 8;
 
-function readTableRecords(payload: Record<string, unknown>): Record<string, unknown>[] {
+function readTableRecords(
+  payload: Record<string, unknown>,
+): Record<string, unknown>[] {
   return Array.isArray(payload.tables)
     ? payload.tables.filter(
         (table): table is Record<string, unknown> =>
           Boolean(table) && typeof table === "object" && !Array.isArray(table),
       )
-    : [];
-}
-
-function readColumnNames(value: unknown): string[] {
-  return Array.isArray(value)
-    ? value.filter((entry): entry is string => typeof entry === "string")
     : [];
 }
 
@@ -54,7 +49,11 @@ function normalizeText(value: string): string {
 }
 
 function toMonthKey(value: unknown): string | null {
-  if (typeof value !== "string" && typeof value !== "number" && !(value instanceof Date)) {
+  if (
+    typeof value !== "string" &&
+    typeof value !== "number" &&
+    !(value instanceof Date)
+  ) {
     return null;
   }
   const date = new Date(value);
@@ -159,7 +158,9 @@ function buildTrend(
     rowsByMonth.set(monthKey, bucket);
   }
 
-  const points: DeterministicAnalysisTrendPoint[] = Array.from(rowsByMonth.entries())
+  const points: DeterministicAnalysisTrendPoint[] = Array.from(
+    rowsByMonth.entries(),
+  )
     .sort((a, b) => a[0].localeCompare(b[0]))
     .map(([period, monthRows]) => {
       const positiveCount = countPositiveRows(
@@ -281,7 +282,10 @@ function buildMetricsAndCandidates(
     groundingNote: "Derived deterministically from prepared dataset row count.",
   });
 
-  const distinctIdentifierCount = countDistinctNonNull(rows, table.identifierColumn);
+  const distinctIdentifierCount = countDistinctNonNull(
+    rows,
+    table.identifierColumn,
+  );
   if (table.identifierColumn && distinctIdentifierCount !== null) {
     const metric: DeterministicAnalysisMetric = {
       metricKey: `${table.name}::distinct_identifier_count`,
@@ -305,7 +309,8 @@ function buildMetricsAndCandidates(
       value: metric.value,
       unit: metric.unit,
       sourceColumns: metric.sourceColumns,
-      groundingNote: "Derived deterministically from prepared identifier column.",
+      groundingNote:
+        "Derived deterministically from prepared identifier column.",
     });
   }
 
@@ -453,7 +458,8 @@ function buildAnalysisInput(
     const positiveStatusColumn = preparedTable.columns.find(
       (column) => column.name === preparedTable.primaryStatusColumn,
     );
-    const positiveStatusValues = positiveStatusColumn?.positiveStatusValues ?? [];
+    const positiveStatusValues =
+      positiveStatusColumn?.positiveStatusValues ?? [];
 
     const metricOutput = buildMetricsAndCandidates(
       preparedTable,
@@ -513,7 +519,11 @@ export class DeterministicAnalysisService {
       );
 
     return this.deterministicAnalysisRepository.upsertByInterpretationResultId(
-      buildAnalysisInput(result, preparation, privacySafeRepresentation?.payload ?? {}),
+      buildAnalysisInput(
+        result,
+        preparation,
+        privacySafeRepresentation?.payload ?? {},
+      ),
       databaseSession,
     );
   }
