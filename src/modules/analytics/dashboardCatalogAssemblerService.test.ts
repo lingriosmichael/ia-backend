@@ -214,6 +214,9 @@ test("dataset preparation and deterministic analysis warnings become catalog qua
         distributions: [],
         trends: [],
         subgroupBreakdowns: [],
+        categoricalCrosstabs: [],
+        numericCategorySummaries: [],
+        numericCorrelations: [],
         warnings: [
           {
             code: "sparse_denominator",

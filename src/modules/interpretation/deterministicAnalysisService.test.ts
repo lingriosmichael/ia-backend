@@ -72,7 +72,7 @@ function makePreparation(
         {
           name: "attendance",
           rowCount: 3,
-          columnCount: 4,
+          columnCount: 6,
           selectedRowGrain: "One row is one participant attendance record.",
           identifierColumn: "participant_id",
           identifierHandling: "assume_unique",
@@ -107,6 +107,22 @@ function makePreparation(
               name: "cohort",
               inferredType: "categorical",
               role: "subgroup",
+              positiveStatusValues: [],
+              positiveStatusDefinitionText: null,
+              normalizationAccepted: null,
+            },
+            {
+              name: "motivation_score",
+              inferredType: "numeric",
+              role: "measure",
+              positiveStatusValues: [],
+              positiveStatusDefinitionText: null,
+              normalizationAccepted: null,
+            },
+            {
+              name: "communication_score",
+              inferredType: "numeric",
+              role: "measure",
               positiveStatusValues: [],
               positiveStatusDefinitionText: null,
               normalizationAccepted: null,
@@ -162,25 +178,38 @@ test("builds deterministic quantitative analysis from a prepared dataset", async
         tables: [
           {
             name: "attendance",
-            columns: ["participant_id", "status", "session_date", "cohort"],
+            columns: [
+              "participant_id",
+              "status",
+              "session_date",
+              "cohort",
+              "motivation_score",
+              "communication_score",
+            ],
             rows: [
               {
                 participant_id: "P-1",
                 status: "completed",
                 session_date: "2026-01-10",
                 cohort: "A",
+                motivation_score: 4,
+                communication_score: 5,
               },
               {
                 participant_id: "P-2",
                 status: "completed",
                 session_date: "2026-01-22",
                 cohort: "B",
+                motivation_score: 5,
+                communication_score: 4,
               },
               {
                 participant_id: "P-3",
                 status: "pending",
                 session_date: "2026-02-05",
                 cohort: "A",
+                motivation_score: 2,
+                communication_score: 3,
               },
             ],
           },
@@ -200,11 +229,14 @@ test("builds deterministic quantitative analysis from a prepared dataset", async
 
   const input = requireCapturedInput(capturedInput);
   assert.equal(input.status, "ready");
-  assert.equal(input.metrics.length, 4);
-  assert.equal(input.candidateIndicators.length, 4);
-  assert.equal(input.distributions.length, 1);
+  assert.equal(input.metrics.length, 12);
+  assert.equal(input.candidateIndicators.length, 8);
+  assert.equal(input.distributions.length, 2);
   assert.equal(input.trends.length, 1);
   assert.equal(input.subgroupBreakdowns.length, 1);
+  assert.equal(input.categoricalCrosstabs.length, 1);
+  assert.equal(input.numericCategorySummaries.length, 4);
+  assert.equal(input.numericCorrelations.length, 1);
 
   const totalRowsMetric = input.metrics.find(
     (metric) => metric.metricKey === "attendance::total_rows",
@@ -248,6 +280,55 @@ test("builds deterministic quantitative analysis from a prepared dataset", async
       positiveRatio: 1,
     },
   ]);
+
+  assert.deepEqual(input.categoricalCrosstabs[0]?.cells, [
+    { valueA: "completed", valueB: "A", count: 1, ratio: 1 / 3 },
+    { valueA: "completed", valueB: "B", count: 1, ratio: 1 / 3 },
+    { valueA: "pending", valueB: "A", count: 1, ratio: 1 / 3 },
+    { valueA: "pending", valueB: "B", count: 0, ratio: 0 },
+  ]);
+
+  const motivationByStatus = input.numericCategorySummaries.find(
+    (summary) =>
+      summary.numericColumnName === "motivation_score" &&
+      summary.categoryColumnName === "status",
+  );
+  assert.deepEqual(motivationByStatus?.groups, [
+    {
+      categoryValue: "completed",
+      count: 2,
+      min: 4,
+      max: 5,
+      mean: 4.5,
+      median: 4.5,
+      standardDeviation: 0.5,
+      q1: 4.25,
+      q3: 4.75,
+    },
+    {
+      categoryValue: "pending",
+      count: 1,
+      min: 2,
+      max: 2,
+      mean: 2,
+      median: 2,
+      standardDeviation: 0,
+      q1: 2,
+      q3: 2,
+    },
+  ]);
+
+  assert.deepEqual(input.numericCorrelations[0], {
+    correlationKey:
+      "attendance::motivation_score::communication_score::correlation",
+    label: "motivation_score vs communication_score",
+    tableName: "attendance",
+    columnAName: "motivation_score",
+    columnBName: "communication_score",
+    completePairCount: 3,
+    pearson: 0.6547,
+    spearman: 0.5,
+  });
 });
 
 test("marks deterministic analysis as awaiting preparation when the prepared dataset is not ready", async () => {
@@ -306,6 +387,12 @@ test("marks deterministic analysis as awaiting preparation when the prepared dat
   const input = requireCapturedInput(capturedInput);
   assert.equal(input.status, "awaiting_preparation");
   assert.equal(input.metrics.length, 0);
+  assert.equal(input.distributions.length, 0);
+  assert.equal(input.trends.length, 0);
+  assert.equal(input.subgroupBreakdowns.length, 0);
+  assert.equal(input.categoricalCrosstabs.length, 0);
+  assert.equal(input.numericCategorySummaries.length, 0);
+  assert.equal(input.numericCorrelations.length, 0);
   assert.equal(input.warnings.length, 1);
   assert.equal(
     input.warnings[0]?.message,
@@ -370,4 +457,9 @@ test("marks non-quantitative evidence as not applicable", async () => {
   assert.equal(input.status, "not_applicable");
   assert.equal(input.metrics.length, 0);
   assert.equal(input.distributions.length, 0);
+  assert.equal(input.trends.length, 0);
+  assert.equal(input.subgroupBreakdowns.length, 0);
+  assert.equal(input.categoricalCrosstabs.length, 0);
+  assert.equal(input.numericCategorySummaries.length, 0);
+  assert.equal(input.numericCorrelations.length, 0);
 });

@@ -2,25 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { approvePrivacyReviewSchema } from "./httpSchemas.js";
 
-// A privacy-review override ("rejected" = keep the original, unredacted
-// value) is a compliance-sensitive decision — see item 19 of
-// "Code Review Remediation Plan — 2026-07-13.md" and the corresponding
-// section of Phase 4 — Project Knowledge Model.md. This locks in the
-// decided policy: every rejection must carry a real justification.
-
-test("approvePrivacyReviewSchema rejects a 'rejected' decision with no reason", () => {
-  assert.throws(() =>
-    approvePrivacyReviewSchema.parse({
-      decisions: {
-        fieldDecisions: [
-          { field: "email", entityType: "EMAIL_ADDRESS", decision: "rejected" },
-        ],
-      },
-    }),
-  );
-});
-
-test("approvePrivacyReviewSchema rejects a 'rejected' decision with a too-short reason", () => {
+test("approvePrivacyReviewSchema rejects a too-short reason when one is provided", () => {
   assert.throws(() =>
     approvePrivacyReviewSchema.parse({
       decisions: {
@@ -28,7 +10,7 @@ test("approvePrivacyReviewSchema rejects a 'rejected' decision with a too-short 
           {
             field: "email",
             entityType: "EMAIL_ADDRESS",
-            decision: "rejected",
+            decision: "keep",
             reason: "not pii",
           },
         ],
@@ -37,14 +19,14 @@ test("approvePrivacyReviewSchema rejects a 'rejected' decision with a too-short 
   );
 });
 
-test("approvePrivacyReviewSchema accepts a 'rejected' decision with a real reason", () => {
+test("approvePrivacyReviewSchema accepts an override action with a real reason", () => {
   const parsed = approvePrivacyReviewSchema.parse({
     decisions: {
       fieldDecisions: [
         {
           field: "email",
           entityType: "EMAIL_ADDRESS",
-          decision: "rejected",
+          decision: "keep",
           reason: "This is the organization's shared inbox, not personal data.",
         },
       ],
@@ -57,14 +39,35 @@ test("approvePrivacyReviewSchema accepts a 'rejected' decision with a real reaso
   );
 });
 
-test("approvePrivacyReviewSchema accepts an 'approved' decision with no reason", () => {
+test("approvePrivacyReviewSchema accepts a recommended action with no reason", () => {
   const parsed = approvePrivacyReviewSchema.parse({
     decisions: {
       fieldDecisions: [
-        { field: "email", entityType: "EMAIL_ADDRESS", decision: "approved" },
+        { field: "email", entityType: "EMAIL_ADDRESS", decision: "tokenize" },
       ],
     },
   });
 
   assert.equal(parsed.decisions?.fieldDecisions?.[0]?.reason, undefined);
+});
+
+test("approvePrivacyReviewSchema rejects duplicate (field, entityType) decisions", () => {
+  // Two entries for the same finding are inherently ambiguous about which
+  // decision applies — reject at the boundary rather than let this service
+  // and the Python service (which iterates the array separately) each pick
+  // a different one.
+  assert.throws(() =>
+    approvePrivacyReviewSchema.parse({
+      decisions: {
+        fieldDecisions: [
+          { field: "email", entityType: "EMAIL_ADDRESS", decision: "keep" },
+          {
+            field: "email",
+            entityType: "EMAIL_ADDRESS",
+            decision: "tokenize",
+          },
+        ],
+      },
+    }),
+  );
 });

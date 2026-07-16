@@ -1,7 +1,10 @@
 import type {
   DeterministicAnalysisCandidateIndicator,
+  DeterministicAnalysisCategoricalCrosstab,
   DeterministicAnalysisDistribution,
   DeterministicAnalysisMetric,
+  DeterministicAnalysisNumericCategorySummary,
+  DeterministicAnalysisNumericCorrelation,
   DeterministicAnalysisStatus,
   DeterministicAnalysisSubgroupBreakdown,
   DeterministicAnalysisTrend,
@@ -22,6 +25,9 @@ export interface DeterministicAnalysisPersistenceRecord {
   distributions: DeterministicAnalysisDistribution[];
   trends: DeterministicAnalysisTrend[];
   subgroupBreakdowns: DeterministicAnalysisSubgroupBreakdown[];
+  categoricalCrosstabs: DeterministicAnalysisCategoricalCrosstab[];
+  numericCategorySummaries: DeterministicAnalysisNumericCategorySummary[];
+  numericCorrelations: DeterministicAnalysisNumericCorrelation[];
   warnings: DeterministicAnalysisWarning[];
   candidateIndicators: DeterministicAnalysisCandidateIndicator[];
   createdAt: Date;
@@ -41,6 +47,9 @@ export interface DeterministicAnalysisUpsertInput {
   distributions: DeterministicAnalysisDistribution[];
   trends: DeterministicAnalysisTrend[];
   subgroupBreakdowns: DeterministicAnalysisSubgroupBreakdown[];
+  categoricalCrosstabs: DeterministicAnalysisCategoricalCrosstab[];
+  numericCategorySummaries: DeterministicAnalysisNumericCategorySummary[];
+  numericCorrelations: DeterministicAnalysisNumericCorrelation[];
   warnings: DeterministicAnalysisWarning[];
   candidateIndicators: DeterministicAnalysisCandidateIndicator[];
 }

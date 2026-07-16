@@ -148,6 +148,9 @@ function makeAnalysis(
     distributions: [],
     trends: [],
     subgroupBreakdowns: [],
+    categoricalCrosstabs: [],
+    numericCategorySummaries: [],
+    numericCorrelations: [],
     warnings: [],
     candidateIndicators: [
       {

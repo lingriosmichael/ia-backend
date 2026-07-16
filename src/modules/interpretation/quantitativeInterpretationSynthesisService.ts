@@ -231,6 +231,10 @@ export class QuantitativeInterpretationSynthesisService {
         distributions: deterministicAnalysis.distributions,
         trends: deterministicAnalysis.trends,
         subgroupBreakdowns: deterministicAnalysis.subgroupBreakdowns,
+        categoricalCrosstabs: deterministicAnalysis.categoricalCrosstabs,
+        numericCategorySummaries:
+          deterministicAnalysis.numericCategorySummaries,
+        numericCorrelations: deterministicAnalysis.numericCorrelations,
         warnings: deterministicAnalysis.warnings,
         candidateIndicators: deterministicAnalysis.candidateIndicators,
       },

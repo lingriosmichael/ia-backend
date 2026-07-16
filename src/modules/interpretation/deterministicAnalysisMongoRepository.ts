@@ -35,6 +35,12 @@ function toDeterministicAnalysisRecord(
       []) as DeterministicAnalysisPersistenceRecord["trends"],
     subgroupBreakdowns: (document.subgroupBreakdowns ??
       []) as DeterministicAnalysisPersistenceRecord["subgroupBreakdowns"],
+    categoricalCrosstabs: (document.categoricalCrosstabs ??
+      []) as DeterministicAnalysisPersistenceRecord["categoricalCrosstabs"],
+    numericCategorySummaries: (document.numericCategorySummaries ??
+      []) as DeterministicAnalysisPersistenceRecord["numericCategorySummaries"],
+    numericCorrelations: (document.numericCorrelations ??
+      []) as DeterministicAnalysisPersistenceRecord["numericCorrelations"],
     warnings: (document.warnings ??
       []) as DeterministicAnalysisPersistenceRecord["warnings"],
     candidateIndicators: (document.candidateIndicators ??
@@ -66,6 +72,9 @@ export class MongoDeterministicAnalysisRepository implements DeterministicAnalys
             distributions: input.distributions,
             trends: input.trends,
             subgroupBreakdowns: input.subgroupBreakdowns,
+            categoricalCrosstabs: input.categoricalCrosstabs,
+            numericCategorySummaries: input.numericCategorySummaries,
+            numericCorrelations: input.numericCorrelations,
             warnings: input.warnings,
             candidateIndicators: input.candidateIndicators,
           },

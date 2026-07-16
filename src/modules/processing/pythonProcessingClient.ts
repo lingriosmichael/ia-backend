@@ -141,7 +141,7 @@ interface DeterministicAnalysisMetric {
 }
 
 interface DeterministicAnalysisDistributionBucket {
-  value: string;
+  value: string | null;
   count: number;
   ratio: number | null;
 }
@@ -171,7 +171,7 @@ interface DeterministicAnalysisTrend {
 }
 
 interface DeterministicAnalysisSubgroupSegment {
-  value: string;
+  value: string | null;
   rowCount: number;
   positiveCount: number | null;
   positiveRatio: number | null;
@@ -188,6 +188,54 @@ interface DeterministicAnalysisSubgroupBreakdown {
 interface DeterministicAnalysisWarning {
   code: string;
   message: string;
+}
+
+interface DeterministicAnalysisCategoricalCrosstabCell {
+  valueA: string | null;
+  valueB: string | null;
+  count: number;
+  ratio: number | null;
+}
+
+interface DeterministicAnalysisCategoricalCrosstab {
+  crosstabKey: string;
+  label: string;
+  tableName: string;
+  columnAName: string;
+  columnBName: string;
+  cells: DeterministicAnalysisCategoricalCrosstabCell[];
+}
+
+interface DeterministicAnalysisNumericCategoryGroup {
+  categoryValue: string | null;
+  count: number;
+  min: number | null;
+  max: number | null;
+  mean: number | null;
+  median: number | null;
+  standardDeviation: number | null;
+  q1: number | null;
+  q3: number | null;
+}
+
+interface DeterministicAnalysisNumericCategorySummary {
+  summaryKey: string;
+  label: string;
+  tableName: string;
+  numericColumnName: string;
+  categoryColumnName: string;
+  groups: DeterministicAnalysisNumericCategoryGroup[];
+}
+
+interface DeterministicAnalysisNumericCorrelation {
+  correlationKey: string;
+  label: string;
+  tableName: string;
+  columnAName: string;
+  columnBName: string;
+  completePairCount: number;
+  pearson: number | null;
+  spearman: number | null;
 }
 
 interface DeterministicAnalysisCandidateIndicator {
@@ -208,6 +256,9 @@ interface QuantitativeDeterministicAnalysis {
   distributions: DeterministicAnalysisDistribution[];
   trends: DeterministicAnalysisTrend[];
   subgroupBreakdowns: DeterministicAnalysisSubgroupBreakdown[];
+  categoricalCrosstabs: DeterministicAnalysisCategoricalCrosstab[];
+  numericCategorySummaries: DeterministicAnalysisNumericCategorySummary[];
+  numericCorrelations: DeterministicAnalysisNumericCorrelation[];
   warnings: DeterministicAnalysisWarning[];
   candidateIndicators: DeterministicAnalysisCandidateIndicator[];
 }

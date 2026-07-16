@@ -33,10 +33,20 @@ function getExternalJobId(payload: Record<string, unknown> | null) {
 interface FindingRequiringDecision {
   field: string;
   entityType: string;
+  // null covers a findings snapshot stored before recommendedAction existed
+  // on this shape (a review already pending when that field was introduced).
+  // Treated as "no known recommendation" below, not as "no reason needed" —
+  // decision.decision !== null is always true, so any decision on a legacy
+  // finding is treated as an override and must carry a reason.
+  recommendedAction: string | null;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function hasValidOverrideReason(reason: string | undefined): boolean {
+  return (reason?.trim().length ?? 0) >= 10;
 }
 
 // review.findings is a Mixed blob on the wire (Python owns its exact shape);
@@ -57,6 +67,10 @@ function findFindingsRequiringDecision(
       field: typeof finding.field === "string" ? finding.field : "",
       entityType:
         typeof finding.entityType === "string" ? finding.entityType : "",
+      recommendedAction:
+        typeof finding.recommendedAction === "string"
+          ? finding.recommendedAction
+          : null,
     }))
     .filter(
       (finding) => finding.field.length > 0 && finding.entityType.length > 0,
@@ -201,10 +215,10 @@ export class PrivacyReviewService {
 
     const approvedAt = new Date();
 
-    // Stamp who decided each finding and when — never trust a
-    // client-supplied identity or timestamp for this. Built before the
-    // completeness check below so that check validates the exact set of
-    // decisions that will actually be applied.
+    // Stamp who decided each finding and when — never trust a client-supplied
+    // identity or timestamp for this. Built before the completeness check
+    // below so that check validates the exact set of decisions that will
+    // actually be applied.
     const stampedFieldDecisions: PrivacyReviewFieldDecisionRecord[] = (
       decisions?.fieldDecisions ?? []
     ).map((fieldDecision) => ({
@@ -219,23 +233,45 @@ export class PrivacyReviewService {
     // Enforced here, not just in the dialog's disabled submit button — a
     // modified client could otherwise submit an incomplete decision set
     // directly against this endpoint.
-    const findingsRequiringDecision = findFindingsRequiringDecision(
-      review.findings,
-    );
-    const decidedKeys = new Set(
-      stampedFieldDecisions.map(
-        (decision) => `${decision.field}::${decision.entityType}`,
-      ),
+    const findingsRequiringDecision = findFindingsRequiringDecision(review.findings);
+    const decisionByKey = new Map(
+      stampedFieldDecisions.map((decision) => [
+        `${decision.field}::${decision.entityType}`,
+        decision,
+      ]),
     );
     const unresolvedFindings = findingsRequiringDecision.filter(
-      (finding) => !decidedKeys.has(`${finding.field}::${finding.entityType}`),
+      (finding) => !decisionByKey.has(`${finding.field}::${finding.entityType}`),
     );
     if (unresolvedFindings.length > 0) {
       throw new AppError(
-        "Every detected finding must be approved or rejected before continuing.",
+        "Every detected finding must have a selected transformation before continuing.",
         400,
         "privacy_review_decisions_incomplete",
         { unresolvedFindings },
+      );
+    }
+
+    const overrideFindingsMissingReason = findingsRequiringDecision.filter(
+      (finding) => {
+        const decision = decisionByKey.get(
+          `${finding.field}::${finding.entityType}`,
+        );
+        if (!decision) {
+          return false;
+        }
+        return (
+          decision.decision !== finding.recommendedAction &&
+          !hasValidOverrideReason(decision.reason)
+        );
+      },
+    );
+    if (overrideFindingsMissingReason.length > 0) {
+      throw new AppError(
+        "Every override of a recommended privacy action must include a reason.",
+        400,
+        "privacy_review_override_reason_required",
+        { overrideFindingsMissingReason },
       );
     }
 

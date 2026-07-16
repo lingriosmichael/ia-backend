@@ -784,6 +784,10 @@ export function mapInterpretationResult(record: {
     distributions: DeterministicAnalysisRecord["distributions"];
     trends: DeterministicAnalysisRecord["trends"];
     subgroupBreakdowns: DeterministicAnalysisRecord["subgroupBreakdowns"];
+    categoricalCrosstabs: DeterministicAnalysisRecord["categoricalCrosstabs"];
+    numericCategorySummaries:
+      DeterministicAnalysisRecord["numericCategorySummaries"];
+    numericCorrelations: DeterministicAnalysisRecord["numericCorrelations"];
     warnings: DeterministicAnalysisRecord["warnings"];
     candidateIndicators: DeterministicAnalysisRecord["candidateIndicators"];
     createdAt: Date;
@@ -880,6 +884,12 @@ export function mapInterpretationResult(record: {
           distributions: record.deterministicAnalysis.distributions,
           trends: record.deterministicAnalysis.trends,
           subgroupBreakdowns: record.deterministicAnalysis.subgroupBreakdowns,
+          categoricalCrosstabs:
+            record.deterministicAnalysis.categoricalCrosstabs,
+          numericCategorySummaries:
+            record.deterministicAnalysis.numericCategorySummaries,
+          numericCorrelations:
+            record.deterministicAnalysis.numericCorrelations,
           warnings: record.deterministicAnalysis.warnings,
           candidateIndicators: record.deterministicAnalysis.candidateIndicators,
           createdAt: toIso(record.deterministicAnalysis.createdAt),

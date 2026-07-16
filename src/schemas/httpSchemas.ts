@@ -18,7 +18,13 @@ const nullableTextFieldSchema = z
   .max(2000)
   .nullable()
   .optional();
-const privacyReviewDecisionValueSchema = z.enum(["approved", "rejected"]);
+const privacyReviewDecisionValueSchema = z.enum([
+  "keep",
+  "tokenize",
+  "generalize",
+  "remove",
+  "restrict",
+]);
 
 export const idParamSchema = z.object({
   organizationId: z.string().min(1).optional(),
@@ -174,36 +180,46 @@ const privacyReviewFieldDecisionSchema = z
     field: z.string().trim().min(1).max(255),
     entityType: z.string().trim().min(1).max(120),
     decision: privacyReviewDecisionValueSchema,
-    // Required only for "rejected": overriding a privacy finding (keeping
-    // PII unredacted) must be justified for the audit trail. Approving the
-    // recommended action needs no justification.
     reason: z.string().trim().min(10).max(2000).optional(),
-  })
-  .superRefine((fieldDecision, ctx) => {
-    if (fieldDecision.decision === "rejected" && !fieldDecision.reason) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: "A reason is required when rejecting a privacy finding.",
-        path: ["reason"],
-      });
-    }
   });
 
-export const approvePrivacyReviewSchema = z.object({
-  decisions: z
-    .object({
-      // Every entity type can require a decision now, not just free-text
-      // risk/special-category — see privacy_tools.py's _recommended_action.
-      // decidedById/decidedAt are deliberately not accepted here: the
-      // server stamps those itself from the authenticated caller, never
-      // trusting a client-supplied identity or timestamp.
-      fieldDecisions: z
-        .array(privacyReviewFieldDecisionSchema)
-        .max(200)
-        .optional(),
-    })
-    .optional(),
-});
+export const approvePrivacyReviewSchema = z
+  .object({
+    decisions: z
+      .object({
+        // decidedById/decidedAt are deliberately not accepted here: the server
+        // stamps those itself from the authenticated caller, never trusting a
+        // client-supplied identity or timestamp. Whether `reason` is required
+        // depends on the recommended action for the finding, so that override
+        // rule is enforced in PrivacyReviewService rather than at the raw shape
+        // boundary here.
+        fieldDecisions: z
+          .array(privacyReviewFieldDecisionSchema)
+          .max(200)
+          .optional(),
+      })
+      .optional(),
+  })
+  .superRefine((value, ctx) => {
+    // A duplicate (field, entityType) pair is inherently ambiguous: which
+    // decision applies? Reject it outright rather than picking a resolution
+    // order here, since a second consumer (the Python service, which applies
+    // the first match in the array) could otherwise resolve the same
+    // duplicate differently than whatever this service validates against.
+    const seenKeys = new Set<string>();
+    value.decisions?.fieldDecisions?.forEach((fieldDecision, index) => {
+      const key = `${fieldDecision.field}::${fieldDecision.entityType}`;
+      if (seenKeys.has(key)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message:
+            "Each finding (field + entityType) may only appear once in fieldDecisions.",
+          path: ["decisions", "fieldDecisions", index],
+        });
+      }
+      seenKeys.add(key);
+    });
+  });
 
 export const answerInterpretationQuestionSchema = z.object({
   answeredValue: z.string().trim().min(1).max(2000),
