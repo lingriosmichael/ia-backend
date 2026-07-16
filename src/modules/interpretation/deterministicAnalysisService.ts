@@ -129,12 +129,14 @@ function sanitizeKeyFragment(value: string | null): string {
     return "null";
   }
 
-  return value
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "_")
-    .replace(/^_+|_+$/g, "")
-    .slice(0, 40) || "value";
+  return (
+    value
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "_")
+      .replace(/^_+|_+$/g, "")
+      .slice(0, 40) || "value"
+  );
 }
 
 function compareNullableStrings(
@@ -192,7 +194,10 @@ function roundNumber(value: number): number {
   return Math.round(value * 10000) / 10000;
 }
 
-function computeQuantile(sortedValues: number[], quantile: number): number | null {
+function computeQuantile(
+  sortedValues: number[],
+  quantile: number,
+): number | null {
   if (sortedValues.length === 0) {
     return null;
   }
@@ -435,7 +440,10 @@ function buildSubgroupBreakdowns(
   return table.columns
     .filter((column) => column.role === "subgroup")
     .map((column) => {
-      const segmentsByValue = new Map<string | null, Record<string, unknown>[]>();
+      const segmentsByValue = new Map<
+        string | null,
+        Record<string, unknown>[]
+      >();
       for (const row of rows) {
         const key = toCategoryValue(row[column.name]);
         if (key === null) {
@@ -548,8 +556,7 @@ function buildCategoricalColumns(
     })
     .filter((column) => column.uniqueCount > 0)
     .sort((left, right) => {
-      const roleDifference =
-        rolePriority(left.role) - rolePriority(right.role);
+      const roleDifference = rolePriority(left.role) - rolePriority(right.role);
       if (roleDifference !== 0) {
         return roleDifference;
       }
@@ -564,7 +571,9 @@ function buildCategoricalDistributions(
   categoricalColumns: CategoricalColumnAnalysis[],
 ): DeterministicAnalysisDistribution[] {
   return categoricalColumns
-    .filter((column) => column.valueCounts.size <= MAX_CATEGORICAL_DISTINCT_VALUES)
+    .filter(
+      (column) => column.valueCounts.size <= MAX_CATEGORICAL_DISTINCT_VALUES,
+    )
     .map((column) => ({
       distributionKey: `${table.name}::${column.name}::distribution`,
       label: `Distribution of ${column.name}`,
@@ -677,9 +686,16 @@ function buildCategoricalCrosstabs(
 ): DeterministicAnalysisCategoricalCrosstab[] {
   const crosstabs: DeterministicAnalysisCategoricalCrosstab[] = [];
 
-  for (let leftIndex = 0; leftIndex < categoricalColumns.length; leftIndex += 1) {
+  for (
+    let leftIndex = 0;
+    leftIndex < categoricalColumns.length;
+    leftIndex += 1
+  ) {
     const leftColumn = categoricalColumns[leftIndex];
-    if (!leftColumn || leftColumn.valueCounts.size > MAX_CATEGORICAL_DISTINCT_VALUES) {
+    if (
+      !leftColumn ||
+      leftColumn.valueCounts.size > MAX_CATEGORICAL_DISTINCT_VALUES
+    ) {
       continue;
     }
 
@@ -883,7 +899,10 @@ function buildNumericCorrelations(
         columnBName: rightColumn.name,
         completePairCount: pairs.length,
         pearson: computePearson(leftValues, rightValues),
-        spearman: computePearson(rankValues(leftValues), rankValues(rightValues)),
+        spearman: computePearson(
+          rankValues(leftValues),
+          rankValues(rightValues),
+        ),
       });
     }
   }
@@ -1151,7 +1170,10 @@ function buildAnalysisInput(
     metrics.push(...primaryStatusOutput.metrics);
     candidateIndicators.push(...primaryStatusOutput.candidateIndicators);
 
-    const primaryStatusDistribution = buildStatusDistribution(preparedTable, rows);
+    const primaryStatusDistribution = buildStatusDistribution(
+      preparedTable,
+      rows,
+    );
     if (primaryStatusDistribution) {
       distributions.push(primaryStatusDistribution);
     }

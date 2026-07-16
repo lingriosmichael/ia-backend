@@ -175,13 +175,12 @@ export const updateActivitySchema = z.object({
   status: z.enum(activityStatusValues).optional(),
 });
 
-const privacyReviewFieldDecisionSchema = z
-  .object({
-    field: z.string().trim().min(1).max(255),
-    entityType: z.string().trim().min(1).max(120),
-    decision: privacyReviewDecisionValueSchema,
-    reason: z.string().trim().min(10).max(2000).optional(),
-  });
+const privacyReviewFieldDecisionSchema = z.object({
+  field: z.string().trim().min(1).max(255),
+  entityType: z.string().trim().min(1).max(120),
+  decision: privacyReviewDecisionValueSchema,
+  reason: z.string().trim().min(10).max(2000).optional(),
+});
 
 export const approvePrivacyReviewSchema = z
   .object({

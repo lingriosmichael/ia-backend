@@ -327,7 +327,9 @@ test("a deterministic positive-status count survives knowledge recombination", a
   const uploads = [makeUpload({})];
   const interpretationResults = [
     makeInterpretationResult({
-      indicators: [makeCountIndicator({ count: 75, componentKey: "positiveCount" })],
+      indicators: [
+        makeCountIndicator({ count: 75, componentKey: "positiveCount" }),
+      ],
     }),
   ];
   const repos = createFakeRepositories({

@@ -233,7 +233,9 @@ export class PrivacyReviewService {
     // Enforced here, not just in the dialog's disabled submit button — a
     // modified client could otherwise submit an incomplete decision set
     // directly against this endpoint.
-    const findingsRequiringDecision = findFindingsRequiringDecision(review.findings);
+    const findingsRequiringDecision = findFindingsRequiringDecision(
+      review.findings,
+    );
     const decisionByKey = new Map(
       stampedFieldDecisions.map((decision) => [
         `${decision.field}::${decision.entityType}`,
@@ -241,7 +243,8 @@ export class PrivacyReviewService {
       ]),
     );
     const unresolvedFindings = findingsRequiringDecision.filter(
-      (finding) => !decisionByKey.has(`${finding.field}::${finding.entityType}`),
+      (finding) =>
+        !decisionByKey.has(`${finding.field}::${finding.entityType}`),
     );
     if (unresolvedFindings.length > 0) {
       throw new AppError(
