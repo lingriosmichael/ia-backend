@@ -137,16 +137,14 @@ function readInterpretationLlmUsage(
   }
 
   const calls = Array.isArray(llmUsage.calls)
-    ? llmUsage.calls
-        .filter(isRecord)
-        .map((call): LlmUsageCall => ({
-          stageName: readString(call.stageName, "unknown_stage"),
-          model: readString(call.model, "unknown_model"),
-          promptTokens: readNumber(call.promptTokens),
-          completionTokens: readNumber(call.completionTokens),
-          totalTokens: readNumber(call.totalTokens),
-          durationMs: readNumber(call.durationMs),
-        }))
+    ? llmUsage.calls.filter(isRecord).map((call): LlmUsageCall => ({
+        stageName: readString(call.stageName, "unknown_stage"),
+        model: readString(call.model, "unknown_model"),
+        promptTokens: readNumber(call.promptTokens),
+        completionTokens: readNumber(call.completionTokens),
+        totalTokens: readNumber(call.totalTokens),
+        durationMs: readNumber(call.durationMs),
+      }))
     : [];
 
   return {
