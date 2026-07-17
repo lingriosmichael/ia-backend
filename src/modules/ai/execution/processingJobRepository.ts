@@ -22,7 +22,13 @@ export interface ProcessingJobRepository {
     Array<
       Pick<
         ProcessingJobPersistenceRecord,
-        "id" | "activityId" | "status" | "createdAt"
+        | "id"
+        | "activityId"
+        | "jobType"
+        | "status"
+        | "createdAt"
+        | "updatedAt"
+        | "completedAt"
       >
     >
   >;
@@ -32,6 +38,12 @@ export interface ProcessingJobRepository {
   ): Promise<Record<string, number>>;
   countByProjectStatuses(
     projectId: string,
+    statuses: ProcessingJobPersistenceRecord["status"][],
+    session: DatabaseSession,
+  ): Promise<number>;
+  countByProjectTypeStatuses(
+    projectId: string,
+    jobTypes: ProcessingJobPersistenceRecord["jobType"][],
     statuses: ProcessingJobPersistenceRecord["status"][],
     session: DatabaseSession,
   ): Promise<number>;

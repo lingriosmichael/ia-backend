@@ -25,6 +25,19 @@ const privacyReviewDecisionValueSchema = z.enum([
   "remove",
   "restrict",
 ]);
+const analyticsDashboardInteractionTypeSchema = z.enum([
+  "dashboard_viewed",
+  "widget_hidden",
+  "widget_shown",
+  "layout_reordered",
+  "layout_restored",
+]);
+const analyticsDashboardCompatibilitySourceSchema = z.enum([
+  "generated",
+  "compatibility_fallback",
+]);
+const analyticsDashboardExportFormatSchema = z.enum(["json", "text"]);
+const dashboardWidgetIdSchema = z.string().trim().min(1).max(200);
 
 export const idParamSchema = z.object({
   organizationId: z.string().min(1).optional(),
@@ -147,6 +160,28 @@ export const transferProjectOwnershipSchema = z.object({
   newOwnerId: z.string().min(1),
 });
 
+export const analyticsDashboardPreferenceSchema = z.object({
+  dashboardSchemaVersion: z.string().trim().min(1).max(120),
+  orderedWidgetIds: z.array(dashboardWidgetIdSchema).max(200),
+  hiddenWidgetIds: z.array(dashboardWidgetIdSchema).max(200),
+});
+
+export const analyticsDashboardInteractionSchema = z.object({
+  resultId: z.string().trim().min(1).max(120),
+  interactionType: analyticsDashboardInteractionTypeSchema,
+  dashboardSchemaVersion: z.string().trim().min(1).max(120),
+  dashboardCompatibilitySource: analyticsDashboardCompatibilitySourceSchema,
+  orderedWidgetIds: z.array(dashboardWidgetIdSchema).max(200),
+  hiddenWidgetIds: z.array(dashboardWidgetIdSchema).max(200),
+  visibleWidgetIds: z.array(dashboardWidgetIdSchema).max(200),
+  widgetId: dashboardWidgetIdSchema.nullable(),
+});
+
+export const analyticsDashboardExportRequestSchema =
+  analyticsDashboardPreferenceSchema.extend({
+    format: analyticsDashboardExportFormatSchema,
+  });
+
 export const createActivitySchema = z.object({
   name: z.string().trim().min(2).max(120),
   description: z.string().trim().max(2000).optional(),
@@ -180,6 +215,7 @@ const privacyReviewFieldDecisionSchema = z.object({
   entityType: z.string().trim().min(1).max(120),
   decision: privacyReviewDecisionValueSchema,
   reason: z.string().trim().min(10).max(2000).optional(),
+  keepUnchangedAcknowledged: z.boolean().optional(),
 });
 
 export const approvePrivacyReviewSchema = z

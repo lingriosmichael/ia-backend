@@ -319,6 +319,9 @@ export function mapActivity(
     interpretationAcknowledgedAt: Date | null;
     interpretationAcknowledgedById: string | null;
     interpretationAcknowledgedByName?: string | null;
+    aiKnowledgeSnapshot?: {
+      generatedAt: Date;
+    } | null;
     createdAt: Date;
     updatedAt: Date;
   },
@@ -345,6 +348,9 @@ export function mapActivity(
     interpretationAcknowledgedById: activity.interpretationAcknowledgedById,
     interpretationAcknowledgedByName:
       activity.interpretationAcknowledgedByName ?? null,
+    aiKnowledgeGeneratedAt: activity.aiKnowledgeSnapshot?.generatedAt
+      ? toIso(activity.aiKnowledgeSnapshot.generatedAt)
+      : null,
     createdAt: toIso(activity.createdAt),
     updatedAt: toIso(activity.updatedAt),
   };
@@ -369,6 +375,9 @@ export function mapWorkspaceActivity(
     interpretationAcknowledgedAt: Date | null;
     interpretationAcknowledgedById: string | null;
     interpretationAcknowledgedByName?: string | null;
+    aiKnowledgeSnapshot?: {
+      generatedAt: Date;
+    } | null;
     createdAt: Date;
     updatedAt: Date;
     _count: {

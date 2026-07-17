@@ -4,7 +4,7 @@ import type { ProcessingJobRepository } from "../ai/execution/processingJobRepos
 import { ProjectDerivedStateInvalidationService } from "../analytics/projectDerivedStateInvalidationService.js";
 import { AppError } from "../../shared/errors/appError.js";
 import { AuthorizationService } from "../../shared/auth/authorizationService.js";
-import { clearActivityInterpretationAcknowledgmentIfPresent } from "../interpretation/interpretationReviewState.js";
+import { clearActivityAiKnowledgeStateIfPresent } from "../interpretation/interpretationReviewState.js";
 import { FileStorageService } from "../upload/fileStorageService.js";
 import { ProcessingResourceCleanupService } from "../processing/processingResourceCleanupService.js";
 import type { UploadMetadataRepository } from "../upload/uploadMetadataRepository.js";
@@ -120,6 +120,40 @@ export class ActivityService {
       userId,
       activityId,
     );
+    const nextName =
+      input.name === undefined ? activity.name : input.name.trim();
+    const nextDescription =
+      input.description === undefined
+        ? activity.description
+        : (input.description?.trim() ?? null);
+    const nextObjectives =
+      input.objectives === undefined
+        ? activity.objectives
+        : (input.objectives?.trim() ?? null);
+    const nextSuccessIndicators =
+      input.successIndicators === undefined
+        ? activity.successIndicators
+        : (input.successIndicators?.trim() ?? null);
+    const nextTargetAudience =
+      input.targetAudience === undefined
+        ? activity.targetAudience
+        : (input.targetAudience?.trim() ?? null);
+    const nextAdditionalContext =
+      input.additionalContext === undefined
+        ? activity.additionalContext
+        : (input.additionalContext?.trim() ?? null);
+    const shouldClearAiKnowledgeState =
+      nextName !== activity.name ||
+      nextDescription !== activity.description ||
+      nextObjectives !== activity.objectives ||
+      nextSuccessIndicators !== activity.successIndicators ||
+      nextTargetAudience !== activity.targetAudience ||
+      nextAdditionalContext !== activity.additionalContext;
+    const shouldInvalidateDerivedState = Boolean(
+      shouldClearAiKnowledgeState &&
+      (activity.interpretationAcknowledgedAt ||
+        activity.interpretationAcknowledgedById),
+    );
 
     const updatedActivity = await this.activityRepository.update(
       activityId,
@@ -164,9 +198,23 @@ export class ActivityService {
             ? undefined
             : (input.additionalContext?.trim() ?? null),
         status: input.status,
+        interpretationAcknowledgedAt: shouldClearAiKnowledgeState
+          ? null
+          : undefined,
+        interpretationAcknowledgedById: shouldClearAiKnowledgeState
+          ? null
+          : undefined,
+        aiKnowledgeSnapshot: shouldClearAiKnowledgeState ? null : undefined,
       },
       databaseSession,
     );
+
+    if (shouldInvalidateDerivedState) {
+      await this.projectDerivedStateInvalidationService.invalidateProject(
+        project.id,
+        databaseSession,
+      );
+    }
 
     return mapActivity(
       {
@@ -207,7 +255,7 @@ export class ActivityService {
 
     await this.transactionManager.runInTransaction(async (session) => {
       if (shouldInvalidateDerivedState) {
-        await clearActivityInterpretationAcknowledgmentIfPresent(
+        await clearActivityAiKnowledgeStateIfPresent(
           this.activityRepository,
           activityId,
           session,

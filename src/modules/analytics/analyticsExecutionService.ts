@@ -9,12 +9,15 @@ import type { AnalyticsResultRepository } from "./analyticsResultRepository.js";
 import type { PythonAnalyticsCurationClient } from "./pythonAnalyticsCurationClient.js";
 import {
   CURATOR_MODEL_VERSION,
+  type AnalyticsDashboardWidgetCopyCandidate,
   type AnalyticsExecutionStatus,
   type AnalyticsScope,
   type DashboardCuration,
   type ProjectContextForCuration,
 } from "./analyticsContracts.js";
 import { AppError } from "../../shared/errors/appError.js";
+import type { DeterministicAnalysisRepository } from "../interpretation/deterministicAnalysisRepository.js";
+import type { AnalyticsDashboardBuilderService } from "./analyticsDashboardBuilderService.js";
 
 const EMPTY_CATALOG_CURATION: DashboardCuration = {
   featuredEntryIds: [],
@@ -44,6 +47,8 @@ export class AnalyticsExecutionService {
     private readonly analyticsResultRepository: AnalyticsResultRepository,
     private readonly pythonAnalyticsCurationClient: PythonAnalyticsCurationClient,
     private readonly projectKnowledgeBuilderService: ProjectKnowledgeBuilderService,
+    private readonly deterministicAnalysisRepository: DeterministicAnalysisRepository,
+    private readonly analyticsDashboardBuilderService: AnalyticsDashboardBuilderService,
   ) {}
 
   async generateForProject(
@@ -89,6 +94,8 @@ export class AnalyticsExecutionService {
     return {
       name: project.name,
       projectGoal: project.projectGoal,
+      impactModel: project.impactModel,
+      successIndicators: project.successIndicators,
       targetGroups: project.targetGroups,
       areaOfOperation: project.areaOfOperation,
     };
@@ -112,8 +119,11 @@ export class AnalyticsExecutionService {
     );
 
     try {
-      let { catalog, projectKnowledgeModelStatus } =
-        await this.dashboardCatalogAssemblerService.assemble(scope);
+      let {
+        catalog,
+        projectKnowledgeModelStatus,
+        scopedInterpretationResultIds,
+      } = await this.dashboardCatalogAssemblerService.assemble(scope);
 
       // `null` means no model has ever been built for this project — most
       // commonly an activity acknowledged before the acknowledgment-time
@@ -130,8 +140,11 @@ export class AnalyticsExecutionService {
         await this.projectKnowledgeBuilderService.buildForProject(
           scope.projectId,
         );
-        ({ catalog, projectKnowledgeModelStatus } =
-          await this.dashboardCatalogAssemblerService.assemble(scope));
+        ({
+          catalog,
+          projectKnowledgeModelStatus,
+          scopedInterpretationResultIds,
+        } = await this.dashboardCatalogAssemblerService.assemble(scope));
       }
 
       if (projectKnowledgeModelStatus === "building") {
@@ -158,6 +171,30 @@ export class AnalyticsExecutionService {
               "de",
             )
           : EMPTY_CATALOG_CURATION;
+      const deterministicAnalyses =
+        await this.deterministicAnalysisRepository.findByInterpretationResultIds(
+          scopedInterpretationResultIds,
+          databaseSession,
+        );
+      const initialDashboard = this.analyticsDashboardBuilderService.build({
+        catalog,
+        curation,
+        deterministicAnalyses,
+        projectContext,
+      });
+      const widgetCopyCandidates =
+        this.analyticsDashboardBuilderService.buildWidgetCopyCandidates(
+          initialDashboard,
+        );
+      const widgetCopySuggestions =
+        widgetCopyCandidates.length > 0
+          ? await this.tryCurateWidgetCopy(widgetCopyCandidates, projectContext)
+          : [];
+      const dashboard =
+        this.analyticsDashboardBuilderService.applyWidgetCopySuggestions(
+          initialDashboard,
+          widgetCopySuggestions,
+        );
 
       await this.analyticsResultRepository.create(
         {
@@ -170,6 +207,7 @@ export class AnalyticsExecutionService {
           knowledgeModelVersion: catalog.knowledgeModelVersion,
           catalog,
           curation,
+          dashboard,
           dataQuality: {
             recordsExcludedCount: catalog.omittedEntries.length,
             warnings: uniqueWarnings([
@@ -212,6 +250,21 @@ export class AnalyticsExecutionService {
         databaseSession,
       );
       throw error;
+    }
+  }
+
+  private async tryCurateWidgetCopy(
+    widgetCopyCandidates: AnalyticsDashboardWidgetCopyCandidate[],
+    projectContext: ProjectContextForCuration,
+  ) {
+    try {
+      return await this.pythonAnalyticsCurationClient.curateWidgetCopy(
+        widgetCopyCandidates,
+        projectContext,
+        "de",
+      );
+    } catch {
+      return [];
     }
   }
 }

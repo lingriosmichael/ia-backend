@@ -216,8 +216,21 @@ export class ProcessingJobService {
     // already terminal in the database and this pull never happens at all
     // — this remains as a fallback for evidence-processing jobs (which
     // don't push) and as resilience if a push callback is ever missed.
-    const processorStatus =
-      await this.pythonProcessingClient.getProcessingJobStatus(externalJobId);
+    let processorStatus: ProcessorStatusPayload;
+    try {
+      processorStatus =
+        await this.pythonProcessingClient.getProcessingJobStatus(externalJobId);
+    } catch (error) {
+      if (
+        error instanceof AppError &&
+        error.code === "python_processing_job_not_found"
+      ) {
+        const failedJob =
+          await this.failJobBecauseExternalProcessorLostState(job);
+        return mapProcessingJob(failedJob);
+      }
+      throw error;
+    }
     const updatedJob = await this.applyProcessorStatus(job, processorStatus);
 
     return mapProcessingJob(updatedJob);
@@ -320,6 +333,42 @@ export class ProcessingJobService {
         "processing job status changed",
       );
     }
+
+    return updatedJob;
+  }
+
+  private async failJobBecauseExternalProcessorLostState(
+    job: ProcessingJobPersistenceRecord,
+  ): Promise<ProcessingJobPersistenceRecord> {
+    const now = new Date();
+    const updatedJob = await this.processingJobRepository.update(
+      job.id,
+      {
+        status: "failed",
+        errorMessage:
+          "The external Python processing job is no longer available. Retry the upload to start a fresh processing run.",
+        completedAt: now,
+        payload: {
+          ...(job.payload ?? {}),
+          sync: {
+            syncedAt: now.toISOString(),
+            failureCode: "python_processing_job_not_found",
+          },
+        },
+      },
+      databaseSession,
+    );
+
+    this.logger.warn(
+      {
+        processingJobId: job.id,
+        jobType: job.jobType,
+        fromStatus: job.status,
+        toStatus: updatedJob.status,
+        pythonExternalJobId: this.getExternalJobId(job.payload),
+      },
+      "processing job failed because external Python job state was lost",
+    );
 
     return updatedJob;
   }

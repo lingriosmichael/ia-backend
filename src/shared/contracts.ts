@@ -155,6 +155,7 @@ export interface ActivitySummary {
   interpretationAcknowledgedAt: string | null;
   interpretationAcknowledgedById: string | null;
   interpretationAcknowledgedByName: string | null;
+  aiKnowledgeGeneratedAt?: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -343,14 +344,12 @@ export interface ParsedRepresentationPreviewRecord {
 // server-side (see PrivacyReviewFieldDecisionRecord) so it can't be spoofed
 // by the caller.
 //
-// `reason` is required whenever the chosen action overrides the
-// recommendedAction for that finding. This is enforced in
-// PrivacyReviewService, where the actual recommendation is available.
 export interface PrivacyReviewFieldDecisionInput {
   field: string;
   entityType: string;
   decision: PrivacyReviewDecisionValue;
   reason?: string;
+  keepUnchangedAcknowledged?: boolean;
 }
 
 // What actually gets persisted and returned — the input plus a real audit
@@ -1062,6 +1061,60 @@ export interface ProjectInterpretationOverview {
 
 export interface StartInterpretationResponse {
   job: ProcessingJobRecord;
+}
+
+export interface StartActivityInterpretationResponse {
+  jobs: ProcessingJobRecord[];
+  startedCount: number;
+  skippedCount: number;
+}
+
+export type ActivityAiKnowledgeInsightSourceType =
+  | "goal_alignment"
+  | "qualitative_finding"
+  | "indicator"
+  | "distribution_signal";
+
+export interface ActivityAiKnowledgeInsight {
+  id: string;
+  sourceType: ActivityAiKnowledgeInsightSourceType;
+  text: string;
+  isGoalRelevant: boolean;
+  sourceUploadMetadataIds: string[];
+}
+
+export interface ActivityAiKnowledgeRecord {
+  activityId: string;
+  projectId: string;
+  activityName: string;
+  interpretedEvidenceCount: number;
+  totalEvidenceCount: number;
+  generatedAt: string | null;
+  summaryText: string;
+  insights: ActivityAiKnowledgeInsight[];
+}
+
+export interface ProjectAiKnowledgeActivity {
+  activityId: string;
+  activityName: string;
+  interpretedEvidenceCount: number;
+}
+
+export interface ProjectAiKnowledgeInsight extends ActivityAiKnowledgeInsight {
+  activityId: string;
+  activityName: string;
+}
+
+export interface ProjectAiKnowledgeRecord {
+  projectId: string;
+  projectName: string;
+  acknowledgedActivityCount: number;
+  totalActivityCount: number;
+  interpretedEvidenceCount: number;
+  generatedAt: string | null;
+  summaryText: string;
+  insights: ProjectAiKnowledgeInsight[];
+  activities: ProjectAiKnowledgeActivity[];
 }
 
 export interface AnswerInterpretationQuestionRequest {

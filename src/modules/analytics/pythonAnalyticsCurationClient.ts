@@ -1,9 +1,15 @@
 import { AppError } from "../../shared/errors/appError.js";
 import type {
+  AnalyticsDashboardWidgetCopyCandidate,
+  AnalyticsDashboardWidgetCopySuggestion,
   DashboardCuration,
   EvidenceCatalog,
   ProjectContextForCuration,
 } from "./analyticsContracts.js";
+
+interface CurateDashboardWidgetCopyResponse {
+  widgets: AnalyticsDashboardWidgetCopySuggestion[];
+}
 
 export class PythonAnalyticsCurationClient {
   constructor(
@@ -34,5 +40,35 @@ export class PythonAnalyticsCurationClient {
     }
 
     return response.json() as Promise<DashboardCuration>;
+  }
+
+  async curateWidgetCopy(
+    widgets: AnalyticsDashboardWidgetCopyCandidate[],
+    projectContext: ProjectContextForCuration,
+    language: "de" | "en",
+  ): Promise<AnalyticsDashboardWidgetCopySuggestion[]> {
+    const response = await fetch(
+      `${this.baseUrl}/internal/analytics/curate-widget-copy`,
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-internal-service-token": this.sharedSecret,
+        },
+        body: JSON.stringify({ widgets, projectContext, language }),
+      },
+    );
+
+    if (!response.ok) {
+      throw new AppError(
+        "The Python analytics service did not accept the widget-copy curation request.",
+        502,
+        "python_analytics_widget_copy_unavailable",
+      );
+    }
+
+    const payload =
+      (await response.json()) as CurateDashboardWidgetCopyResponse;
+    return payload.widgets;
   }
 }

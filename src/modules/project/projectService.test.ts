@@ -9,6 +9,7 @@ import { ProjectService } from "./projectService.js";
 import type { ActivityRepository } from "../activity/activityRepository.js";
 import type { OrganizationRepository } from "../organization/organizationRepository.js";
 import type { UploadMetadataRepository } from "../upload/uploadMetadataRepository.js";
+import type { ProcessingJobRepository } from "../ai/execution/processingJobRepository.js";
 import type { ProcessingResourceCleanupService } from "../processing/processingResourceCleanupService.js";
 import type { UserRepository } from "../user/userRepository.js";
 
@@ -93,6 +94,7 @@ test(
       runInTransaction: async <T>(operation: (session: null) => Promise<T>) =>
         operation(null),
     } as unknown as TransactionManager;
+    const processingJobRepository = {} as ProcessingJobRepository;
     const userRepository = {} as UserRepository;
     const processingResourceCleanupService = {
       deleteByProjectId: async () => undefined,
@@ -104,6 +106,7 @@ test(
       fileStorageService,
       activityRepository,
       uploadMetadataRepository,
+      processingJobRepository,
       transactionManager,
       userRepository,
       processingResourceCleanupService,
@@ -209,6 +212,7 @@ test(
       runInTransaction: async <T>(operation: (session: null) => Promise<T>) =>
         operation(null),
     } as unknown as TransactionManager;
+    const processingJobRepository = {} as ProcessingJobRepository;
     const userRepository = {} as UserRepository;
     const processingResourceCleanupService = {
       deleteByProjectId: async () => undefined,
@@ -220,6 +224,7 @@ test(
       fileStorageService,
       activityRepository,
       uploadMetadataRepository,
+      processingJobRepository,
       transactionManager,
       userRepository,
       processingResourceCleanupService,
@@ -320,6 +325,7 @@ test(
       runInTransaction: async <T>(operation: (session: null) => Promise<T>) =>
         operation(null),
     } as unknown as TransactionManager;
+    const processingJobRepository = {} as ProcessingJobRepository;
     const userRepository = {} as UserRepository;
     const processingResourceCleanupService = {
       deleteByProjectId: async () => {
@@ -333,6 +339,7 @@ test(
       fileStorageService,
       activityRepository,
       uploadMetadataRepository,
+      processingJobRepository,
       transactionManager,
       userRepository,
       processingResourceCleanupService,
@@ -410,6 +417,8 @@ test(
           successIndicators: null,
           targetAudience: null,
           additionalContext: null,
+          interpretationAcknowledgedAt: new Date("2026-01-10T12:00:00.000Z"),
+          interpretationAcknowledgedById: "user-1",
           status: "active",
           createdAt: new Date("2026-01-05T00:00:00.000Z"),
           updatedAt: new Date("2026-01-06T00:00:00.000Z"),
@@ -435,6 +444,30 @@ test(
         },
       ],
     } as unknown as UploadMetadataRepository;
+    const processingJobRepository = {
+      listRecentByProject: async () => [
+        {
+          id: "job-2",
+          activityId: "activity-1",
+          jobType: "dataset_interpretation",
+          status: "completed",
+          createdAt: new Date("2026-01-10T00:00:00.000Z"),
+          updatedAt: new Date("2026-01-11T00:00:00.000Z"),
+          completedAt: new Date("2026-01-11T00:00:00.000Z"),
+        },
+        {
+          id: "job-1",
+          activityId: "activity-1",
+          jobType: "evidence_processing",
+          status: "failed",
+          createdAt: new Date("2026-01-09T00:00:00.000Z"),
+          updatedAt: new Date("2026-01-09T12:00:00.000Z"),
+          completedAt: new Date("2026-01-09T12:00:00.000Z"),
+        },
+      ],
+      countByProjectTypeStatuses: async () => 1,
+      countByProjectStatuses: async () => 1,
+    } as unknown as ProcessingJobRepository;
 
     const userRepository = {
       findById: async () => ({
@@ -453,6 +486,7 @@ test(
       {} as FileStorageService,
       activityRepository,
       uploadMetadataRepository,
+      processingJobRepository,
       {} as TransactionManager,
       userRepository,
       {
@@ -465,12 +499,18 @@ test(
 
     assert.equal(overview.activities[0]?.uploadMetadataCount, 2);
     assert.equal(overview.activities[0]?.processingJobCount, 0);
-    assert.equal(overview.metrics.insightCount, 0);
-    assert.equal(overview.metrics.pendingInsightCount, 0);
-    assert.equal(overview.metrics.failedJobCount, 0);
+    assert.equal(overview.metrics.insightCount, 1);
+    assert.equal(overview.metrics.pendingInsightCount, 1);
+    assert.equal(overview.metrics.failedJobCount, 1);
     assert.deepEqual(
       overview.recentActivity.map((item) => item.type),
-      ["dataset_uploaded", "dataset_uploaded", "activity_created"],
+      [
+        "insight_generated",
+        "job_failed",
+        "dataset_uploaded",
+        "dataset_uploaded",
+        "activity_created",
+      ],
     );
   },
 );

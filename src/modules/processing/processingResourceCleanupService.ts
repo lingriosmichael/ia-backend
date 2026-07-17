@@ -1,4 +1,6 @@
 import type { DatabaseSession } from "../../shared/database/databaseClient.js";
+import type { AnalyticsDashboardPreferenceRepository } from "../analytics/analyticsDashboardPreferenceRepository.js";
+import type { AnalyticsDashboardEventRepository } from "../analytics/analyticsDashboardEventRepository.js";
 import type { AnalyticsExecutionRepository } from "../analytics/analyticsExecutionRepository.js";
 import type { AnalyticsResultRepository } from "../analytics/analyticsResultRepository.js";
 import type { DeterministicAnalysisRepository } from "../interpretation/deterministicAnalysisRepository.js";
@@ -24,6 +26,8 @@ export class ProcessingResourceCleanupService {
     private readonly knowledgeIndicatorRepository: KnowledgeIndicatorRepository,
     private readonly analyticsExecutionRepository: AnalyticsExecutionRepository,
     private readonly analyticsResultRepository: AnalyticsResultRepository,
+    private readonly analyticsDashboardPreferenceRepository: AnalyticsDashboardPreferenceRepository,
+    private readonly analyticsDashboardEventRepository: AnalyticsDashboardEventRepository,
   ) {}
 
   async deleteByProjectId(
@@ -51,6 +55,14 @@ export class ProcessingResourceCleanupService {
       ),
       this.analyticsExecutionRepository.deleteByProjectId(projectId, session),
       this.analyticsResultRepository.deleteByProjectId(projectId, session),
+      this.analyticsDashboardPreferenceRepository.deleteByProjectId(
+        projectId,
+        session,
+      ),
+      this.analyticsDashboardEventRepository.deleteByProjectId(
+        projectId,
+        session,
+      ),
     ]);
   }
 
@@ -74,6 +86,10 @@ export class ProcessingResourceCleanupService {
       ),
       this.datasetPreparationRepository.deleteByActivityId(activityId, session),
       this.deterministicAnalysisRepository.deleteByActivityId(
+        activityId,
+        session,
+      ),
+      this.analyticsDashboardEventRepository.deleteByActivityId(
         activityId,
         session,
       ),

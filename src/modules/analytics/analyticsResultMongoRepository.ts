@@ -9,6 +9,7 @@ import {
   type AnalyticsResultMongoHydratedDocument,
 } from "./analyticsResultModel.js";
 import type {
+  AnalyticsDashboard,
   AnalyticsDataQuality,
   AnalyticsScope,
   DashboardCuration,
@@ -38,6 +39,7 @@ function toRecord(
     knowledgeModelVersion: document.knowledgeModelVersion,
     catalog: document.catalog as EvidenceCatalog,
     curation: document.curation as DashboardCuration,
+    dashboard: (document.dashboard ?? null) as AnalyticsDashboard | null,
     dataQuality: document.dataQuality as AnalyticsDataQuality,
     limitations: document.limitations,
     generatedAt: document.generatedAt,
@@ -64,6 +66,7 @@ export class MongoAnalyticsResultRepository implements AnalyticsResultRepository
           knowledgeModelVersion: input.knowledgeModelVersion,
           catalog: input.catalog,
           curation: input.curation,
+          dashboard: input.dashboard,
           dataQuality: input.dataQuality,
           limitations: input.limitations,
           generatedAt: input.generatedAt,

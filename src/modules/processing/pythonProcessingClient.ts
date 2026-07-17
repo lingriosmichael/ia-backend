@@ -54,6 +54,7 @@ interface StartDatasetInterpretationProjectImpactModel {
 }
 
 interface StartDatasetInterpretationProjectGoals {
+  projectGoal: string | null;
   impactModel: StartDatasetInterpretationProjectImpactModel | null;
   successIndicators: string | null;
 }
@@ -71,6 +72,38 @@ interface PythonDatasetInterpretationResponse {
   externalJobId: string;
   status: "accepted" | "processing";
   acceptedAt: string;
+}
+
+interface AiKnowledgeSummaryInsightInput {
+  text: string;
+  isGoalRelevant: boolean;
+  activityName?: string | null;
+}
+
+interface AiKnowledgeSummaryActivityGoalsInput {
+  objectives: string | null;
+  successIndicators: string | null;
+}
+
+interface AiKnowledgeSummaryProjectGoalsInput {
+  projectGoal: string | null;
+  impactModel: StartDatasetInterpretationProjectImpactModel | null;
+  successIndicators: string | null;
+}
+
+interface GenerateAiKnowledgeSummaryInput {
+  scope: "activity" | "project";
+  subjectName: string;
+  insights: AiKnowledgeSummaryInsightInput[];
+  interpretedEvidenceCount: number;
+  acknowledgedActivityCount?: number;
+  language: "de" | "en";
+  activityGoals?: AiKnowledgeSummaryActivityGoalsInput | null;
+  projectGoals?: AiKnowledgeSummaryProjectGoalsInput | null;
+}
+
+interface GenerateAiKnowledgeSummaryResponse {
+  summaryText: string;
 }
 
 interface QuantitativePreparedDatasetColumn {
@@ -451,6 +484,14 @@ export class PythonProcessingClient {
       { headers: this.authHeaders() },
     );
 
+    if (response.status === 404) {
+      throw new AppError(
+        "The Python processing service no longer has this job.",
+        404,
+        "python_processing_job_not_found",
+      );
+    }
+
     if (!response.ok) {
       throw new AppError(
         "The Python processing service did not return a job status.",
@@ -585,5 +626,31 @@ export class PythonProcessingClient {
     }
 
     return response.json() as Promise<QuantitativeInterpretationSynthesisResponse>;
+  }
+
+  async generateAiKnowledgeSummary(
+    input: GenerateAiKnowledgeSummaryInput,
+  ): Promise<GenerateAiKnowledgeSummaryResponse> {
+    const response = await fetch(
+      `${this.baseUrl}/internal/interpretation/ai-knowledge-summary`,
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          ...this.authHeaders(),
+        },
+        body: JSON.stringify(input),
+      },
+    );
+
+    if (!response.ok) {
+      throw new AppError(
+        "The Python processing service could not summarize the AI knowledge.",
+        502,
+        "python_processing_ai_knowledge_summary_unavailable",
+      );
+    }
+
+    return response.json() as Promise<GenerateAiKnowledgeSummaryResponse>;
   }
 }

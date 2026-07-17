@@ -247,6 +247,7 @@ export class QuantitativeInterpretationSynthesisService {
         : null,
       projectGoals: project
         ? {
+            projectGoal: project.projectGoal,
             impactModel: project.impactModel,
             successIndicators: project.successIndicators,
           }

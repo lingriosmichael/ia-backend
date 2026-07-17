@@ -13,10 +13,19 @@ import type { OrganizationRepository } from "../organization/organizationReposit
 import type { UploadMetadataRepository } from "../upload/uploadMetadataRepository.js";
 import type { UserRepository } from "../user/userRepository.js";
 import { ProcessingResourceCleanupService } from "../processing/processingResourceCleanupService.js";
+import type { ProcessingJobRepository } from "../ai/execution/processingJobRepository.js";
 import type {
+  ActiveProcessingJobStatus,
   ProjectOverview,
   ProjectRecentActivityItem,
 } from "../../shared/contracts.js";
+
+const ACTIVE_AI_KNOWLEDGE_JOB_STATUSES: ActiveProcessingJobStatus[] = [
+  "queued",
+  "processing",
+  "awaiting_privacy_review",
+  "transforming",
+];
 
 function mapProjectStatus(status: "planning" | "active" | "completed") {
   return status;
@@ -53,6 +62,7 @@ export class ProjectService {
     private readonly fileStorageService: FileStorageService,
     private readonly activityRepository: ActivityRepository,
     private readonly uploadMetadataRepository: UploadMetadataRepository,
+    private readonly processingJobRepository: ProcessingJobRepository,
     private readonly transactionManager: TransactionManager,
     private readonly userRepository: UserRepository,
     private readonly processingResourceCleanupService: ProcessingResourceCleanupService,
@@ -301,9 +311,30 @@ export class ProjectService {
         8,
         databaseSession,
       );
+    const recentJobs = await this.processingJobRepository.listRecentByProject(
+      projectId,
+      8,
+      databaseSession,
+    );
+    const pendingInsightCount =
+      await this.processingJobRepository.countByProjectTypeStatuses(
+        projectId,
+        ["dataset_interpretation"],
+        ACTIVE_AI_KNOWLEDGE_JOB_STATUSES,
+        databaseSession,
+      );
+    const failedJobCount =
+      await this.processingJobRepository.countByProjectStatuses(
+        projectId,
+        ["failed"],
+        databaseSession,
+      );
     const activityNamesById = Object.fromEntries(
       projectActivities.map((activity) => [activity.id, activity.name]),
     );
+    const acknowledgedAiKnowledgeCount = projectActivities.filter(
+      (activity) => activity.interpretationAcknowledgedAt !== null,
+    ).length;
 
     const activities = projectActivities.map((activity) =>
       mapWorkspaceActivity(
@@ -335,6 +366,53 @@ export class ProjectService {
           ? (activityNamesById[upload.activityId] ?? null)
           : null,
       })),
+      ...recentJobs.flatMap<ProjectRecentActivityItem>((job) => {
+        const occurredAt = job.completedAt ?? job.updatedAt ?? job.createdAt;
+
+        if (job.status === "failed") {
+          return [
+            {
+              id: `job-failed-${job.id}`,
+              type: "job_failed",
+              occurredAt: toIso(occurredAt),
+              activityId: job.activityId,
+              activityName: job.activityId
+                ? (activityNamesById[job.activityId] ?? null)
+                : null,
+            },
+          ];
+        }
+
+        if (job.status !== "completed") {
+          return [];
+        }
+
+        if (job.jobType === "dataset_interpretation") {
+          return [
+            {
+              id: `insight-${job.id}`,
+              type: "insight_generated",
+              occurredAt: toIso(occurredAt),
+              activityId: job.activityId,
+              activityName: job.activityId
+                ? (activityNamesById[job.activityId] ?? null)
+                : null,
+            },
+          ];
+        }
+
+        return [
+          {
+            id: `job-completed-${job.id}`,
+            type: "job_completed",
+            occurredAt: toIso(occurredAt),
+            activityId: job.activityId,
+            activityName: job.activityId
+              ? (activityNamesById[job.activityId] ?? null)
+              : null,
+          },
+        ];
+      }),
     ]
       .sort(
         (left, right) =>
@@ -358,9 +436,9 @@ export class ProjectService {
         activitiesWithDatasetsCount: activities.filter(
           (activity) => activity.uploadMetadataCount > 0,
         ).length,
-        insightCount: 0,
-        pendingInsightCount: 0,
-        failedJobCount: 0,
+        insightCount: acknowledgedAiKnowledgeCount,
+        pendingInsightCount,
+        failedJobCount,
         lastUploadAt: recentUploads[0]
           ? toIso(recentUploads[0].createdAt)
           : null,

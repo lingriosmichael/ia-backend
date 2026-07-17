@@ -3,7 +3,7 @@ import { createModel } from "../../shared/database/createModel.js";
 import { createDocumentId } from "../../shared/database/documentId.js";
 import { analyticsScopeTypeValues } from "./analyticsContracts.js";
 
-// `catalog`/`curation`/`dataQuality` are Mixed rather than nested Schemas:
+// `catalog`/`curation`/`dashboard`/`dataQuality` are Mixed rather than nested Schemas:
 // their shapes are unions/open-ended (see analyticsContracts.ts) and are
 // already validated in TypeScript before a create() call ever reaches
 // this model — mirroring the same choice made for
@@ -24,6 +24,7 @@ const analyticsResultSchema = new Schema(
     knowledgeModelVersion: { type: Number, required: true },
     catalog: { type: Schema.Types.Mixed, required: true },
     curation: { type: Schema.Types.Mixed, required: true },
+    dashboard: { type: Schema.Types.Mixed, default: null },
     dataQuality: { type: Schema.Types.Mixed, required: true },
     limitations: { type: [String], default: [] },
     generatedAt: { type: Date, required: true },

@@ -10,6 +10,15 @@ import {
 } from "../../schemas/httpSchemas.js";
 import { InterpretationService } from "./interpretationService.js";
 
+function resolveRequestLanguage(
+  acceptLanguageHeader: string | string[] | undefined,
+): "de" | "en" {
+  const value = Array.isArray(acceptLanguageHeader)
+    ? acceptLanguageHeader.join(",")
+    : (acceptLanguageHeader ?? "");
+  return value.toLowerCase().includes("de") ? "de" : "en";
+}
+
 export class InterpretationController {
   constructor(private readonly interpretationService: InterpretationService) {}
 
@@ -34,6 +43,56 @@ export class InterpretationController {
       auth.userId,
       params.projectId!,
     );
+    return successResponse(response);
+  }
+
+  async getProjectAiKnowledge(request: FastifyRequest) {
+    const auth = requireAuthenticatedUser(request);
+
+    const params = idParamSchema.parse(request.params);
+    const response = await this.interpretationService.getProjectAiKnowledge(
+      auth.userId,
+      params.projectId!,
+      resolveRequestLanguage(request.headers["accept-language"]),
+    );
+    return successResponse(response);
+  }
+
+  async startForActivity(request: FastifyRequest) {
+    const auth = requireAuthenticatedUser(request);
+
+    const params = idParamSchema.parse(request.params);
+    const payload = startInterpretationSchema.parse(request.body ?? {});
+    const response =
+      await this.interpretationService.startActivityInterpretation(
+        auth.userId,
+        params.activityId!,
+        payload.language,
+      );
+    return successResponse(response);
+  }
+
+  async getActivityAiKnowledge(request: FastifyRequest) {
+    const auth = requireAuthenticatedUser(request);
+
+    const params = idParamSchema.parse(request.params);
+    const response = await this.interpretationService.getActivityAiKnowledge(
+      auth.userId,
+      params.activityId!,
+    );
+    return successResponse(response);
+  }
+
+  async generateActivityAiKnowledge(request: FastifyRequest) {
+    const auth = requireAuthenticatedUser(request);
+
+    const params = idParamSchema.parse(request.params);
+    const response =
+      await this.interpretationService.generateActivityAiKnowledge(
+        auth.userId,
+        params.activityId!,
+        resolveRequestLanguage(request.headers["accept-language"]),
+      );
     return successResponse(response);
   }
 

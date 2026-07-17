@@ -20,6 +20,7 @@ const CATALOG_VERSION = "3.0";
 export interface AssembledCatalog {
   catalog: EvidenceCatalog;
   projectKnowledgeModelStatus: ProjectKnowledgeModelStatus | null;
+  scopedInterpretationResultIds: string[];
 }
 
 function emptyCatalog(scope: AnalyticsScope): EvidenceCatalog {
@@ -76,6 +77,7 @@ export class DashboardCatalogAssemblerService {
       return {
         catalog: emptyCatalog(scope),
         projectKnowledgeModelStatus: null,
+        scopedInterpretationResultIds: [],
       };
     }
 
@@ -228,6 +230,7 @@ export class DashboardCatalogAssemblerService {
         qualitySignals,
       },
       projectKnowledgeModelStatus: model.status,
+      scopedInterpretationResultIds: [...scopedInterpretationResultIds],
     };
   }
 

@@ -19,6 +19,30 @@ export async function registerInterpretationRoutes(
   );
 
   app.get(
+    "/projects/:projectId/ai-knowledge",
+    { preHandler: authenticate },
+    controller.getProjectAiKnowledge.bind(controller),
+  );
+
+  app.post(
+    "/activities/:activityId/interpret",
+    { preHandler: authenticate },
+    controller.startForActivity.bind(controller),
+  );
+
+  app.get(
+    "/activities/:activityId/ai-knowledge",
+    { preHandler: authenticate },
+    controller.getActivityAiKnowledge.bind(controller),
+  );
+
+  app.post(
+    "/activities/:activityId/ai-knowledge",
+    { preHandler: authenticate },
+    controller.generateActivityAiKnowledge.bind(controller),
+  );
+
+  app.get(
     "/interpretations/:interpretationResultId",
     { preHandler: authenticate },
     controller.getById.bind(controller),

@@ -33,20 +33,11 @@ function getExternalJobId(payload: Record<string, unknown> | null) {
 interface FindingRequiringDecision {
   field: string;
   entityType: string;
-  // null covers a findings snapshot stored before recommendedAction existed
-  // on this shape (a review already pending when that field was introduced).
-  // Treated as "no known recommendation" below, not as "no reason needed" —
-  // decision.decision !== null is always true, so any decision on a legacy
-  // finding is treated as an override and must carry a reason.
   recommendedAction: string | null;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
-}
-
-function hasValidOverrideReason(reason: string | undefined): boolean {
-  return (reason?.trim().length ?? 0) >= 10;
 }
 
 // review.findings is a Mixed blob on the wire (Python owns its exact shape);
@@ -255,8 +246,8 @@ export class PrivacyReviewService {
       );
     }
 
-    const overrideFindingsMissingReason = findingsRequiringDecision.filter(
-      (finding) => {
+    const keepDecisionsMissingAcknowledgement =
+      findingsRequiringDecision.filter((finding) => {
         const decision = decisionByKey.get(
           `${finding.field}::${finding.entityType}`,
         );
@@ -264,17 +255,17 @@ export class PrivacyReviewService {
           return false;
         }
         return (
-          decision.decision !== finding.recommendedAction &&
-          !hasValidOverrideReason(decision.reason)
+          decision.decision === "keep" &&
+          finding.recommendedAction !== "keep" &&
+          decision.keepUnchangedAcknowledged !== true
         );
-      },
-    );
-    if (overrideFindingsMissingReason.length > 0) {
+      });
+    if (keepDecisionsMissingAcknowledgement.length > 0) {
       throw new AppError(
-        "Every override of a recommended privacy action must include a reason.",
+        "Keeping detected personal data unchanged requires an explicit acknowledgement.",
         400,
-        "privacy_review_override_reason_required",
-        { overrideFindingsMissingReason },
+        "privacy_review_keep_acknowledgement_required",
+        { keepDecisionsMissingAcknowledgement },
       );
     }
 

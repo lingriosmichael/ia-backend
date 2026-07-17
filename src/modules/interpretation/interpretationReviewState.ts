@@ -36,22 +36,49 @@ export async function clearActivityInterpretationAcknowledgmentIfPresent(
   activityId: string,
   session: DatabaseSession,
 ): Promise<void> {
+  await clearActivityAiKnowledgeStateIfPresent(
+    activityRepository,
+    activityId,
+    session,
+  );
+}
+
+export async function clearActivityAiKnowledgeStateIfPresent(
+  activityRepository: ActivityRepository,
+  activityId: string,
+  session: DatabaseSession,
+): Promise<{
+  clearedAcknowledgment: boolean;
+  clearedAiKnowledge: boolean;
+}> {
   const activity = await activityRepository.findById(activityId, session);
 
-  if (
-    !activity ||
-    (!activity.interpretationAcknowledgedAt &&
-      !activity.interpretationAcknowledgedById)
-  ) {
-    return;
+  if (!activity) {
+    return {
+      clearedAcknowledgment: false,
+      clearedAiKnowledge: false,
+    };
+  }
+
+  const clearedAcknowledgment = Boolean(
+    activity.interpretationAcknowledgedAt ||
+    activity.interpretationAcknowledgedById,
+  );
+  const clearedAiKnowledge = Boolean(activity.aiKnowledgeSnapshot);
+
+  if (!clearedAcknowledgment && !clearedAiKnowledge) {
+    return { clearedAcknowledgment, clearedAiKnowledge };
   }
 
   await activityRepository.update(
     activityId,
     {
-      interpretationAcknowledgedAt: null,
-      interpretationAcknowledgedById: null,
+      interpretationAcknowledgedAt: clearedAcknowledgment ? null : undefined,
+      interpretationAcknowledgedById: clearedAcknowledgment ? null : undefined,
+      aiKnowledgeSnapshot: null,
     },
     session,
   );
+
+  return { clearedAcknowledgment, clearedAiKnowledge };
 }

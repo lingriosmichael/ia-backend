@@ -18,6 +18,30 @@ export async function registerAnalyticsRoutes(
     controller.getProjectAnalytics.bind(controller),
   );
 
+  app.put(
+    "/projects/:projectId/analytics/layout",
+    { preHandler: authenticate },
+    controller.updateProjectDashboardPreference.bind(controller),
+  );
+
+  app.delete(
+    "/projects/:projectId/analytics/layout",
+    { preHandler: authenticate },
+    controller.resetProjectDashboardPreference.bind(controller),
+  );
+
+  app.post(
+    "/projects/:projectId/analytics/events",
+    { preHandler: authenticate },
+    controller.trackProjectDashboardInteraction.bind(controller),
+  );
+
+  app.post(
+    "/projects/:projectId/analytics/export",
+    { preHandler: authenticate },
+    controller.downloadProjectDashboardExport.bind(controller),
+  );
+
   app.post(
     "/projects/:projectId/activities/:activityId/analytics/generate",
     { preHandler: authenticate },
@@ -28,5 +52,29 @@ export async function registerAnalyticsRoutes(
     "/projects/:projectId/activities/:activityId/analytics",
     { preHandler: authenticate },
     controller.getActivityAnalytics.bind(controller),
+  );
+
+  app.put(
+    "/projects/:projectId/activities/:activityId/analytics/layout",
+    { preHandler: authenticate },
+    controller.updateActivityDashboardPreference.bind(controller),
+  );
+
+  app.delete(
+    "/projects/:projectId/activities/:activityId/analytics/layout",
+    { preHandler: authenticate },
+    controller.resetActivityDashboardPreference.bind(controller),
+  );
+
+  app.post(
+    "/projects/:projectId/activities/:activityId/analytics/events",
+    { preHandler: authenticate },
+    controller.trackActivityDashboardInteraction.bind(controller),
+  );
+
+  app.post(
+    "/projects/:projectId/activities/:activityId/analytics/export",
+    { preHandler: authenticate },
+    controller.downloadActivityDashboardExport.bind(controller),
   );
 }

@@ -1,12 +1,14 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { AnalyticsExecutionService } from "./analyticsExecutionService.js";
+import { AnalyticsDashboardBuilderService } from "./analyticsDashboardBuilderService.js";
 import type { DashboardCatalogAssemblerService } from "./dashboardCatalogAssemblerService.js";
 import type { ProjectKnowledgeBuilderService } from "../knowledge/projectKnowledgeBuilderService.js";
 import type { PythonAnalyticsCurationClient } from "./pythonAnalyticsCurationClient.js";
 import type { AnalyticsExecutionRepository } from "./analyticsExecutionRepository.js";
 import type { AnalyticsExecutionPersistenceRecord } from "./analyticsExecutionPersistence.js";
 import type { AnalyticsResultRepository } from "./analyticsResultRepository.js";
+import type { DeterministicAnalysisRepository } from "../interpretation/deterministicAnalysisRepository.js";
 import type {
   DashboardCuration,
   EvidenceCatalog,
@@ -120,6 +122,12 @@ function createFakeProjectKnowledgeBuilderService(
   } as unknown as ProjectKnowledgeBuilderService;
 }
 
+function createFakeDeterministicAnalysisRepository() {
+  return {
+    findByInterpretationResultIds: async () => [],
+  } as unknown as DeterministicAnalysisRepository;
+}
+
 const PASSING_CURATION: DashboardCuration = {
   featuredEntryIds: ["metric-0"],
   narrative: [],
@@ -136,6 +144,7 @@ test("generateForProject with a populated catalog calls the curator and complete
     assemble: async () => ({
       catalog: fakeCatalog(1),
       projectKnowledgeModelStatus: "ready",
+      scopedInterpretationResultIds: ["result-1"],
     }),
   } as unknown as DashboardCatalogAssemblerService;
   const { repository: executionRepository, executions } =
@@ -157,6 +166,8 @@ test("generateForProject with a populated catalog calls the curator and complete
     resultRepository,
     curationClient,
     createFakeProjectKnowledgeBuilderService(),
+    createFakeDeterministicAnalysisRepository(),
+    new AnalyticsDashboardBuilderService(),
   );
 
   const execution = await service.generateForProject("user-1", "project-1");
@@ -165,6 +176,28 @@ test("generateForProject with a populated catalog calls the curator and complete
   assert.equal(execution.status, "COMPLETED");
   assert.equal(results.length, 1);
   assert.equal(executions[0]!.status, "COMPLETED");
+  assert.equal(
+    (
+      results[0] as {
+        dashboard: {
+          availableWidgets: unknown[];
+          defaultLayout: { orderedWidgetIds: string[] };
+        };
+      }
+    ).dashboard.availableWidgets.length > 0,
+    true,
+  );
+  assert.equal(
+    (
+      results[0] as {
+        dashboard: {
+          availableWidgets: unknown[];
+          defaultLayout: { orderedWidgetIds: string[] };
+        };
+      }
+    ).dashboard.defaultLayout.orderedWidgetIds.length > 0,
+    true,
+  );
 });
 
 test("an empty catalog completes without ever calling the curator", async () => {
@@ -174,6 +207,7 @@ test("an empty catalog completes without ever calling the curator", async () => 
     assemble: async () => ({
       catalog: fakeCatalog(0),
       projectKnowledgeModelStatus: "ready",
+      scopedInterpretationResultIds: [],
     }),
   } as unknown as DashboardCatalogAssemblerService;
   const { repository: executionRepository } = createFakeExecutionRepository();
@@ -193,6 +227,8 @@ test("an empty catalog completes without ever calling the curator", async () => 
     resultRepository,
     curationClient,
     createFakeProjectKnowledgeBuilderService(),
+    createFakeDeterministicAnalysisRepository(),
+    new AnalyticsDashboardBuilderService(),
   );
 
   const execution = await service.generateForProject("user-1", "project-1");
@@ -214,6 +250,7 @@ test("a stale Project Knowledge Model triggers a rebuild, then proceeds using th
         catalog: fakeCatalog(1),
         projectKnowledgeModelStatus:
           assembleCallCount === 1 ? "stale" : "ready",
+        scopedInterpretationResultIds: ["result-1"],
       };
     },
   } as unknown as DashboardCatalogAssemblerService;
@@ -236,6 +273,8 @@ test("a stale Project Knowledge Model triggers a rebuild, then proceeds using th
     resultRepository,
     curationClient,
     projectKnowledgeBuilderService,
+    createFakeDeterministicAnalysisRepository(),
+    new AnalyticsDashboardBuilderService(),
   );
 
   const execution = await service.generateForProject("user-1", "project-1");
@@ -256,6 +295,8 @@ test("no Project Knowledge Model yet (never built) also triggers a rebuild inste
       return {
         catalog: fakeCatalog(assembleCallCount === 1 ? 0 : 1),
         projectKnowledgeModelStatus: assembleCallCount === 1 ? null : "ready",
+        scopedInterpretationResultIds:
+          assembleCallCount === 1 ? [] : ["result-1"],
       };
     },
   } as unknown as DashboardCatalogAssemblerService;
@@ -278,6 +319,8 @@ test("no Project Knowledge Model yet (never built) also triggers a rebuild inste
     resultRepository,
     curationClient,
     projectKnowledgeBuilderService,
+    createFakeDeterministicAnalysisRepository(),
+    new AnalyticsDashboardBuilderService(),
   );
 
   const execution = await service.generateForProject("user-1", "project-1");
@@ -294,6 +337,7 @@ test("a Project Knowledge Model already being built is left alone, never trigger
     assemble: async () => ({
       catalog: fakeCatalog(1),
       projectKnowledgeModelStatus: "building",
+      scopedInterpretationResultIds: ["result-1"],
     }),
   } as unknown as DashboardCatalogAssemblerService;
   const { repository: executionRepository } = createFakeExecutionRepository();
@@ -315,6 +359,8 @@ test("a Project Knowledge Model already being built is left alone, never trigger
     resultRepository,
     curationClient,
     projectKnowledgeBuilderService,
+    createFakeDeterministicAnalysisRepository(),
+    new AnalyticsDashboardBuilderService(),
   );
 
   const execution = await service.generateForProject("user-1", "project-1");
@@ -332,6 +378,7 @@ test("a ready Project Knowledge Model never triggers a redundant rebuild", async
     assemble: async () => ({
       catalog: fakeCatalog(1),
       projectKnowledgeModelStatus: "ready",
+      scopedInterpretationResultIds: ["result-1"],
     }),
   } as unknown as DashboardCatalogAssemblerService;
   const { repository: executionRepository } = createFakeExecutionRepository();
@@ -352,6 +399,8 @@ test("a ready Project Knowledge Model never triggers a redundant rebuild", async
     resultRepository,
     curationClient,
     projectKnowledgeBuilderService,
+    createFakeDeterministicAnalysisRepository(),
+    new AnalyticsDashboardBuilderService(),
   );
 
   await service.generateForProject("user-1", "project-1");
@@ -366,6 +415,7 @@ test("a fallback curation marks the execution COMPLETED_WITH_WARNINGS, not COMPL
     assemble: async () => ({
       catalog: fakeCatalog(1),
       projectKnowledgeModelStatus: "ready",
+      scopedInterpretationResultIds: ["result-1"],
     }),
   } as unknown as DashboardCatalogAssemblerService;
   const { repository: executionRepository } = createFakeExecutionRepository();
@@ -384,6 +434,8 @@ test("a fallback curation marks the execution COMPLETED_WITH_WARNINGS, not COMPL
     resultRepository,
     curationClient,
     createFakeProjectKnowledgeBuilderService(),
+    createFakeDeterministicAnalysisRepository(),
+    new AnalyticsDashboardBuilderService(),
   );
 
   const execution = await service.generateForProject("user-1", "project-1");
@@ -398,6 +450,7 @@ test("a curation client failure marks the execution FAILED and rethrows", async 
     assemble: async () => ({
       catalog: fakeCatalog(1),
       projectKnowledgeModelStatus: "ready",
+      scopedInterpretationResultIds: ["result-1"],
     }),
   } as unknown as DashboardCatalogAssemblerService;
   const { repository: executionRepository, executions } =
@@ -416,6 +469,8 @@ test("a curation client failure marks the execution FAILED and rethrows", async 
     resultRepository,
     curationClient,
     createFakeProjectKnowledgeBuilderService(),
+    createFakeDeterministicAnalysisRepository(),
+    new AnalyticsDashboardBuilderService(),
   );
 
   await assert.rejects(
@@ -439,6 +494,7 @@ test("generateForActivity rejects an activity that does not belong to the given 
     assemble: async () => ({
       catalog: fakeCatalog(1),
       projectKnowledgeModelStatus: "ready",
+      scopedInterpretationResultIds: ["result-1"],
     }),
   } as unknown as DashboardCatalogAssemblerService;
   const { repository: executionRepository } = createFakeExecutionRepository();
@@ -454,6 +510,8 @@ test("generateForActivity rejects an activity that does not belong to the given 
     resultRepository,
     curationClient,
     createFakeProjectKnowledgeBuilderService(),
+    createFakeDeterministicAnalysisRepository(),
+    new AnalyticsDashboardBuilderService(),
   );
 
   await assert.rejects(

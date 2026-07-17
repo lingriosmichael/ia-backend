@@ -112,7 +112,13 @@ export class MongoProcessingJobRepository implements ProcessingJobRepository {
     Array<
       Pick<
         ProcessingJobPersistenceRecord,
-        "id" | "activityId" | "status" | "createdAt"
+        | "id"
+        | "activityId"
+        | "jobType"
+        | "status"
+        | "createdAt"
+        | "updatedAt"
+        | "completedAt"
       >
     >
   > {
@@ -123,8 +129,11 @@ export class MongoProcessingJobRepository implements ProcessingJobRepository {
         .select({
           _id: 1,
           activityId: 1,
+          jobType: 1,
           status: 1,
           createdAt: 1,
+          updatedAt: 1,
+          completedAt: 1,
         }),
       session,
     ).exec();
@@ -132,8 +141,11 @@ export class MongoProcessingJobRepository implements ProcessingJobRepository {
     return documents.map((document) => ({
       id: document._id.toString(),
       activityId: document.activityId ?? null,
+      jobType: document.jobType,
       status: document.status,
       createdAt: document.createdAt,
+      updatedAt: document.updatedAt,
+      completedAt: document.completedAt,
     }));
   }
 
@@ -188,6 +200,26 @@ export class MongoProcessingJobRepository implements ProcessingJobRepository {
     return applyMongoSession(
       ProcessingJobMongoModel.countDocuments({
         projectId,
+        status: {
+          $in: statuses,
+        },
+      }),
+      session,
+    ).exec();
+  }
+
+  async countByProjectTypeStatuses(
+    projectId: string,
+    jobTypes: ProcessingJobPersistenceRecord["jobType"][],
+    statuses: ProcessingJobPersistenceRecord["status"][],
+    session: DatabaseSession,
+  ): Promise<number> {
+    return applyMongoSession(
+      ProcessingJobMongoModel.countDocuments({
+        projectId,
+        jobType: {
+          $in: jobTypes,
+        },
         status: {
           $in: statuses,
         },

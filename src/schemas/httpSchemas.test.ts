@@ -2,24 +2,27 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { approvePrivacyReviewSchema } from "./httpSchemas.js";
 
-test("approvePrivacyReviewSchema rejects a too-short reason when one is provided", () => {
-  assert.throws(() =>
-    approvePrivacyReviewSchema.parse({
-      decisions: {
-        fieldDecisions: [
-          {
-            field: "email",
-            entityType: "EMAIL_ADDRESS",
-            decision: "keep",
-            reason: "not pii",
-          },
-        ],
-      },
-    }),
+test("approvePrivacyReviewSchema accepts keep acknowledgement", () => {
+  const parsed = approvePrivacyReviewSchema.parse({
+    decisions: {
+      fieldDecisions: [
+        {
+          field: "email",
+          entityType: "EMAIL_ADDRESS",
+          decision: "keep",
+          keepUnchangedAcknowledged: true,
+        },
+      ],
+    },
+  });
+
+  assert.equal(
+    parsed.decisions?.fieldDecisions?.[0]?.keepUnchangedAcknowledged,
+    true,
   );
 });
 
-test("approvePrivacyReviewSchema accepts an override action with a real reason", () => {
+test("approvePrivacyReviewSchema still accepts legacy override reason payloads", () => {
   const parsed = approvePrivacyReviewSchema.parse({
     decisions: {
       fieldDecisions: [
@@ -39,7 +42,7 @@ test("approvePrivacyReviewSchema accepts an override action with a real reason",
   );
 });
 
-test("approvePrivacyReviewSchema accepts a recommended action with no reason", () => {
+test("approvePrivacyReviewSchema accepts tokenize with no acknowledgement", () => {
   const parsed = approvePrivacyReviewSchema.parse({
     decisions: {
       fieldDecisions: [
@@ -49,6 +52,10 @@ test("approvePrivacyReviewSchema accepts a recommended action with no reason", (
   });
 
   assert.equal(parsed.decisions?.fieldDecisions?.[0]?.reason, undefined);
+  assert.equal(
+    parsed.decisions?.fieldDecisions?.[0]?.keepUnchangedAcknowledged,
+    undefined,
+  );
 });
 
 test("approvePrivacyReviewSchema rejects duplicate (field, entityType) decisions", () => {

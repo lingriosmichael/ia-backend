@@ -7,7 +7,7 @@ import { AuthorizationService } from "../../shared/auth/authorizationService.js"
 import type { ActivityRepository } from "../activity/activityRepository.js";
 import { mapUploadMetadata } from "../../shared/utils/mappers.js";
 import { ActivityService } from "../activity/activityService.js";
-import { clearActivityInterpretationAcknowledgmentIfPresent } from "../interpretation/interpretationReviewState.js";
+import { clearActivityAiKnowledgeStateIfPresent } from "../interpretation/interpretationReviewState.js";
 import { ProcessingResourceCleanupService } from "../processing/processingResourceCleanupService.js";
 import type { UserRepository } from "../user/userRepository.js";
 import { FileStorageService } from "./fileStorageService.js";
@@ -54,22 +54,34 @@ export class UploadMetadataService {
       replacesUploadMetadataId?: string | null;
     },
   ) {
-    const project = input.activityId
-      ? (
-          await this.authorizationService.canUploadToActivity(
-            userId,
-            input.activityId,
-          )
-        ).project
-      : (await this.authorizationService.canEditProject(userId, projectId))
-          .project;
+    let activityWithAuthorizationContext:
+      | Awaited<
+          ReturnType<AuthorizationService["canUploadToActivity"]>
+        >["activity"]
+      | null = null;
+    let authorizedProject: Awaited<
+      ReturnType<AuthorizationService["canEditProject"]>
+    >["project"];
+
+    if (input.activityId) {
+      const context = await this.authorizationService.canUploadToActivity(
+        userId,
+        input.activityId,
+      );
+      authorizedProject = context.project;
+      activityWithAuthorizationContext = context.activity;
+    } else {
+      authorizedProject = (
+        await this.authorizationService.canEditProject(userId, projectId)
+      ).project;
+    }
 
     if (input.activityId) {
       const activity = await this.activityService.getById(
         userId,
         input.activityId,
       );
-      if (activity.projectId !== project.id) {
+      if (activity.projectId !== authorizedProject.id) {
         throw new AppError(
           "The activity does not belong to the specified project.",
           400,
@@ -89,7 +101,10 @@ export class UploadMetadataService {
         databaseSession,
       );
 
-      if (!replacedRecord || replacedRecord.projectId !== project.id) {
+      if (
+        !replacedRecord ||
+        replacedRecord.projectId !== authorizedProject.id
+      ) {
         throw new AppError(
           "The evidence version to replace does not belong to this project.",
           400,
@@ -138,8 +153,8 @@ export class UploadMetadataService {
 
     const record = await this.uploadMetadataRepository.create(
       {
-        organizationId: project.organizationId,
-        projectId: project.id,
+        organizationId: authorizedProject.organizationId,
+        projectId: authorizedProject.id,
         activityId,
         uploadedById: userId,
         logicalEvidenceId,
@@ -162,6 +177,21 @@ export class UploadMetadataService {
         },
         databaseSession,
       );
+    }
+
+    if (activityId && activityWithAuthorizationContext) {
+      const clearedActivityState = await clearActivityAiKnowledgeStateIfPresent(
+        this.activityRepository,
+        activityId,
+        databaseSession,
+      );
+
+      if (clearedActivityState.clearedAcknowledgment) {
+        await this.projectDerivedStateInvalidationService.invalidateProject(
+          authorizedProject.id,
+          databaseSession,
+        );
+      }
     }
 
     return this.mapRecordWithUploaderName(record);
@@ -294,20 +324,20 @@ export class UploadMetadataService {
           session,
         );
 
-        if (
-          activity &&
-          (activity.interpretationAcknowledgedAt ||
-            activity.interpretationAcknowledgedById)
-        ) {
-          await clearActivityInterpretationAcknowledgmentIfPresent(
-            this.activityRepository,
-            record.activityId,
-            session,
-          );
-          await this.projectDerivedStateInvalidationService.invalidateProject(
-            record.projectId,
-            session,
-          );
+        if (activity) {
+          const clearedActivityState =
+            await clearActivityAiKnowledgeStateIfPresent(
+              this.activityRepository,
+              record.activityId,
+              session,
+            );
+
+          if (clearedActivityState.clearedAcknowledgment) {
+            await this.projectDerivedStateInvalidationService.invalidateProject(
+              record.projectId,
+              session,
+            );
+          }
         }
       }
 

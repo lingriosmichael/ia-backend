@@ -148,7 +148,7 @@ function createService(overrides?: {
   );
 }
 
-test("privacy review approval requires a reason when overriding the recommended action", async () => {
+test("privacy review approval requires acknowledgement when keeping detected data unchanged", async () => {
   const service = createService();
 
   await assert.rejects(
@@ -163,13 +163,11 @@ test("privacy review approval requires a reason when overriding the recommended 
     }),
     (error: unknown) =>
       error instanceof AppError &&
-      error.code === "privacy_review_override_reason_required",
+      error.code === "privacy_review_keep_acknowledgement_required",
   );
 });
 
-test("privacy review approval still requires a decision and a reason for a legacy finding stored without recommendedAction", async () => {
-  // Simulates a review that was created before recommendedAction existed on
-  // this shape — a finding still in "awaiting_privacy_review" at deploy time.
+test("privacy review approval still requires a decision for a legacy finding stored without recommendedAction", async () => {
   const service = createService({
     privacyReviewRepository: {
       findByProcessingJobId: async () => ({
@@ -186,7 +184,6 @@ test("privacy review approval still requires a decision and a reason for a legac
               field: "email",
               entityType: "EMAIL_ADDRESS",
               requiresDecision: true,
-              // recommendedAction intentionally absent.
             },
           ],
         },
@@ -205,22 +202,58 @@ test("privacy review approval still requires a decision and a reason for a legac
       error instanceof AppError &&
       error.code === "privacy_review_decisions_incomplete",
   );
+});
+
+test("privacy review approval requires acknowledgement when keeping a legacy finding unchanged", async () => {
+  const service = createService({
+    privacyReviewRepository: {
+      findByProcessingJobId: async () => ({
+        id: "review-1",
+        organizationId: "org-1",
+        projectId: "project-1",
+        activityId: "activity-1",
+        uploadMetadataId: "upload-1",
+        processingJobId: "job-1",
+        status: "pending",
+        findings: {
+          summary: [
+            {
+              field: "email",
+              entityType: "EMAIL_ADDRESS",
+              requiresDecision: true,
+            },
+          ],
+        },
+        decisions: null,
+        approvedById: null,
+        approvedAt: null,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      }),
+    },
+  });
 
   await assert.rejects(
     service.approve("user-1", "job-1", {
       fieldDecisions: [
-        { field: "email", entityType: "EMAIL_ADDRESS", decision: "tokenize" },
+        { field: "email", entityType: "EMAIL_ADDRESS", decision: "keep" },
       ],
     }),
     (error: unknown) =>
       error instanceof AppError &&
-      error.code === "privacy_review_override_reason_required",
+      error.code === "privacy_review_keep_acknowledgement_required",
   );
 });
 
 test("privacy review approval accepts the recommended action without a reason", async () => {
   let forwardedDecision:
-    | { field: string; entityType: string; decision: string; reason?: string }
+    | {
+        field: string;
+        entityType: string;
+        decision: string;
+        reason?: string;
+        keepUnchangedAcknowledged?: boolean;
+      }
     | undefined;
 
   const service = createService({
@@ -250,4 +283,45 @@ test("privacy review approval accepts the recommended action without a reason", 
 
   assert.equal(forwardedDecision?.decision, "tokenize");
   assert.equal(forwardedDecision?.reason, undefined);
+  assert.equal(forwardedDecision?.keepUnchangedAcknowledged, undefined);
+});
+
+test("privacy review approval accepts keep when the acknowledgement is checked", async () => {
+  let forwardedDecision:
+    | {
+        field: string;
+        entityType: string;
+        decision: string;
+        keepUnchangedAcknowledged?: boolean;
+      }
+    | undefined;
+
+  const service = createService({
+    pythonProcessingClient: {
+      approvePrivacyReview: async (_externalJobId, decisions) => {
+        forwardedDecision = decisions.fieldDecisions?.[0];
+        return {
+          externalJobId: "python-job-1",
+          status: "completed",
+          updatedAt: new Date().toISOString(),
+          errorMessage: null,
+          details: null,
+        };
+      },
+    },
+  });
+
+  await service.approve("user-1", "job-1", {
+    fieldDecisions: [
+      {
+        field: "email",
+        entityType: "EMAIL_ADDRESS",
+        decision: "keep",
+        keepUnchangedAcknowledged: true,
+      },
+    ],
+  });
+
+  assert.equal(forwardedDecision?.decision, "keep");
+  assert.equal(forwardedDecision?.keepUnchangedAcknowledged, true);
 });

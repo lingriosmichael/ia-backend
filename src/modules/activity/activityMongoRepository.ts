@@ -40,6 +40,26 @@ function toActivityRecord(
     interpretationAcknowledgedAt: document.interpretationAcknowledgedAt ?? null,
     interpretationAcknowledgedById:
       document.interpretationAcknowledgedById ?? null,
+    aiKnowledgeSnapshot: document.aiKnowledgeSnapshot
+      ? {
+          generatedAt: document.aiKnowledgeSnapshot.generatedAt,
+          summaryText: document.aiKnowledgeSnapshot.summaryText ?? "",
+          interpretedEvidenceCount:
+            document.aiKnowledgeSnapshot.interpretedEvidenceCount,
+          totalEvidenceCount: document.aiKnowledgeSnapshot.totalEvidenceCount,
+          insights: (document.aiKnowledgeSnapshot.insights ?? []).map(
+            (insight) => ({
+              id: insight.id,
+              sourceType: insight.sourceType,
+              text: insight.text,
+              isGoalRelevant: insight.isGoalRelevant,
+              sourceUploadMetadataIds: [
+                ...(insight.sourceUploadMetadataIds ?? []),
+              ],
+            }),
+          ),
+        }
+      : null,
     createdAt: document.createdAt,
     updatedAt: document.updatedAt,
   };

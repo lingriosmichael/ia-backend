@@ -1,4 +1,5 @@
 import type {
+  AnalyticsDashboard,
   AnalyticsDataQuality,
   AnalyticsScopeType,
   DashboardCuration,
@@ -16,6 +17,7 @@ export interface AnalyticsResultPersistenceRecord {
   knowledgeModelVersion: number;
   catalog: EvidenceCatalog;
   curation: DashboardCuration;
+  dashboard: AnalyticsDashboard | null;
   dataQuality: AnalyticsDataQuality;
   limitations: string[];
   generatedAt: Date;
@@ -33,6 +35,7 @@ export interface AnalyticsResultCreateInput {
   knowledgeModelVersion: number;
   catalog: EvidenceCatalog;
   curation: DashboardCuration;
+  dashboard: AnalyticsDashboard | null;
   dataQuality: AnalyticsDataQuality;
   limitations: string[];
   generatedAt: Date;

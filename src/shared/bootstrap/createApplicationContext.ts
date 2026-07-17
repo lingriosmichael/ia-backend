@@ -15,9 +15,15 @@ import { AnalyticsController } from "../../modules/analytics/analyticsController
 import { AnalyticsExecutionService } from "../../modules/analytics/analyticsExecutionService.js";
 import { MongoAnalyticsExecutionRepository } from "../../modules/analytics/analyticsExecutionMongoRepository.js";
 import { AnalyticsQueryService } from "../../modules/analytics/analyticsQueryService.js";
+import { MongoAnalyticsDashboardEventRepository } from "../../modules/analytics/analyticsDashboardEventMongoRepository.js";
 import { MongoAnalyticsResultRepository } from "../../modules/analytics/analyticsResultMongoRepository.js";
+import { AnalyticsDashboardExportService } from "../../modules/analytics/analyticsDashboardExportService.js";
+import { AnalyticsDashboardEventService } from "../../modules/analytics/analyticsDashboardEventService.js";
+import { MongoAnalyticsDashboardPreferenceRepository } from "../../modules/analytics/analyticsDashboardPreferenceMongoRepository.js";
+import { AnalyticsDashboardPreferenceService } from "../../modules/analytics/analyticsDashboardPreferenceService.js";
 import { ProjectDerivedStateInvalidationService } from "../../modules/analytics/projectDerivedStateInvalidationService.js";
 import { DashboardCatalogAssemblerService } from "../../modules/analytics/dashboardCatalogAssemblerService.js";
+import { AnalyticsDashboardBuilderService } from "../../modules/analytics/analyticsDashboardBuilderService.js";
 import { PythonAnalyticsCurationClient } from "../../modules/analytics/pythonAnalyticsCurationClient.js";
 import { MongoProcessingJobRepository } from "../../modules/ai/execution/processingJobMongoRepository.js";
 import { ProcessingJobController } from "../../modules/ai/execution/processingJobController.js";
@@ -93,11 +99,16 @@ export function createApplicationContext(
   const knowledgeIndicatorRepository = new MongoKnowledgeIndicatorRepository();
   const analyticsExecutionRepository = new MongoAnalyticsExecutionRepository();
   const analyticsResultRepository = new MongoAnalyticsResultRepository();
+  const analyticsDashboardEventRepository =
+    new MongoAnalyticsDashboardEventRepository();
+  const analyticsDashboardPreferenceRepository =
+    new MongoAnalyticsDashboardPreferenceRepository();
   const projectDerivedStateInvalidationService =
     new ProjectDerivedStateInvalidationService(
       projectKnowledgeModelRepository,
       analyticsExecutionRepository,
       analyticsResultRepository,
+      analyticsDashboardPreferenceRepository,
     );
   const projectKnowledgeBuilderService = new ProjectKnowledgeBuilderService(
     projectRepository,
@@ -120,6 +131,8 @@ export function createApplicationContext(
     knowledgeIndicatorRepository,
     analyticsExecutionRepository,
     analyticsResultRepository,
+    analyticsDashboardPreferenceRepository,
+    analyticsDashboardEventRepository,
   );
   const authorizationService = new AuthorizationService(
     organizationRepository,
@@ -150,6 +163,7 @@ export function createApplicationContext(
     fileStorageService,
     activityRepository,
     uploadMetadataRepository,
+    processingJobRepository,
     transactionManager,
     userRepository,
     processingResourceCleanupService,
@@ -266,6 +280,18 @@ export function createApplicationContext(
     config.PYTHON_SERVICE_URL,
     config.PYTHON_SERVICE_SHARED_SECRET,
   );
+  const analyticsDashboardBuilderService =
+    new AnalyticsDashboardBuilderService();
+  const analyticsDashboardPreferenceService =
+    new AnalyticsDashboardPreferenceService(
+      authorizationService,
+      analyticsResultRepository,
+      analyticsDashboardPreferenceRepository,
+    );
+  const analyticsDashboardEventService = new AnalyticsDashboardEventService(
+    authorizationService,
+    analyticsDashboardEventRepository,
+  );
   const analyticsExecutionService = new AnalyticsExecutionService(
     authorizationService,
     dashboardCatalogAssemblerService,
@@ -273,12 +299,19 @@ export function createApplicationContext(
     analyticsResultRepository,
     pythonAnalyticsCurationClient,
     projectKnowledgeBuilderService,
+    deterministicAnalysisRepository,
+    analyticsDashboardBuilderService,
   );
   const analyticsQueryService = new AnalyticsQueryService(
     authorizationService,
     projectKnowledgeModelRepository,
     analyticsExecutionRepository,
     analyticsResultRepository,
+    analyticsDashboardPreferenceRepository,
+    analyticsDashboardEventRepository,
+  );
+  const analyticsDashboardExportService = new AnalyticsDashboardExportService(
+    analyticsQueryService,
   );
   const invitationService = new InvitationService(
     invitationRepository,
@@ -317,6 +350,9 @@ export function createApplicationContext(
     analyticsController: new AnalyticsController(
       analyticsExecutionService,
       analyticsQueryService,
+      analyticsDashboardExportService,
+      analyticsDashboardEventService,
+      analyticsDashboardPreferenceService,
     ),
   };
 }

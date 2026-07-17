@@ -105,6 +105,183 @@ export interface EvidenceCatalog {
   qualitySignals: EvidenceCatalogQualitySignal[];
 }
 
+export const ANALYTICS_DASHBOARD_SCHEMA_VERSION = "dashboard-v2";
+export const analyticsDashboardWidgetKindValues = [
+  "kpi",
+  "summary",
+  "horizontal_bar",
+  "line_series",
+  "category_rank",
+  "theme_list",
+] as const;
+export type AnalyticsDashboardWidgetKind =
+  (typeof analyticsDashboardWidgetKindValues)[number];
+
+export interface AnalyticsDashboardGoalLinkage {
+  outcomeReferences: string[];
+  successIndicators: string[];
+  matchedProjectGoalPhrases: string[];
+}
+
+export interface AnalyticsDashboardQualityFlag {
+  sourceType: EvidenceCatalogQualitySignalSource;
+  severity: InterpretationWarningSeverity;
+  message: string;
+}
+
+export interface AnalyticsDashboardWidgetBase {
+  widgetId: string;
+  kind: AnalyticsDashboardWidgetKind;
+  title: string;
+  subtitle: string | null;
+  description: string;
+  sourceActivityIds: string[];
+  sourceUploadMetadataIds: string[];
+  goalLinkage: AnalyticsDashboardGoalLinkage;
+  qualityFlags: AnalyticsDashboardQualityFlag[];
+}
+
+export interface AnalyticsDashboardKpiWidget extends AnalyticsDashboardWidgetBase {
+  kind: "kpi";
+  entryId: string;
+  label: string;
+  description: string;
+  value: number;
+  unit: string | null;
+  deduplicationConfidence: KnowledgeIndicatorDeduplicationConfidence;
+}
+
+export interface AnalyticsDashboardSummaryWidget extends AnalyticsDashboardWidgetBase {
+  kind: "summary";
+  paragraphs: string[];
+  referencedEntryIds: string[];
+}
+
+export interface AnalyticsDashboardHorizontalBarItem {
+  id: string;
+  label: string;
+  description: string;
+  value: number;
+  unit: string | null;
+  entryId: string | null;
+}
+
+export interface AnalyticsDashboardHorizontalBarWidget extends AnalyticsDashboardWidgetBase {
+  kind: "horizontal_bar";
+  unit: string | null;
+  items: AnalyticsDashboardHorizontalBarItem[];
+}
+
+export interface AnalyticsDashboardLineSeriesPoint {
+  label: string;
+  value: number;
+}
+
+export interface AnalyticsDashboardLineSeriesWidget extends AnalyticsDashboardWidgetBase {
+  kind: "line_series";
+  label: string;
+  tableName: string;
+  activityId: string | null;
+  unit: "count" | "ratio";
+  points: AnalyticsDashboardLineSeriesPoint[];
+}
+
+export interface AnalyticsDashboardCategoryRankItem {
+  id: string;
+  label: string;
+  value: number;
+}
+
+export interface AnalyticsDashboardCategoryRankWidget extends AnalyticsDashboardWidgetBase {
+  kind: "category_rank";
+  label: string;
+  tableName: string;
+  activityId: string | null;
+  unit: "count" | "ratio";
+  items: AnalyticsDashboardCategoryRankItem[];
+}
+
+export interface AnalyticsDashboardThemeListItem {
+  entryId: string;
+  label: string;
+  description: string;
+  quoteCount: number;
+  outcomeReference: string | null;
+}
+
+export interface AnalyticsDashboardThemeListWidget extends AnalyticsDashboardWidgetBase {
+  kind: "theme_list";
+  items: AnalyticsDashboardThemeListItem[];
+}
+
+export type AnalyticsDashboardWidget =
+  | AnalyticsDashboardKpiWidget
+  | AnalyticsDashboardSummaryWidget
+  | AnalyticsDashboardHorizontalBarWidget
+  | AnalyticsDashboardLineSeriesWidget
+  | AnalyticsDashboardCategoryRankWidget
+  | AnalyticsDashboardThemeListWidget;
+
+export interface AnalyticsDashboardWidgetCopyCandidate {
+  widgetId: string;
+  kind: AnalyticsDashboardWidgetKind;
+  currentTitle: string;
+  currentDescription: string;
+  contextLines: string[];
+}
+
+export interface AnalyticsDashboardWidgetCopySuggestion {
+  widgetId: string;
+  title: string;
+  description: string;
+}
+
+export interface AnalyticsDashboardLayoutDefinition {
+  orderedWidgetIds: string[];
+  hiddenWidgetIds: string[];
+}
+
+export interface AnalyticsDashboard {
+  schemaVersion: string;
+  availableWidgets: AnalyticsDashboardWidget[];
+  defaultLayout: AnalyticsDashboardLayoutDefinition;
+}
+
+export interface AnalyticsDashboardUsageSummary {
+  resultId: string;
+  totalEvents: number;
+  dashboardViewCount: number;
+  widgetHideCount: number;
+  widgetShowCount: number;
+  layoutReorderCount: number;
+  layoutRestoreCount: number;
+  lastOccurredAt: Date | null;
+  lastViewedAt: Date | null;
+}
+
+export interface AnalyticsDashboardExportSection {
+  widgetId: string;
+  kind: AnalyticsDashboardWidget["kind"];
+  title: string;
+  subtitle: string | null;
+  description: string;
+  lines: string[];
+}
+
+export interface AnalyticsDashboardExportDocument {
+  resultId: string;
+  projectId: string;
+  activityId: string | null;
+  scopeType: AnalyticsScopeType;
+  dashboardSchemaVersion: string;
+  dashboardCompatibilitySource: "generated" | "compatibility_fallback";
+  visibleWidgetIds: string[];
+  hiddenWidgetIds: string[];
+  sections: AnalyticsDashboardExportSection[];
+  dataQualityWarnings: string[];
+  generatedAt: Date;
+}
+
 export interface DashboardCurationNarrative {
   text: string;
   referencedEntryIds: string[];
@@ -138,6 +315,14 @@ export interface AnalyticsDataQuality {
 export interface ProjectContextForCuration {
   name: string;
   projectGoal: string | null;
+  impactModel: {
+    inputs: string | null;
+    activities: string | null;
+    outputs: string | null;
+    outcomes: string | null;
+    impact: string | null;
+  } | null;
+  successIndicators: string | null;
   targetGroups: string[];
   areaOfOperation: string | null;
 }

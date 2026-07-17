@@ -11,6 +11,135 @@ import type { UserRepository } from "../user/userRepository.js";
 import type { UploadMetadataRepository } from "./uploadMetadataRepository.js";
 import { UploadMetadataService } from "./uploadMetadataService.js";
 
+test("upload create clears acknowledgment and invalidates project derived state when new activity evidence is added", async () => {
+  const calls: string[] = [];
+
+  const uploadMetadataRepository = {
+    create: async (input: Record<string, unknown>) => {
+      calls.push("createUpload");
+      return {
+        id: "upload-2",
+        organizationId: "org-1",
+        projectId: "project-1",
+        activityId: "activity-1",
+        logicalEvidenceId: "logical-1",
+        versionNumber: 1,
+        replacesUploadMetadataId: null,
+        supersededAt: null,
+        originalFileName: input.originalFileName,
+        contentType: null,
+        sizeBytes: null,
+        storageKey: null,
+        originalFileDeletedAt: null,
+        status: "uploaded",
+        uploadedById: "user-1",
+        createdAt: new Date("2026-01-05T00:00:00.000Z"),
+        updatedAt: new Date("2026-01-05T00:00:00.000Z"),
+      };
+    },
+  } as unknown as UploadMetadataRepository;
+
+  const authorizationService = {
+    canUploadToActivity: async () => ({
+      project: {
+        id: "project-1",
+        organizationId: "org-1",
+      },
+      activity: {
+        id: "activity-1",
+        projectId: "project-1",
+        name: "Activity One",
+        description: null,
+        activityType: null,
+        owner: null,
+        startDate: null,
+        endDate: null,
+        objectives: null,
+        successIndicators: null,
+        targetAudience: null,
+        additionalContext: null,
+        status: "active",
+        interpretationAcknowledgedAt: new Date("2026-01-03T00:00:00.000Z"),
+        interpretationAcknowledgedById: "user-1",
+        createdAt: new Date("2026-01-01T00:00:00.000Z"),
+        updatedAt: new Date("2026-01-02T00:00:00.000Z"),
+      },
+    }),
+  } as unknown as AuthorizationService;
+
+  const activityService = {
+    getById: async () => ({
+      id: "activity-1",
+      projectId: "project-1",
+    }),
+  } as unknown as ActivityService;
+
+  const activityRepository = {
+    findById: async () => ({
+      id: "activity-1",
+      projectId: "project-1",
+      name: "Activity One",
+      description: null,
+      activityType: null,
+      owner: null,
+      startDate: null,
+      endDate: null,
+      objectives: null,
+      successIndicators: null,
+      targetAudience: null,
+      additionalContext: null,
+      status: "active",
+      interpretationAcknowledgedAt: new Date("2026-01-03T00:00:00.000Z"),
+      interpretationAcknowledgedById: "user-1",
+      createdAt: new Date("2026-01-01T00:00:00.000Z"),
+      updatedAt: new Date("2026-01-02T00:00:00.000Z"),
+    }),
+    update: async (_activityId: string, input: Record<string, unknown>) => {
+      calls.push("clearAcknowledgment");
+      assert.equal(input.interpretationAcknowledgedAt, null);
+      assert.equal(input.interpretationAcknowledgedById, null);
+      return {
+        id: "activity-1",
+        projectId: "project-1",
+      };
+    },
+  } as unknown as ActivityRepository;
+
+  const projectDerivedStateInvalidationService = {
+    invalidateProject: async (projectId: string) => {
+      calls.push(`invalidate:${projectId}`);
+    },
+  } as unknown as ProjectDerivedStateInvalidationService;
+
+  const service = new UploadMetadataService(
+    uploadMetadataRepository,
+    activityService,
+    authorizationService,
+    {} as never,
+    {
+      findById: async () => ({ id: "user-1", fullName: "User One" }),
+      findByIds: async () => [{ id: "user-1", fullName: "User One" }],
+    } as unknown as UserRepository,
+    {} as TransactionManager,
+    activityRepository,
+    {} as ProcessingJobRepository,
+    {} as ProcessingResourceCleanupService,
+    projectDerivedStateInvalidationService,
+  );
+
+  const created = await service.create("user-1", "project-1", {
+    activityId: "activity-1",
+    originalFileName: "new-evidence.csv",
+  });
+
+  assert.equal(created.activityId, "activity-1");
+  assert.deepEqual(calls, [
+    "createUpload",
+    "clearAcknowledgment",
+    "invalidate:project-1",
+  ]);
+});
+
 test("upload delete clears acknowledgment and invalidates project derived state when deleting acknowledged evidence", async () => {
   const calls: string[] = [];
 

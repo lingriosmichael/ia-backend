@@ -2,11 +2,18 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { AnalyticsQueryService } from "./analyticsQueryService.js";
 import type { ProjectKnowledgeModelRepository } from "../knowledge/projectKnowledgeModelRepository.js";
+import type { AnalyticsDashboardEventRepository } from "./analyticsDashboardEventRepository.js";
+import type { AnalyticsDashboardPreferenceRepository } from "./analyticsDashboardPreferenceRepository.js";
+import type { AnalyticsDashboardEventPersistenceRecord } from "./analyticsDashboardEventPersistence.js";
 import type { AnalyticsExecutionRepository } from "./analyticsExecutionRepository.js";
 import type { AnalyticsExecutionPersistenceRecord } from "./analyticsExecutionPersistence.js";
 import type { AnalyticsResultRepository } from "./analyticsResultRepository.js";
 import type { AnalyticsResultPersistenceRecord } from "./analyticsResultPersistence.js";
-import { CURATOR_MODEL_VERSION } from "./analyticsContracts.js";
+import {
+  ANALYTICS_DASHBOARD_SCHEMA_VERSION,
+  CURATOR_MODEL_VERSION,
+} from "./analyticsContracts.js";
+import { FALLBACK_ANALYTICS_DASHBOARD_SCHEMA_VERSION } from "./analyticsDashboardCompatibility.js";
 import {
   createFakeAuthorization,
   makeKnowledgeModel,
@@ -62,6 +69,7 @@ function makeResult(
       curatorModelVersion: CURATOR_MODEL_VERSION,
       fellBackToSelectionOnly: false,
     },
+    dashboard: null,
     dataQuality: { recordsExcludedCount: 0, warnings: [] },
     limitations: [],
     generatedAt: NOW,
@@ -71,10 +79,38 @@ function makeResult(
   };
 }
 
+function makeLayoutPreference(
+  overrides: {
+    dashboardSchemaVersion?: string;
+    orderedWidgetIds?: string[];
+    hiddenWidgetIds?: string[];
+  } = {},
+) {
+  return {
+    id: "layout-1",
+    organizationId: "org-1",
+    projectId: "project-1",
+    activityId: null,
+    scopeType: "PROJECT" as const,
+    dashboardSchemaVersion:
+      overrides.dashboardSchemaVersion ?? ANALYTICS_DASHBOARD_SCHEMA_VERSION,
+    orderedWidgetIds: overrides.orderedWidgetIds ?? [
+      "summary-primary",
+      "kpi-1",
+    ],
+    hiddenWidgetIds: overrides.hiddenWidgetIds ?? ["kpi-1"],
+    updatedById: "user-1",
+    createdAt: NOW,
+    updatedAt: NOW,
+  };
+}
+
 function createFakeRepos(options: {
   model: ReturnType<typeof makeKnowledgeModel> | null;
   execution: AnalyticsExecutionPersistenceRecord | null;
   result: AnalyticsResultPersistenceRecord | null;
+  layoutPreference?: ReturnType<typeof makeLayoutPreference> | null;
+  dashboardEvents?: AnalyticsDashboardEventPersistenceRecord[];
 }) {
   let currentExecution = options.execution;
 
@@ -102,85 +138,155 @@ function createFakeRepos(options: {
     deleteByProjectId: async () => 0,
   } as unknown as AnalyticsResultRepository;
 
+  const analyticsDashboardPreferenceRepository = {
+    findByScope: async () => options.layoutPreference ?? null,
+    deleteByProjectId: async () => 0,
+  } as unknown as AnalyticsDashboardPreferenceRepository;
+
+  const analyticsDashboardEventRepository = {
+    findByScopeAndResultId: async () => options.dashboardEvents ?? [],
+    deleteByProjectId: async () => 0,
+    deleteByActivityId: async () => 0,
+    create: async () => {
+      throw new Error("not implemented");
+    },
+  } as unknown as AnalyticsDashboardEventRepository;
+
   return {
     projectKnowledgeModelRepository,
     analyticsExecutionRepository,
     analyticsResultRepository,
+    analyticsDashboardPreferenceRepository,
+    analyticsDashboardEventRepository,
     getCurrentExecution: () => currentExecution,
   };
 }
 
-test("no execution or result yet returns nulls without touching staleness logic", async () => {
-  const project = makeProject();
-  const authorizationService = createFakeAuthorization(project);
-  const repos = createFakeRepos({ model: null, execution: null, result: null });
-  const service = new AnalyticsQueryService(
-    authorizationService,
+function createService(
+  repos: ReturnType<typeof createFakeRepos>,
+  project = makeProject(),
+) {
+  return new AnalyticsQueryService(
+    createFakeAuthorization(project),
     repos.projectKnowledgeModelRepository,
     repos.analyticsExecutionRepository,
     repos.analyticsResultRepository,
+    repos.analyticsDashboardPreferenceRepository,
+    repos.analyticsDashboardEventRepository,
   );
+}
 
-  const { execution, result } = await service.getProjectAnalytics(
-    "user-1",
-    "project-1",
-  );
+test("no execution or result yet returns nulls without touching staleness logic", async () => {
+  const repos = createFakeRepos({ model: null, execution: null, result: null });
+  const service = createService(repos);
+
+  const { execution, result, layoutPreference, dashboardCompatibilitySource } =
+    await service.getProjectAnalytics("user-1", "project-1");
 
   assert.equal(execution, null);
   assert.equal(result, null);
+  assert.equal(layoutPreference, null);
+  assert.equal(dashboardCompatibilitySource, null);
 });
 
 test("a completed result matching the current model/curator version is not marked stale", async () => {
-  const project = makeProject();
-  const authorizationService = createFakeAuthorization(project);
   const repos = createFakeRepos({
     model: makeKnowledgeModel({ version: 1 }),
     execution: makeExecution({ status: "COMPLETED" }),
     result: makeResult({ knowledgeModelVersion: 1 }),
   });
-  const service = new AnalyticsQueryService(
-    authorizationService,
-    repos.projectKnowledgeModelRepository,
-    repos.analyticsExecutionRepository,
-    repos.analyticsResultRepository,
-  );
+  const service = createService(repos);
 
-  const { execution } = await service.getProjectAnalytics(
+  const { execution, result, dashboardCompatibilitySource } =
+    await service.getProjectAnalytics("user-1", "project-1");
+
+  assert.equal(execution!.status, "COMPLETED");
+  assert.equal(
+    result?.dashboard?.schemaVersion,
+    FALLBACK_ANALYTICS_DASHBOARD_SCHEMA_VERSION,
+  );
+  assert.equal(dashboardCompatibilitySource, "compatibility_fallback");
+});
+
+test("dashboard usage summary is returned for the current result when telemetry exists", async () => {
+  const repos = createFakeRepos({
+    model: makeKnowledgeModel({ version: 1 }),
+    execution: makeExecution({ status: "COMPLETED" }),
+    result: makeResult({ knowledgeModelVersion: 1 }),
+    dashboardEvents: [
+      {
+        id: "event-1",
+        organizationId: "org-1",
+        projectId: "project-1",
+        activityId: null,
+        scopeType: "PROJECT",
+        userId: "user-1",
+        resultId: "result-1",
+        interactionType: "dashboard_viewed",
+        dashboardSchemaVersion: FALLBACK_ANALYTICS_DASHBOARD_SCHEMA_VERSION,
+        dashboardCompatibilitySource: "compatibility_fallback",
+        orderedWidgetIds: [],
+        hiddenWidgetIds: [],
+        visibleWidgetIds: [],
+        widgetId: null,
+        occurredAt: NOW,
+        createdAt: NOW,
+        updatedAt: NOW,
+      },
+      {
+        id: "event-2",
+        organizationId: "org-1",
+        projectId: "project-1",
+        activityId: null,
+        scopeType: "PROJECT",
+        userId: "user-1",
+        resultId: "result-1",
+        interactionType: "widget_hidden",
+        dashboardSchemaVersion: FALLBACK_ANALYTICS_DASHBOARD_SCHEMA_VERSION,
+        dashboardCompatibilitySource: "compatibility_fallback",
+        orderedWidgetIds: [],
+        hiddenWidgetIds: [],
+        visibleWidgetIds: [],
+        widgetId: "kpi-metric-1",
+        occurredAt: NOW,
+        createdAt: NOW,
+        updatedAt: NOW,
+      },
+    ],
+  });
+  const service = createService(repos);
+
+  const { dashboardUsageSummary } = await service.getProjectAnalytics(
     "user-1",
     "project-1",
   );
 
-  assert.equal(execution!.status, "COMPLETED");
+  assert.equal(dashboardUsageSummary?.resultId, "result-1");
+  assert.equal(dashboardUsageSummary?.totalEvents, 2);
+  assert.equal(dashboardUsageSummary?.dashboardViewCount, 1);
+  assert.equal(dashboardUsageSummary?.widgetHideCount, 1);
+  assert.equal(dashboardUsageSummary?.widgetShowCount, 0);
 });
 
 test("a Project Knowledge Model version bump marks a completed result STALE", async () => {
-  const project = makeProject();
-  const authorizationService = createFakeAuthorization(project);
   const repos = createFakeRepos({
     model: makeKnowledgeModel({ version: 2 }),
     execution: makeExecution({ status: "COMPLETED" }),
     result: makeResult({ knowledgeModelVersion: 1 }),
   });
-  const service = new AnalyticsQueryService(
-    authorizationService,
-    repos.projectKnowledgeModelRepository,
-    repos.analyticsExecutionRepository,
-    repos.analyticsResultRepository,
-  );
+  const service = createService(repos);
 
-  const { execution, result } = await service.getProjectAnalytics(
-    "user-1",
-    "project-1",
-  );
+  const { execution, result, layoutPreference, dashboardCompatibilitySource } =
+    await service.getProjectAnalytics("user-1", "project-1");
 
   assert.equal(execution!.status, "STALE");
   assert.equal(repos.getCurrentExecution()!.status, "STALE");
   assert.equal(result, null);
+  assert.equal(layoutPreference, null);
+  assert.equal(dashboardCompatibilitySource, null);
 });
 
 test("a curator model version mismatch also marks a completed result STALE", async () => {
-  const project = makeProject();
-  const authorizationService = createFakeAuthorization(project);
   const repos = createFakeRepos({
     model: makeKnowledgeModel({ version: 1 }),
     execution: makeExecution({ status: "COMPLETED" }),
@@ -196,12 +302,7 @@ test("a curator model version mismatch also marks a completed result STALE", asy
       },
     }),
   });
-  const service = new AnalyticsQueryService(
-    authorizationService,
-    repos.projectKnowledgeModelRepository,
-    repos.analyticsExecutionRepository,
-    repos.analyticsResultRepository,
-  );
+  const service = createService(repos);
 
   const { execution, result } = await service.getProjectAnalytics(
     "user-1",
@@ -213,19 +314,12 @@ test("a curator model version mismatch also marks a completed result STALE", asy
 });
 
 test("a stale Project Knowledge Model status hides the cached analytics result", async () => {
-  const project = makeProject();
-  const authorizationService = createFakeAuthorization(project);
   const repos = createFakeRepos({
     model: makeKnowledgeModel({ status: "stale", version: 1 }),
     execution: makeExecution({ status: "COMPLETED" }),
     result: makeResult({ knowledgeModelVersion: 1 }),
   });
-  const service = new AnalyticsQueryService(
-    authorizationService,
-    repos.projectKnowledgeModelRepository,
-    repos.analyticsExecutionRepository,
-    repos.analyticsResultRepository,
-  );
+  const service = createService(repos);
 
   const { execution, result } = await service.getProjectAnalytics(
     "user-1",
@@ -237,19 +331,12 @@ test("a stale Project Knowledge Model status hides the cached analytics result",
 });
 
 test("a non-live execution never exposes an old analytics result", async () => {
-  const project = makeProject();
-  const authorizationService = createFakeAuthorization(project);
   const repos = createFakeRepos({
     model: makeKnowledgeModel({ version: 1 }),
     execution: makeExecution({ status: "STALE" }),
     result: makeResult({ knowledgeModelVersion: 1 }),
   });
-  const service = new AnalyticsQueryService(
-    authorizationService,
-    repos.projectKnowledgeModelRepository,
-    repos.analyticsExecutionRepository,
-    repos.analyticsResultRepository,
-  );
+  const service = createService(repos);
 
   const { execution, result } = await service.getProjectAnalytics(
     "user-1",
@@ -261,25 +348,12 @@ test("a non-live execution never exposes an old analytics result", async () => {
 });
 
 test("a completed empty-catalog result with no Project Knowledge Model is not marked stale", async () => {
-  // Regression test: a project with verified interpretation data but no
-  // Project Knowledge Model built yet (buildProjectKnowledgeModel.ts has
-  // never been run) legitimately produces an empty catalog with
-  // knowledgeModelVersion: 0. That result is current relative to "no
-  // model exists" — it must not be shown as stale, which would
-  // contradict the empty-evidence state the UI shows right next to it.
-  const project = makeProject();
-  const authorizationService = createFakeAuthorization(project);
   const repos = createFakeRepos({
     model: null,
     execution: makeExecution({ status: "COMPLETED" }),
     result: makeResult({ knowledgeModelVersion: 0 }),
   });
-  const service = new AnalyticsQueryService(
-    authorizationService,
-    repos.projectKnowledgeModelRepository,
-    repos.analyticsExecutionRepository,
-    repos.analyticsResultRepository,
-  );
+  const service = createService(repos);
 
   const { execution } = await service.getProjectAnalytics(
     "user-1",
@@ -290,19 +364,12 @@ test("a completed empty-catalog result with no Project Knowledge Model is not ma
 });
 
 test("a result computed from a real model that has since disappeared is marked stale", async () => {
-  const project = makeProject();
-  const authorizationService = createFakeAuthorization(project);
   const repos = createFakeRepos({
     model: null,
     execution: makeExecution({ status: "COMPLETED" }),
     result: makeResult({ knowledgeModelVersion: 3 }),
   });
-  const service = new AnalyticsQueryService(
-    authorizationService,
-    repos.projectKnowledgeModelRepository,
-    repos.analyticsExecutionRepository,
-    repos.analyticsResultRepository,
-  );
+  const service = createService(repos);
 
   const { execution } = await service.getProjectAnalytics(
     "user-1",
@@ -313,8 +380,6 @@ test("a result computed from a real model that has since disappeared is marked s
 });
 
 test("a FAILED execution is returned as-is, never re-checked for staleness", async () => {
-  const project = makeProject();
-  const authorizationService = createFakeAuthorization(project);
   const repos = createFakeRepos({
     model: makeKnowledgeModel({ version: 99 }),
     execution: makeExecution({
@@ -323,12 +388,7 @@ test("a FAILED execution is returned as-is, never re-checked for staleness", asy
     }),
     result: null,
   });
-  const service = new AnalyticsQueryService(
-    authorizationService,
-    repos.projectKnowledgeModelRepository,
-    repos.analyticsExecutionRepository,
-    repos.analyticsResultRepository,
-  );
+  const service = createService(repos);
 
   const { execution } = await service.getProjectAnalytics(
     "user-1",
@@ -336,4 +396,180 @@ test("a FAILED execution is returned as-is, never re-checked for staleness", asy
   );
 
   assert.equal(execution!.status, "FAILED");
+});
+
+test("a valid persisted layout preference is normalized and returned", async () => {
+  const repos = createFakeRepos({
+    model: makeKnowledgeModel({ version: 1 }),
+    execution: makeExecution({ status: "COMPLETED" }),
+    result: makeResult({
+      knowledgeModelVersion: 1,
+      dashboard: {
+        schemaVersion: ANALYTICS_DASHBOARD_SCHEMA_VERSION,
+        availableWidgets: [
+          {
+            widgetId: "summary-primary",
+            kind: "summary",
+            title: "In plain language",
+            subtitle: null,
+            description: "Summary",
+            sourceActivityIds: [],
+            sourceUploadMetadataIds: [],
+            goalLinkage: {
+              outcomeReferences: [],
+              successIndicators: [],
+              matchedProjectGoalPhrases: [],
+            },
+            qualityFlags: [],
+            paragraphs: ["Summary"],
+            referencedEntryIds: [],
+          },
+          {
+            widgetId: "kpi-1",
+            kind: "kpi",
+            title: "Attendance rate",
+            subtitle: null,
+            description: "Share of participants attending sessions.",
+            sourceActivityIds: ["activity-1"],
+            sourceUploadMetadataIds: ["upload-1"],
+            goalLinkage: {
+              outcomeReferences: [],
+              successIndicators: [],
+              matchedProjectGoalPhrases: [],
+            },
+            qualityFlags: [],
+            entryId: "metric-1",
+            label: "Attendance rate",
+            value: 0.82,
+            unit: "ratio",
+            deduplicationConfidence: "not_applicable",
+          },
+          {
+            widgetId: "theme-1",
+            kind: "theme_list",
+            title: "Qualitative signals",
+            subtitle: null,
+            description: "Themes",
+            sourceActivityIds: ["activity-1"],
+            sourceUploadMetadataIds: ["upload-2"],
+            goalLinkage: {
+              outcomeReferences: [],
+              successIndicators: [],
+              matchedProjectGoalPhrases: [],
+            },
+            qualityFlags: [],
+            items: [],
+          },
+        ],
+        defaultLayout: {
+          orderedWidgetIds: ["summary-primary", "kpi-1", "theme-1"],
+          hiddenWidgetIds: [],
+        },
+      },
+    }),
+    layoutPreference: makeLayoutPreference({
+      orderedWidgetIds: ["kpi-1", "missing-widget", "summary-primary"],
+      hiddenWidgetIds: ["kpi-1", "missing-widget"],
+    }),
+  });
+  const service = createService(repos);
+
+  const { layoutPreference } = await service.getProjectAnalytics(
+    "user-1",
+    "project-1",
+  );
+
+  assert.deepEqual(layoutPreference?.orderedWidgetIds, [
+    "kpi-1",
+    "summary-primary",
+    "theme-1",
+  ]);
+  assert.deepEqual(layoutPreference?.hiddenWidgetIds, ["kpi-1"]);
+});
+
+test("a legacy result with no stored dashboard still returns a materialized fallback dashboard and compatible layout preference", async () => {
+  const repos = createFakeRepos({
+    model: makeKnowledgeModel({ version: 1 }),
+    execution: makeExecution({ status: "COMPLETED" }),
+    result: makeResult({
+      knowledgeModelVersion: 1,
+      catalog: {
+        catalogVersion: "3.0",
+        knowledgeModelVersion: 1,
+        scope: { type: "PROJECT", projectId: "project-1", activityId: null },
+        entries: [
+          {
+            entryId: "metric-1",
+            entryType: "METRIC",
+            label: "Attendance rate",
+            description: "Share of participants attending sessions.",
+            value: 0.82,
+            unit: "ratio",
+            deduplicationConfidence: "not_applicable",
+            activityId: "activity-1",
+            provenance: {
+              knowledgeEntityId: "entity-1",
+              uploadMetadataId: "upload-1",
+              interpretationResultId: "result-1",
+              sourceReference: "Attendance rate",
+            },
+          },
+          {
+            entryId: "theme-1",
+            entryType: "QUALITATIVE_THEME",
+            label: "Mentors requested more preparation time",
+            description: "Interviewees described compressed onboarding.",
+            quoteCount: 3,
+            categories: ["barrier"],
+            outcomeReferences: ["Participants sustain mentor relationships."],
+            outcomeAnchorTypes: ["project_outcome"],
+            sourceActivityIds: ["activity-1"],
+            sourceUploadMetadataIds: ["upload-2"],
+          },
+        ],
+        omittedEntries: [],
+        qualitySignals: [],
+      },
+      curation: {
+        featuredEntryIds: ["metric-1", "theme-1"],
+        narrative: [
+          {
+            text: "Attendance held steady while onboarding remained compressed.",
+            referencedEntryIds: ["metric-1", "theme-1"],
+          },
+        ],
+        groundingStatus: "PASSED",
+        groundingRetryCount: 0,
+        curatorModelVersion: CURATOR_MODEL_VERSION,
+        fellBackToSelectionOnly: false,
+      },
+      dashboard: null,
+    }),
+    layoutPreference: makeLayoutPreference({
+      dashboardSchemaVersion: FALLBACK_ANALYTICS_DASHBOARD_SCHEMA_VERSION,
+      orderedWidgetIds: ["theme-list-fallback", "summary-fallback"],
+      hiddenWidgetIds: ["theme-list-fallback"],
+    }),
+  });
+  const service = createService(repos);
+
+  const { result, layoutPreference, dashboardCompatibilitySource } =
+    await service.getProjectAnalytics("user-1", "project-1");
+
+  assert.equal(
+    result?.dashboard?.schemaVersion,
+    FALLBACK_ANALYTICS_DASHBOARD_SCHEMA_VERSION,
+  );
+  assert.equal(dashboardCompatibilitySource, "compatibility_fallback");
+  assert.deepEqual(result?.dashboard?.defaultLayout.orderedWidgetIds, [
+    "kpi-metric-1",
+    "summary-fallback",
+    "theme-list-fallback",
+  ]);
+  assert.deepEqual(layoutPreference?.orderedWidgetIds, [
+    "theme-list-fallback",
+    "summary-fallback",
+    "kpi-metric-1",
+  ]);
+  assert.deepEqual(layoutPreference?.hiddenWidgetIds, ["theme-list-fallback"]);
 });
