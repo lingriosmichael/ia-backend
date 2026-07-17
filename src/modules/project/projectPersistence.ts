@@ -8,6 +8,12 @@ export interface ProjectImpactModelPersistence {
   outcomes: string | null;
 }
 
+export interface ProjectLlmTokenLedgerPersistence {
+  totalPromptTokensLifetime: number;
+  totalCompletionTokensLifetime: number;
+  totalTokensLifetime: number;
+}
+
 export interface ProjectPersistenceRecord {
   id: string;
   organizationId: string;
@@ -24,6 +30,7 @@ export interface ProjectPersistenceRecord {
   sdgs: string[];
   impactModel: ProjectImpactModelPersistence;
   successIndicators: string | null;
+  llmTokenLedger?: ProjectLlmTokenLedgerPersistence;
   status: ProjectStatus;
   createdAt: Date;
   updatedAt: Date;
@@ -65,4 +72,10 @@ export interface ProjectUpdateInput {
   impactModel?: Partial<ProjectImpactModelPersistence>;
   successIndicators?: string | null;
   status?: ProjectStatus;
+}
+
+export interface ProjectLlmTokenLedgerIncrement {
+  totalPromptTokensLifetime: number;
+  totalCompletionTokensLifetime: number;
+  totalTokensLifetime: number;
 }

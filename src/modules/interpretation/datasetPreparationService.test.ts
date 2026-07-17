@@ -33,6 +33,7 @@ function makeResult(
     questions: [],
     warnings: [],
     goalAlignment: [],
+    llmUsage: null,
     createdAt: NOW,
     updatedAt: NOW,
     ...overrides,

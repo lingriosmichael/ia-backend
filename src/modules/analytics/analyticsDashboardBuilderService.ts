@@ -341,7 +341,7 @@ function buildComparableMetricsWidgets(
       }
 
       widgets.push({
-        widgetId: `horizontal-bar-${analysis.id}-${distribution.distributionKey}-${unit}`,
+        widgetId: `distribution-bar-${analysis.id}-${distribution.distributionKey}-${unit}`,
         kind: "horizontal_bar",
         ...buildWidgetBase(catalog, projectContext, {
           title: distribution.label,

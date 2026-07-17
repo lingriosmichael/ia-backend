@@ -22,6 +22,8 @@ import type {
   InterpretationQuestionKind,
   InterpretationWarningSeverity,
   ProcessingJobStatus,
+  LlmUsageCall,
+  LlmUsageSummary,
 } from "../../shared/contracts.js";
 import {
   datasetProfileColumnTypeValues,
@@ -49,6 +51,7 @@ import { clearActivityInterpretationAcknowledgmentIfPresent } from "./interpreta
 import { DatasetPreparationService } from "./datasetPreparationService.js";
 import { DeterministicAnalysisService } from "./deterministicAnalysisService.js";
 import { QuantitativeInterpretationSynthesisService } from "./quantitativeInterpretationSynthesisService.js";
+import type { ProjectLlmTokenLedgerService } from "../project/projectLlmTokenLedgerService.js";
 
 type ProcessingStatusDetails = Record<string, unknown> | null | undefined;
 
@@ -101,6 +104,58 @@ function readStringArray(value: unknown): string[] {
 
 function readRecordArray(value: unknown): Record<string, unknown>[] {
   return Array.isArray(value) ? value.filter(isRecord) : [];
+}
+
+function readInterpretationLlmUsage(
+  details: ProcessingStatusDetails,
+): LlmUsageSummary | null {
+  if (!isRecord(details) || !isRecord(details.llmUsage)) {
+    return null;
+  }
+
+  const llmUsage = details.llmUsage;
+  const totalCalls =
+    typeof llmUsage.totalCalls === "number" ? llmUsage.totalCalls : null;
+  const totalPromptTokens =
+    typeof llmUsage.totalPromptTokens === "number"
+      ? llmUsage.totalPromptTokens
+      : null;
+  const totalCompletionTokens =
+    typeof llmUsage.totalCompletionTokens === "number"
+      ? llmUsage.totalCompletionTokens
+      : null;
+  const totalTokens =
+    typeof llmUsage.totalTokens === "number" ? llmUsage.totalTokens : null;
+
+  if (
+    totalCalls === null ||
+    totalPromptTokens === null ||
+    totalCompletionTokens === null ||
+    totalTokens === null
+  ) {
+    return null;
+  }
+
+  const calls = Array.isArray(llmUsage.calls)
+    ? llmUsage.calls
+        .filter(isRecord)
+        .map((call): LlmUsageCall => ({
+          stageName: readString(call.stageName, "unknown_stage"),
+          model: readString(call.model, "unknown_model"),
+          promptTokens: readNumber(call.promptTokens),
+          completionTokens: readNumber(call.completionTokens),
+          totalTokens: readNumber(call.totalTokens),
+          durationMs: readNumber(call.durationMs),
+        }))
+    : [];
+
+  return {
+    totalCalls,
+    totalPromptTokens,
+    totalCompletionTokens,
+    totalTokens,
+    calls,
+  };
 }
 
 function readQuestionKind(value: unknown): InterpretationQuestionKind {
@@ -612,6 +667,7 @@ export class InterpretationArtifactService {
     private readonly datasetPreparationService: DatasetPreparationService,
     private readonly deterministicAnalysisService: DeterministicAnalysisService,
     private readonly quantitativeInterpretationSynthesisService: QuantitativeInterpretationSynthesisService,
+    private readonly projectLlmTokenLedgerService: ProjectLlmTokenLedgerService,
     private readonly logger: FastifyBaseLogger,
   ) {}
 
@@ -641,6 +697,12 @@ export class InterpretationArtifactService {
         privacySafeRepresentationId,
         databaseSession,
       );
+    const llmUsage = readInterpretationLlmUsage(details);
+    await this.projectLlmTokenLedgerService.recordUsage(
+      job.projectId,
+      llmUsage,
+      databaseSession,
+    );
 
     const entities = mapEntities(interpretation.entities);
     const entityIdByOriginalField = new Map(
@@ -708,6 +770,7 @@ export class InterpretationArtifactService {
           interpretation.goalAlignment,
           indicatorIdByName,
         ),
+        llmUsage,
       },
       databaseSession,
     );

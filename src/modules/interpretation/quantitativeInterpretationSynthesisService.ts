@@ -3,6 +3,7 @@ import { createDocumentId } from "../../shared/database/documentId.js";
 import type { ProcessingJobRepository } from "../ai/execution/processingJobRepository.js";
 import type { ActivityRepository } from "../activity/activityRepository.js";
 import type { PythonProcessingClient } from "../processing/pythonProcessingClient.js";
+import type { ProjectLlmTokenLedgerService } from "../project/projectLlmTokenLedgerService.js";
 import type { ProjectRepository } from "../project/projectRepository.js";
 import type { DeterministicAnalysisPersistenceRecord } from "./deterministicAnalysisPersistence.js";
 import type { DatasetPreparationPersistenceRecord } from "./datasetPreparationPersistence.js";
@@ -188,6 +189,7 @@ export class QuantitativeInterpretationSynthesisService {
     private readonly activityRepository: ActivityRepository,
     private readonly projectRepository: ProjectRepository,
     private readonly pythonProcessingClient: PythonProcessingClient,
+    private readonly projectLlmTokenLedgerService: ProjectLlmTokenLedgerService,
   ) {}
 
   async maybeSyncForInterpretationResult(
@@ -285,6 +287,11 @@ export class QuantitativeInterpretationSynthesisService {
         : await this.pythonProcessingClient.synthesizeQuantitativeInterpretation(
             sharedInput,
           );
+    await this.projectLlmTokenLedgerService.recordUsage(
+      result.projectId,
+      synthesis.llmUsage ?? null,
+      databaseSession,
+    );
 
     const metricByKey = new Map(
       deterministicAnalysis.metrics.map((metric) => [metric.metricKey, metric]),

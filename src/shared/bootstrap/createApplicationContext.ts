@@ -60,6 +60,7 @@ import { MongoPrivacySafeRepresentationRepository } from "../../modules/processi
 import { ProcessingResourceCleanupService } from "../../modules/processing/processingResourceCleanupService.js";
 import { PythonProcessingClient } from "../../modules/processing/pythonProcessingClient.js";
 import { ProjectController } from "../../modules/project/projectController.js";
+import { ProjectLlmTokenLedgerService } from "../../modules/project/projectLlmTokenLedgerService.js";
 import { MongoProjectRepository } from "../../modules/project/projectMongoRepository.js";
 import { ProjectService } from "../../modules/project/projectService.js";
 import { ActivityUploadController } from "../../modules/upload/activityUploadController.js";
@@ -169,6 +170,9 @@ export function createApplicationContext(
     processingResourceCleanupService,
     organizationRepository,
   );
+  const projectLlmTokenLedgerService = new ProjectLlmTokenLedgerService(
+    projectRepository,
+  );
   const activityService = new ActivityService(
     activityRepository,
     authorizationService,
@@ -217,6 +221,7 @@ export function createApplicationContext(
       activityRepository,
       projectRepository,
       pythonProcessingClient,
+      projectLlmTokenLedgerService,
     );
   const interpretationArtifactService = new InterpretationArtifactService(
     interpretationResultRepository,
@@ -224,6 +229,7 @@ export function createApplicationContext(
     datasetPreparationService,
     deterministicAnalysisService,
     quantitativeInterpretationSynthesisService,
+    projectLlmTokenLedgerService,
     logger,
   );
   const processingJobService = new ProcessingJobService(
@@ -268,6 +274,7 @@ export function createApplicationContext(
     deterministicAnalysisService,
     quantitativeInterpretationSynthesisService,
     projectKnowledgeBuilderService,
+    projectLlmTokenLedgerService,
   );
   const dashboardCatalogAssemblerService = new DashboardCatalogAssemblerService(
     projectKnowledgeModelRepository,
@@ -301,6 +308,7 @@ export function createApplicationContext(
     projectKnowledgeBuilderService,
     deterministicAnalysisRepository,
     analyticsDashboardBuilderService,
+    projectLlmTokenLedgerService,
   );
   const analyticsQueryService = new AnalyticsQueryService(
     authorizationService,

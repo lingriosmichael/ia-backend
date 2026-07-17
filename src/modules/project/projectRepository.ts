@@ -1,6 +1,7 @@
 import type { DatabaseSession } from "../../shared/database/databaseClient.js";
 import type {
   ProjectCreateInput,
+  ProjectLlmTokenLedgerIncrement,
   ProjectPersistenceRecord,
   ProjectUpdateInput,
 } from "./projectPersistence.js";
@@ -27,6 +28,11 @@ export interface ProjectRepository {
     input: ProjectUpdateInput,
     session: DatabaseSession,
   ): Promise<ProjectPersistenceRecord>;
+  incrementLlmTokenLedger(
+    projectId: string,
+    increment: ProjectLlmTokenLedgerIncrement,
+    session: DatabaseSession,
+  ): Promise<void>;
   transferOwnership(
     projectId: string,
     newOwnerId: string,

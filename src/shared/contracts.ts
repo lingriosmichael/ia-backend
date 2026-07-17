@@ -1049,6 +1049,7 @@ export interface InterpretationResultRecord {
   questions: InterpretationQuestion[];
   warnings: InterpretationWarning[];
   goalAlignment: InterpretationGoalCoverage[];
+  llmUsage: LlmUsageSummary | null;
   datasetPreparation: DatasetPreparationRecord | null;
   deterministicAnalysis: DeterministicAnalysisRecord | null;
   createdAt: string;
@@ -1081,6 +1082,23 @@ export interface ActivityAiKnowledgeInsight {
   text: string;
   isGoalRelevant: boolean;
   sourceUploadMetadataIds: string[];
+}
+
+export interface LlmUsageCall {
+  stageName: string;
+  model: string;
+  promptTokens: number;
+  completionTokens: number;
+  totalTokens: number;
+  durationMs: number;
+}
+
+export interface LlmUsageSummary {
+  totalCalls: number;
+  totalPromptTokens: number;
+  totalCompletionTokens: number;
+  totalTokens: number;
+  calls: LlmUsageCall[];
 }
 
 export interface ActivityAiKnowledgeRecord {

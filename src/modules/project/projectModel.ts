@@ -24,6 +24,11 @@ const projectSchema = new Schema(
       outcomes: { type: String, default: null },
     },
     successIndicators: { type: String, default: null },
+    llmTokenLedger: {
+      totalPromptTokensLifetime: { type: Number, default: 0 },
+      totalCompletionTokensLifetime: { type: Number, default: 0 },
+      totalTokensLifetime: { type: Number, default: 0 },
+    },
     status: {
       type: String,
       enum: ["planning", "active", "completed"],

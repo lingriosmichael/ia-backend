@@ -9,6 +9,7 @@ import type { ActivityRepository } from "../activity/activityRepository.js";
 import type { AuthorizationService } from "../../shared/auth/authorizationService.js";
 import type { PythonProcessingClient } from "../processing/pythonProcessingClient.js";
 import type { ProjectKnowledgeBuilderService } from "../knowledge/projectKnowledgeBuilderService.js";
+import type { ProjectLlmTokenLedgerService } from "../project/projectLlmTokenLedgerService.js";
 import type { DatasetPreparationService } from "./datasetPreparationService.js";
 import type { DeterministicAnalysisService } from "./deterministicAnalysisService.js";
 import type { QuantitativeInterpretationSynthesisService } from "./quantitativeInterpretationSynthesisService.js";
@@ -363,6 +364,9 @@ function createDependencies(options: {
   const quantitativeInterpretationSynthesisService = {
     maybeSyncForInterpretationResult: async () => null,
   } as unknown as QuantitativeInterpretationSynthesisService;
+  const projectLlmTokenLedgerService = {
+    recordUsage: async () => {},
+  } as unknown as ProjectLlmTokenLedgerService;
 
   return {
     uploadMetadataRepository,
@@ -377,6 +381,7 @@ function createDependencies(options: {
     deterministicAnalysisService,
     quantitativeInterpretationSynthesisService,
     projectKnowledgeBuilderService,
+    projectLlmTokenLedgerService,
   };
 }
 
@@ -405,6 +410,7 @@ test("acknowledging an activity triggers a Project Knowledge Model rebuild for i
     deps.deterministicAnalysisService,
     deps.quantitativeInterpretationSynthesisService,
     deps.projectKnowledgeBuilderService,
+    deps.projectLlmTokenLedgerService,
   );
 
   await service.acknowledgeReview("user-1", "activity-1");
@@ -433,6 +439,7 @@ test("a rebuild failure never prevents the acknowledgment from succeeding", asyn
     deps.deterministicAnalysisService,
     deps.quantitativeInterpretationSynthesisService,
     deps.projectKnowledgeBuilderService,
+    deps.projectLlmTokenLedgerService,
   );
 
   const activity = await service.acknowledgeReview("user-1", "activity-1");
@@ -536,6 +543,7 @@ test("project AI knowledge only includes acknowledged activity insights", async 
     deps.deterministicAnalysisService,
     deps.quantitativeInterpretationSynthesisService,
     deps.projectKnowledgeBuilderService,
+    deps.projectLlmTokenLedgerService,
   );
 
   const knowledge = await service.getProjectAiKnowledge("user-1", "project-1");
@@ -637,6 +645,7 @@ test("activity AI knowledge includes goal indicators and deterministic distribut
     deps.deterministicAnalysisService,
     deps.quantitativeInterpretationSynthesisService,
     deps.projectKnowledgeBuilderService,
+    deps.projectLlmTokenLedgerService,
   );
 
   const knowledge = await service.generateActivityAiKnowledge(

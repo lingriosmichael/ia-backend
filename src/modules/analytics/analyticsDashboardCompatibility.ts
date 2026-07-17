@@ -18,6 +18,14 @@ function uniqueStrings(values: string[]) {
   return [...new Set(values)];
 }
 
+function isLegacyComparableHorizontalBar(widget: AnalyticsDashboardWidget) {
+  return (
+    widget.kind === "horizontal_bar" &&
+    widget.widgetId.startsWith("horizontal-bar-") &&
+    widget.items.some((item) => item.entryId !== null)
+  );
+}
+
 function removeUnsafeComparableWidgets(
   dashboard: AnalyticsDashboard,
 ): AnalyticsDashboard {
@@ -31,11 +39,7 @@ function removeUnsafeComparableWidgets(
   }
 
   const availableWidgets = dashboard.availableWidgets.filter(
-    (widget) =>
-      !(
-        widget.kind === "horizontal_bar" &&
-        widget.widgetId.startsWith("horizontal-bar-")
-      ),
+    (widget) => !isLegacyComparableHorizontalBar(widget),
   );
 
   if (availableWidgets.length === dashboard.availableWidgets.length) {

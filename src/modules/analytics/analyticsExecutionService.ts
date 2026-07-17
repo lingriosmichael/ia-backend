@@ -18,6 +18,7 @@ import {
 import { AppError } from "../../shared/errors/appError.js";
 import type { DeterministicAnalysisRepository } from "../interpretation/deterministicAnalysisRepository.js";
 import type { AnalyticsDashboardBuilderService } from "./analyticsDashboardBuilderService.js";
+import type { ProjectLlmTokenLedgerService } from "../project/projectLlmTokenLedgerService.js";
 
 const EMPTY_CATALOG_CURATION: DashboardCuration = {
   featuredEntryIds: [],
@@ -49,6 +50,7 @@ export class AnalyticsExecutionService {
     private readonly projectKnowledgeBuilderService: ProjectKnowledgeBuilderService,
     private readonly deterministicAnalysisRepository: DeterministicAnalysisRepository,
     private readonly analyticsDashboardBuilderService: AnalyticsDashboardBuilderService,
+    private readonly projectLlmTokenLedgerService: ProjectLlmTokenLedgerService,
   ) {}
 
   async generateForProject(
@@ -163,14 +165,14 @@ export class AnalyticsExecutionService {
         );
       }
 
-      const curation: DashboardCuration =
+      const curationWithUsage =
         catalog.entries.length > 0
           ? await this.pythonAnalyticsCurationClient.curate(
               catalog,
               projectContext,
               "de",
             )
-          : EMPTY_CATALOG_CURATION;
+          : { ...EMPTY_CATALOG_CURATION, llmUsage: null };
       const deterministicAnalyses =
         await this.deterministicAnalysisRepository.findByInterpretationResultIds(
           scopedInterpretationResultIds,
@@ -178,7 +180,7 @@ export class AnalyticsExecutionService {
         );
       const initialDashboard = this.analyticsDashboardBuilderService.build({
         catalog,
-        curation,
+        curation: curationWithUsage,
         deterministicAnalyses,
         projectContext,
       });
@@ -186,14 +188,22 @@ export class AnalyticsExecutionService {
         this.analyticsDashboardBuilderService.buildWidgetCopyCandidates(
           initialDashboard,
         );
-      const widgetCopySuggestions =
+      const widgetCopyResponse =
         widgetCopyCandidates.length > 0
           ? await this.tryCurateWidgetCopy(widgetCopyCandidates, projectContext)
-          : [];
+          : { widgets: [], llmUsage: null };
+      await this.projectLlmTokenLedgerService.recordUsages(
+        scope.projectId,
+        [
+          curationWithUsage.llmUsage ?? null,
+          widgetCopyResponse.llmUsage ?? null,
+        ],
+        databaseSession,
+      );
       const dashboard =
         this.analyticsDashboardBuilderService.applyWidgetCopySuggestions(
           initialDashboard,
-          widgetCopySuggestions,
+          widgetCopyResponse.widgets,
         );
 
       await this.analyticsResultRepository.create(
@@ -206,7 +216,7 @@ export class AnalyticsExecutionService {
           catalogVersion: catalog.catalogVersion,
           knowledgeModelVersion: catalog.knowledgeModelVersion,
           catalog,
-          curation,
+          curation: curationWithUsage,
           dashboard,
           dataQuality: {
             recordsExcludedCount: catalog.omittedEntries.length,
@@ -225,7 +235,7 @@ export class AnalyticsExecutionService {
       );
 
       const finalStatus: AnalyticsExecutionStatus =
-        curation.fellBackToSelectionOnly
+        curationWithUsage.fellBackToSelectionOnly
           ? "COMPLETED_WITH_WARNINGS"
           : "COMPLETED";
       return (
@@ -264,7 +274,7 @@ export class AnalyticsExecutionService {
         "de",
       );
     } catch {
-      return [];
+      return { widgets: [], llmUsage: null };
     }
   }
 }

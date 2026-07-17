@@ -1,5 +1,8 @@
 import { AppError } from "../../shared/errors/appError.js";
-import type { PrivacyReviewDecisions } from "../../shared/contracts.js";
+import type {
+  LlmUsageSummary,
+  PrivacyReviewDecisions,
+} from "../../shared/contracts.js";
 
 interface StartEvidenceProcessingInput {
   processingJobId: string;
@@ -104,6 +107,7 @@ interface GenerateAiKnowledgeSummaryInput {
 
 interface GenerateAiKnowledgeSummaryResponse {
   summaryText: string;
+  llmUsage?: LlmUsageSummary | null;
 }
 
 interface QuantitativePreparedDatasetColumn {
@@ -369,6 +373,7 @@ interface QuantitativeInterpretationSynthesisResponse {
   indicators: QuantitativeSynthesisIndicator[];
   warnings: QuantitativeSynthesisWarning[];
   goalAlignment: QuantitativeSynthesisGoalAlignment[];
+  llmUsage?: LlmUsageSummary | null;
 }
 
 interface MixedSynthesisSupportingQuote {

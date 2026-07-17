@@ -2,6 +2,7 @@ import type { DatabaseSession } from "../../shared/database/databaseClient.js";
 import type {
   DatasetProfile,
   EvidenceRoutingDecision,
+  LlmUsageSummary,
   InterpretationIndicatorComputedValue,
   InterpretationIndicatorStatus,
   InterpretationIndicatorSuggestedCalculation,
@@ -132,6 +133,7 @@ function toInterpretationResultRecord(
       relatedIndicatorIds: coverage.relatedIndicatorIds,
       gapExplanation: coverage.gapExplanation ?? null,
     })),
+    llmUsage: (document.llmUsage as LlmUsageSummary | null) ?? null,
     createdAt: document.createdAt,
     updatedAt: document.updatedAt,
   };
@@ -185,6 +187,7 @@ export class MongoInterpretationResultRepository implements InterpretationResult
           questions: input.questions,
           warnings: input.warnings,
           goalAlignment: input.goalAlignment,
+          llmUsage: input.llmUsage,
         },
       ],
       getMongoSessionOptions(session),

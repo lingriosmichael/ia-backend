@@ -3,6 +3,7 @@ import test from "node:test";
 import type { ProcessingJobRepository } from "../ai/execution/processingJobRepository.js";
 import type { ActivityRepository } from "../activity/activityRepository.js";
 import type { PythonProcessingClient } from "../processing/pythonProcessingClient.js";
+import type { ProjectLlmTokenLedgerService } from "../project/projectLlmTokenLedgerService.js";
 import type { ProjectRepository } from "../project/projectRepository.js";
 import { QuantitativeInterpretationSynthesisService } from "./quantitativeInterpretationSynthesisService.js";
 import type { DeterministicAnalysisPersistenceRecord } from "./deterministicAnalysisPersistence.js";
@@ -14,6 +15,12 @@ import type {
 import type { InterpretationResultRepository } from "./interpretationResultRepository.js";
 
 const NOW = new Date("2026-01-01T00:00:00.000Z");
+
+function createFakeProjectLlmTokenLedgerService() {
+  return {
+    recordUsage: async () => {},
+  } as unknown as ProjectLlmTokenLedgerService;
+}
 
 function makeResult(
   overrides: Partial<InterpretationResultPersistenceRecord> = {},
@@ -42,6 +49,7 @@ function makeResult(
       { id: "warning-1", message: "Existing warning", severity: "info" },
     ],
     goalAlignment: [],
+    llmUsage: null,
     createdAt: NOW,
     updatedAt: NOW,
     ...overrides,
@@ -323,6 +331,7 @@ test("maps quantitative synthesis output back into the interpretation result", a
     activityRepository,
     projectRepository,
     pythonProcessingClient,
+    createFakeProjectLlmTokenLedgerService(),
   );
 
   const updated = await service.maybeSyncForInterpretationResult(
@@ -357,6 +366,7 @@ test("skips synthesis until deterministic quantitative analysis is ready", async
     {} as ActivityRepository,
     {} as ProjectRepository,
     {} as PythonProcessingClient,
+    createFakeProjectLlmTokenLedgerService(),
   );
 
   const updated = await service.maybeSyncForInterpretationResult(
@@ -512,6 +522,7 @@ test("mixed dual-track synthesis preserves qualitative artifacts and adds reconc
     activityRepository,
     projectRepository,
     pythonProcessingClient,
+    createFakeProjectLlmTokenLedgerService(),
   );
 
   const updated = await service.maybeSyncForInterpretationResult(

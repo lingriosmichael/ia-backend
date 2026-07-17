@@ -12,6 +12,7 @@ import {
 import type { ProjectRepository } from "./projectRepository.js";
 import type {
   ProjectCreateInput,
+  ProjectLlmTokenLedgerIncrement,
   ProjectPersistenceRecord,
   ProjectUpdateInput,
 } from "./projectPersistence.js";
@@ -45,6 +46,13 @@ function toProjectRecord(
       outcomes: document.impactModel?.outcomes ?? null,
     },
     successIndicators: document.successIndicators ?? null,
+    llmTokenLedger: {
+      totalPromptTokensLifetime:
+        document.llmTokenLedger?.totalPromptTokensLifetime ?? 0,
+      totalCompletionTokensLifetime:
+        document.llmTokenLedger?.totalCompletionTokensLifetime ?? 0,
+      totalTokensLifetime: document.llmTokenLedger?.totalTokensLifetime ?? 0,
+    },
     status: document.status,
     createdAt: document.createdAt,
     updatedAt: document.updatedAt,
@@ -130,6 +138,35 @@ export class MongoProjectRepository implements ProjectRepository {
     }
 
     return record;
+  }
+
+  async incrementLlmTokenLedger(
+    projectId: string,
+    increment: ProjectLlmTokenLedgerIncrement,
+    session: DatabaseSession,
+  ): Promise<void> {
+    const document = await applyMongoSession(
+      ProjectMongoModel.findByIdAndUpdate(
+        projectId,
+        {
+          $inc: {
+            "llmTokenLedger.totalPromptTokensLifetime":
+              increment.totalPromptTokensLifetime,
+            "llmTokenLedger.totalCompletionTokensLifetime":
+              increment.totalCompletionTokensLifetime,
+            "llmTokenLedger.totalTokensLifetime": increment.totalTokensLifetime,
+          },
+        },
+        {
+          returnDocument: "after",
+        },
+      ).select({ _id: 1 }),
+      session,
+    ).exec();
+
+    if (!document) {
+      throw new AppError("Project not found.", 404, "project_not_found");
+    }
   }
 
   async transferOwnership(

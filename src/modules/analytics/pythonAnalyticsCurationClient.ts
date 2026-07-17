@@ -1,4 +1,5 @@
 import { AppError } from "../../shared/errors/appError.js";
+import type { LlmUsageSummary } from "../../shared/contracts.js";
 import type {
   AnalyticsDashboardWidgetCopyCandidate,
   AnalyticsDashboardWidgetCopySuggestion,
@@ -9,6 +10,11 @@ import type {
 
 interface CurateDashboardWidgetCopyResponse {
   widgets: AnalyticsDashboardWidgetCopySuggestion[];
+  llmUsage?: LlmUsageSummary | null;
+}
+
+interface CurateAnalyticsResponse extends DashboardCuration {
+  llmUsage?: LlmUsageSummary | null;
 }
 
 export class PythonAnalyticsCurationClient {
@@ -21,7 +27,7 @@ export class PythonAnalyticsCurationClient {
     catalog: EvidenceCatalog,
     projectContext: ProjectContextForCuration,
     language: "de" | "en",
-  ): Promise<DashboardCuration> {
+  ): Promise<CurateAnalyticsResponse> {
     const response = await fetch(`${this.baseUrl}/internal/analytics/curate`, {
       method: "POST",
       headers: {
@@ -39,14 +45,14 @@ export class PythonAnalyticsCurationClient {
       );
     }
 
-    return response.json() as Promise<DashboardCuration>;
+    return response.json() as Promise<CurateAnalyticsResponse>;
   }
 
   async curateWidgetCopy(
     widgets: AnalyticsDashboardWidgetCopyCandidate[],
     projectContext: ProjectContextForCuration,
     language: "de" | "en",
-  ): Promise<AnalyticsDashboardWidgetCopySuggestion[]> {
+  ): Promise<CurateDashboardWidgetCopyResponse> {
     const response = await fetch(
       `${this.baseUrl}/internal/analytics/curate-widget-copy`,
       {
@@ -67,8 +73,6 @@ export class PythonAnalyticsCurationClient {
       );
     }
 
-    const payload =
-      (await response.json()) as CurateDashboardWidgetCopyResponse;
-    return payload.widgets;
+    return response.json() as Promise<CurateDashboardWidgetCopyResponse>;
   }
 }

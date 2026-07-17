@@ -209,6 +209,7 @@ const interpretationResultSchema = new Schema(
     questions: { type: [interpretationQuestionSchema], default: [] },
     warnings: { type: [interpretationWarningSchema], default: [] },
     goalAlignment: { type: [interpretationGoalCoverageSchema], default: [] },
+    llmUsage: { type: Schema.Types.Mixed, default: null },
   },
   {
     collection: "interpretation_results",

@@ -9,6 +9,7 @@ import type { AnalyticsExecutionRepository } from "./analyticsExecutionRepositor
 import type { AnalyticsExecutionPersistenceRecord } from "./analyticsExecutionPersistence.js";
 import type { AnalyticsResultRepository } from "./analyticsResultRepository.js";
 import type { DeterministicAnalysisRepository } from "../interpretation/deterministicAnalysisRepository.js";
+import type { ProjectLlmTokenLedgerService } from "../project/projectLlmTokenLedgerService.js";
 import type {
   DashboardCuration,
   EvidenceCatalog,
@@ -128,6 +129,13 @@ function createFakeDeterministicAnalysisRepository() {
   } as unknown as DeterministicAnalysisRepository;
 }
 
+function createFakeProjectLlmTokenLedgerService() {
+  return {
+    recordUsage: async () => {},
+    recordUsages: async () => {},
+  } as unknown as ProjectLlmTokenLedgerService;
+}
+
 const PASSING_CURATION: DashboardCuration = {
   featuredEntryIds: ["metric-0"],
   narrative: [],
@@ -168,6 +176,7 @@ test("generateForProject with a populated catalog calls the curator and complete
     createFakeProjectKnowledgeBuilderService(),
     createFakeDeterministicAnalysisRepository(),
     new AnalyticsDashboardBuilderService(),
+    createFakeProjectLlmTokenLedgerService(),
   );
 
   const execution = await service.generateForProject("user-1", "project-1");
@@ -229,6 +238,7 @@ test("an empty catalog completes without ever calling the curator", async () => 
     createFakeProjectKnowledgeBuilderService(),
     createFakeDeterministicAnalysisRepository(),
     new AnalyticsDashboardBuilderService(),
+    createFakeProjectLlmTokenLedgerService(),
   );
 
   const execution = await service.generateForProject("user-1", "project-1");
@@ -275,6 +285,7 @@ test("a stale Project Knowledge Model triggers a rebuild, then proceeds using th
     projectKnowledgeBuilderService,
     createFakeDeterministicAnalysisRepository(),
     new AnalyticsDashboardBuilderService(),
+    createFakeProjectLlmTokenLedgerService(),
   );
 
   const execution = await service.generateForProject("user-1", "project-1");
@@ -321,6 +332,7 @@ test("no Project Knowledge Model yet (never built) also triggers a rebuild inste
     projectKnowledgeBuilderService,
     createFakeDeterministicAnalysisRepository(),
     new AnalyticsDashboardBuilderService(),
+    createFakeProjectLlmTokenLedgerService(),
   );
 
   const execution = await service.generateForProject("user-1", "project-1");
@@ -361,6 +373,7 @@ test("a Project Knowledge Model already being built is left alone, never trigger
     projectKnowledgeBuilderService,
     createFakeDeterministicAnalysisRepository(),
     new AnalyticsDashboardBuilderService(),
+    createFakeProjectLlmTokenLedgerService(),
   );
 
   const execution = await service.generateForProject("user-1", "project-1");
@@ -401,6 +414,7 @@ test("a ready Project Knowledge Model never triggers a redundant rebuild", async
     projectKnowledgeBuilderService,
     createFakeDeterministicAnalysisRepository(),
     new AnalyticsDashboardBuilderService(),
+    createFakeProjectLlmTokenLedgerService(),
   );
 
   await service.generateForProject("user-1", "project-1");
@@ -436,6 +450,7 @@ test("a fallback curation marks the execution COMPLETED_WITH_WARNINGS, not COMPL
     createFakeProjectKnowledgeBuilderService(),
     createFakeDeterministicAnalysisRepository(),
     new AnalyticsDashboardBuilderService(),
+    createFakeProjectLlmTokenLedgerService(),
   );
 
   const execution = await service.generateForProject("user-1", "project-1");
@@ -471,6 +486,7 @@ test("a curation client failure marks the execution FAILED and rethrows", async 
     createFakeProjectKnowledgeBuilderService(),
     createFakeDeterministicAnalysisRepository(),
     new AnalyticsDashboardBuilderService(),
+    createFakeProjectLlmTokenLedgerService(),
   );
 
   await assert.rejects(
@@ -512,6 +528,7 @@ test("generateForActivity rejects an activity that does not belong to the given 
     createFakeProjectKnowledgeBuilderService(),
     createFakeDeterministicAnalysisRepository(),
     new AnalyticsDashboardBuilderService(),
+    createFakeProjectLlmTokenLedgerService(),
   );
 
   await assert.rejects(

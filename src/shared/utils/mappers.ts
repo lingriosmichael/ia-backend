@@ -752,6 +752,7 @@ export function mapInterpretationResult(record: {
   }>;
   warnings: InterpretationWarning[];
   goalAlignment: InterpretationGoalCoverage[];
+  llmUsage: InterpretationResultRecord["llmUsage"];
   datasetPreparation?: {
     id: string;
     organizationId: string;
@@ -840,6 +841,7 @@ export function mapInterpretationResult(record: {
     })),
     warnings: record.warnings,
     goalAlignment: record.goalAlignment,
+    llmUsage: record.llmUsage,
     datasetPreparation: record.datasetPreparation
       ? {
           id: record.datasetPreparation.id,

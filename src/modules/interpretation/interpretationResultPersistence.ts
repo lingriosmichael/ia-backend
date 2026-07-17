@@ -1,6 +1,7 @@
 import type {
   DatasetProfile,
   EvidenceRoutingDecision,
+  LlmUsageSummary,
   InterpretationQualitativeFindingCategory,
   InterpretationQualitativeOutcomeAnchorType,
   InterpretationQuestionCode,
@@ -68,6 +69,7 @@ export interface InterpretationResultPersistenceRecord {
   questions: InterpretationQuestionPersistence[];
   warnings: InterpretationWarning[];
   goalAlignment: InterpretationGoalCoverage[];
+  llmUsage: LlmUsageSummary | null;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -182,6 +184,7 @@ export interface InterpretationResultCreateInput {
   questions: InterpretationQuestionCreateInput[];
   warnings: InterpretationWarningCreateInput[];
   goalAlignment: InterpretationGoalCoverageCreateInput[];
+  llmUsage: LlmUsageSummary | null;
 }
 
 export interface InterpretationResultSynthesisUpdateInput {

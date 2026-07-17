@@ -23,6 +23,7 @@ import type { PrivacySafeRepresentationRepository } from "../processing/privacyS
 import { PythonProcessingClient } from "../processing/pythonProcessingClient.js";
 import type { UploadMetadataRepository } from "../upload/uploadMetadataRepository.js";
 import type { ProjectKnowledgeBuilderService } from "../knowledge/projectKnowledgeBuilderService.js";
+import type { ProjectLlmTokenLedgerService } from "../project/projectLlmTokenLedgerService.js";
 import type { InterpretationResultRepository } from "./interpretationResultRepository.js";
 import {
   clearActivityAiKnowledgeStateIfPresent,
@@ -369,10 +370,12 @@ export class InterpretationService {
     private readonly deterministicAnalysisService: DeterministicAnalysisService,
     private readonly quantitativeInterpretationSynthesisService: QuantitativeInterpretationSynthesisService,
     private readonly projectKnowledgeBuilderService: ProjectKnowledgeBuilderService,
+    private readonly projectLlmTokenLedgerService: ProjectLlmTokenLedgerService,
   ) {}
 
   private async generateAiKnowledgeSummaryText(input: {
     scope: "activity" | "project";
+    projectId: string;
     subjectName: string;
     interpretedEvidenceCount: number;
     insights: Array<{
@@ -418,6 +421,11 @@ export class InterpretationService {
           activityGoals: input.activityGoals,
           projectGoals: input.projectGoals,
         });
+      await this.projectLlmTokenLedgerService.recordUsage(
+        input.projectId,
+        summary.llmUsage ?? null,
+        databaseSession,
+      );
       return (
         summary.summaryText.trim() ||
         buildAiKnowledgeSummaryFallback(input.insights)
@@ -514,6 +522,7 @@ export class InterpretationService {
     }));
     const summaryText = await this.generateAiKnowledgeSummaryText({
       scope: "activity",
+      projectId: input.project.id,
       subjectName: input.activity.name,
       interpretedEvidenceCount: input.results.length,
       insights,
@@ -985,6 +994,7 @@ export class InterpretationService {
       ) ?? null;
     const summaryText = await this.generateAiKnowledgeSummaryText({
       scope: "project",
+      projectId: project.id,
       subjectName: project.name,
       interpretedEvidenceCount: results.length,
       acknowledgedActivityCount: acknowledgedActivities.length,
