@@ -39,6 +39,111 @@ function formatCopyCandidateValue(value: number, unit: string | null): string {
   return value.toFixed(1).replace(/\.0$/, "");
 }
 
+// Category values (e.g. "Liste noch nicht eingereicht") are literal text
+// pulled straight from the source evidence and are never translated by the
+// app's i18n layer, so a missing-value placeholder must match that fixed
+// data language rather than any UI language setting. Detected once per
+// distribution/breakdown from that group's own other values, since values
+// in one distribution come from the same source column and are therefore
+// language-homogeneous.
+const GERMAN_STOPWORDS = new Set([
+  "und",
+  "oder",
+  "nicht",
+  "kein",
+  "keine",
+  "der",
+  "die",
+  "das",
+  "den",
+  "dem",
+  "des",
+  "ein",
+  "eine",
+  "einen",
+  "einem",
+  "eines",
+  "mit",
+  "für",
+  "auf",
+  "noch",
+  "auch",
+  "bei",
+  "wegen",
+  "mehr",
+  "sehr",
+  "als",
+  "wie",
+  "aber",
+  "ist",
+  "sind",
+  "wurde",
+  "wurden",
+  "wird",
+  "werden",
+]);
+const ENGLISH_STOPWORDS = new Set([
+  "the",
+  "and",
+  "or",
+  "not",
+  "no",
+  "a",
+  "an",
+  "with",
+  "for",
+  "on",
+  "yet",
+  "also",
+  "at",
+  "due",
+  "more",
+  "very",
+  "than",
+  "as",
+  "but",
+  "is",
+  "are",
+  "was",
+  "were",
+  "will",
+  "be",
+]);
+const GERMAN_DIACRITIC_PATTERN = /[äöüßÄÖÜ]/;
+
+function detectCategoryValueLanguage(
+  values: readonly (string | null)[],
+): "de" | "en" {
+  let germanScore = 0;
+  let englishScore = 0;
+
+  for (const value of values) {
+    if (!value) {
+      continue;
+    }
+
+    if (GERMAN_DIACRITIC_PATTERN.test(value)) {
+      germanScore += 2;
+    }
+
+    for (const word of value.toLowerCase().match(/[a-zäöüß]+/g) ?? []) {
+      if (GERMAN_STOPWORDS.has(word)) {
+        germanScore += 1;
+      }
+      if (ENGLISH_STOPWORDS.has(word)) {
+        englishScore += 1;
+      }
+    }
+  }
+
+  // "de" is this app's default language, used when detection is inconclusive.
+  return englishScore > germanScore ? "en" : "de";
+}
+
+function formatMissingCategoryLabel(language: "de" | "en"): string {
+  return language === "de" ? "Nicht angegeben" : "Not specified";
+}
+
 interface WidgetMetadataInput {
   title: string;
   subtitle?: string | null;
@@ -308,11 +413,16 @@ function buildComparableMetricsWidgets(
 
   for (const analysis of deterministicAnalyses) {
     for (const distribution of analysis.distributions) {
+      const detectedLanguage = detectCategoryValueLanguage(
+        distribution.buckets.map((bucket) => bucket.value),
+      );
+      const missingCategoryLabel = formatMissingCategoryLabel(detectedLanguage);
+
       const ratioItems = distribution.buckets
         .filter((bucket) => bucket.ratio !== null && bucket.count > 0)
         .map((bucket) => ({
           id: `${distribution.distributionKey}-${bucket.value ?? "unknown"}-ratio`,
-          label: bucket.value ?? "Unknown",
+          label: bucket.value ?? missingCategoryLabel,
           description: distribution.label,
           value: bucket.ratio as number,
           unit: "ratio",
@@ -324,7 +434,7 @@ function buildComparableMetricsWidgets(
         .filter((bucket) => bucket.count > 0)
         .map((bucket) => ({
           id: `${distribution.distributionKey}-${bucket.value ?? "unknown"}-count`,
-          label: bucket.value ?? "Unknown",
+          label: bucket.value ?? missingCategoryLabel,
           description: distribution.label,
           value: bucket.count,
           unit: "count",
@@ -431,11 +541,16 @@ function buildCategoryRankWidgets(
 
   for (const analysis of deterministicAnalyses) {
     for (const breakdown of analysis.subgroupBreakdowns) {
+      const detectedLanguage = detectCategoryValueLanguage(
+        breakdown.segments.map((segment) => segment.value),
+      );
+      const missingCategoryLabel = formatMissingCategoryLabel(detectedLanguage);
+
       const ratioItems = breakdown.segments
         .filter((segment) => segment.positiveRatio !== null)
         .map((segment) => ({
           id: `${breakdown.breakdownKey}-${segment.value ?? "unknown"}-ratio`,
-          label: segment.value ?? "Unknown",
+          label: segment.value ?? missingCategoryLabel,
           value: segment.positiveRatio as number,
         }))
         .sort((left, right) => right.value - left.value);
@@ -444,7 +559,7 @@ function buildCategoryRankWidgets(
         .filter((segment) => segment.rowCount > 0)
         .map((segment) => ({
           id: `${breakdown.breakdownKey}-${segment.value ?? "unknown"}-count`,
-          label: segment.value ?? "Unknown",
+          label: segment.value ?? missingCategoryLabel,
           value: segment.rowCount,
         }))
         .sort((left, right) => right.value - left.value);
