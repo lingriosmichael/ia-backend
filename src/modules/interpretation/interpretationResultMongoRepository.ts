@@ -4,7 +4,6 @@ import type {
   EvidenceRoutingDecision,
   LlmUsageSummary,
   InterpretationIndicatorComputedValue,
-  InterpretationIndicatorStatus,
   InterpretationIndicatorSuggestedCalculation,
 } from "../../shared/contracts.js";
 import { createDocumentId } from "../../shared/database/documentId.js";
@@ -324,56 +323,6 @@ export class MongoInterpretationResultRepository implements InterpretationResult
           returnDocument: "after",
           arrayFilters: [{ "question._id": questionId }],
         },
-      ),
-      session,
-    ).exec();
-
-    return toInterpretationResultRecord(document);
-  }
-
-  async setIndicatorStatus(
-    interpretationResultId: string,
-    indicatorId: string,
-    status: InterpretationIndicatorStatus,
-    session: DatabaseSession,
-  ): Promise<InterpretationResultPersistenceRecord | null> {
-    const document = await applyMongoSession(
-      InterpretationResultMongoModel.findOneAndUpdate(
-        {
-          _id: interpretationResultId,
-          "indicators._id": indicatorId,
-        },
-        {
-          $set: {
-            "indicators.$.status": status,
-          },
-        },
-        { returnDocument: "after" },
-      ),
-      session,
-    ).exec();
-
-    return toInterpretationResultRecord(document);
-  }
-
-  async setQualitativeFindingStatus(
-    interpretationResultId: string,
-    qualitativeFindingId: string,
-    status: InterpretationIndicatorStatus,
-    session: DatabaseSession,
-  ): Promise<InterpretationResultPersistenceRecord | null> {
-    const document = await applyMongoSession(
-      InterpretationResultMongoModel.findOneAndUpdate(
-        {
-          _id: interpretationResultId,
-          "qualitativeFindings._id": qualitativeFindingId,
-        },
-        {
-          $set: {
-            "qualitativeFindings.$.status": status,
-          },
-        },
-        { returnDocument: "after" },
       ),
       session,
     ).exec();

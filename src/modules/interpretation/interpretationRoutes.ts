@@ -18,12 +18,6 @@ export async function registerInterpretationRoutes(
     controller.getByProject.bind(controller),
   );
 
-  app.get(
-    "/projects/:projectId/ai-knowledge",
-    { preHandler: authenticate },
-    controller.getProjectAiKnowledge.bind(controller),
-  );
-
   app.post(
     "/activities/:activityId/interpret",
     { preHandler: authenticate },
@@ -58,17 +52,5 @@ export async function registerInterpretationRoutes(
     "/activities/:activityId/interpretation-acknowledgment",
     { preHandler: authenticate },
     controller.acknowledgeReview.bind(controller),
-  );
-
-  app.patch(
-    "/interpretations/:interpretationResultId/indicators/:indicatorId",
-    { preHandler: authenticate },
-    controller.setIndicatorStatus.bind(controller),
-  );
-
-  app.patch(
-    "/interpretations/:interpretationResultId/qualitative-findings/:qualitativeFindingId",
-    { preHandler: authenticate },
-    controller.setQualitativeFindingStatus.bind(controller),
   );
 }

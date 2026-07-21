@@ -63,6 +63,8 @@ test("a populated indicator and theme become correctly shaped catalog entries", 
   if (metric!.entryType === "METRIC") {
     assert.equal(metric!.value, 0.82);
     assert.equal(metric!.deduplicationConfidence, "not_applicable");
+    // makeKnowledgeIndicator() defaults confidence to 0.9 (>0.7 → "strong").
+    assert.equal(metric!.evidenceStrength, "strong");
   }
 
   const theme = catalog.entries.find(
@@ -73,6 +75,13 @@ test("a populated indicator and theme become correctly shaped catalog entries", 
     assert.equal(theme!.quoteCount, 1);
     assert.deepEqual(theme!.categories, ["barrier"]);
     assert.deepEqual(theme!.outcomeAnchorTypes, ["project_outcome"]);
+    assert.deepEqual(theme!.sourceInstances, [
+      {
+        uploadMetadataId: "upload-2",
+        interpretationResultId: "result-2",
+        sourceReference: "Mentors reporting insufficient support",
+      },
+    ]);
   }
   assert.equal(catalog.omittedEntries.length, 0);
   assert.equal(catalog.qualitySignals.length, 0);

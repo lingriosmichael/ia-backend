@@ -21,6 +21,16 @@ function isClientErrorWithStatusCode(
 export function registerErrorHandler(app: FastifyInstance) {
   app.setErrorHandler((error, request, reply) => {
     if (error instanceof AppError) {
+      // A 5xx AppError (e.g. the Python service being unreachable or
+      // returning a malformed response) is a genuine operational failure,
+      // not expected control flow like a 404 or a validation error — log it
+      // the same way an unhandled error is logged below, or an outage during
+      // analytics/report-readiness generation leaves no server-side trace at
+      // all, just a client-visible 502.
+      if (error.statusCode >= 500) {
+        request.log.error({ err: error }, "Upstream/internal AppError");
+      }
+
       return reply.code(error.statusCode).send(
         errorResponse({
           code: error.code,

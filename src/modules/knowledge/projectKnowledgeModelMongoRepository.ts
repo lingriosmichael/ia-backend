@@ -1,5 +1,6 @@
 import type { DatabaseSession } from "../../shared/database/databaseClient.js";
 import { createDocumentId } from "../../shared/database/documentId.js";
+import { isMongoDuplicateKeyError } from "../../shared/database/mongoErrors.js";
 import {
   applyMongoSession,
   getMongoSessionOptions,
@@ -76,26 +77,73 @@ export class MongoProjectKnowledgeModelRepository implements ProjectKnowledgeMod
       return toRecord(existing) as ProjectKnowledgeModelPersistenceRecord;
     }
 
-    const [created] = await ProjectKnowledgeModelMongoModel.create(
-      [
-        {
-          _id: createDocumentId(),
-          organizationId: input.organizationId,
+    // `projectId` has a unique index (exactly one model per project, ever).
+    // Two concurrent first-time builds can both miss the findOne above and
+    // both attempt to create — the loser's insert throws a duplicate-key
+    // error rather than silently corrupting anything, so treat it as "the
+    // other caller won the race" and read back what they created instead
+    // of letting the raw Mongo error propagate as an unhandled 500.
+    //
+    // Created as "stale" (never built yet), not "building" — buildForProject
+    // claims the actual build lock immediately afterward via markBuilding's
+    // CAS update. Creating directly as "building" would make that CAS a
+    // no-op for a brand new project (its own filter excludes "building"),
+    // defeating the lock on every first-ever build.
+    try {
+      const [created] = await ProjectKnowledgeModelMongoModel.create(
+        [
+          {
+            _id: createDocumentId(),
+            organizationId: input.organizationId,
+            projectId: input.projectId,
+            version: 0,
+            status: "stale",
+          },
+        ],
+        getMongoSessionOptions(session),
+      );
+      return toRecord(created) as ProjectKnowledgeModelPersistenceRecord;
+    } catch (error) {
+      if (!isMongoDuplicateKeyError(error)) {
+        throw error;
+      }
+      const winner = await applyMongoSession(
+        ProjectKnowledgeModelMongoModel.findOne({
           projectId: input.projectId,
-          version: 0,
-          status: "building",
-        },
-      ],
-      getMongoSessionOptions(session),
-    );
-    return toRecord(created) as ProjectKnowledgeModelPersistenceRecord;
+        }),
+        session,
+      ).exec();
+      if (!winner) {
+        throw error;
+      }
+      return toRecord(winner) as ProjectKnowledgeModelPersistenceRecord;
+    }
   }
 
+  /**
+   * Atomically claims the build lock: only transitions to `"building"` if
+   * the model isn't already `"building"`. Returns `null` if another build
+   * is already in progress — the caller must treat that as "do not proceed
+   * with this build," not as "the model doesn't exist" (findOrCreateByProjectId
+   * is always called first, so the document is guaranteed to exist here).
+   * This is what actually serializes concurrent buildForProject calls for
+   * the same project; without it, two callers can both read a stale/null
+   * status, both decide to rebuild, and both write duplicate entities from
+   * their own stale in-memory snapshots.
+   */
   async markBuilding(
     projectId: string,
     session: DatabaseSession,
   ): Promise<ProjectKnowledgeModelPersistenceRecord | null> {
-    return this.updateStatus(projectId, { status: "building" }, session);
+    const document = await applyMongoSession(
+      ProjectKnowledgeModelMongoModel.findOneAndUpdate(
+        { projectId, status: { $ne: "building" } },
+        { $set: { status: "building" } },
+        { new: true },
+      ),
+      session,
+    ).exec();
+    return toRecord(document);
   }
 
   async markReady(

@@ -13,7 +13,9 @@ import type {
   EvidenceCatalogMetricEntry,
   EvidenceCatalogOmittedEntry,
   EvidenceCatalogThemeEntry,
+  EvidenceCatalogThemeSourceInstance,
 } from "./analyticsContracts.js";
+import { deriveEvidenceStrength } from "./evidenceStrength.js";
 
 const CATALOG_VERSION = "3.0";
 
@@ -138,6 +140,7 @@ export class DashboardCatalogAssemblerService {
             indicator.sourceEvidence.interpretationResultId,
           sourceReference: indicator.sourceEvidence.sourceReference,
         },
+        evidenceStrength: deriveEvidenceStrength(indicator.confidence),
       });
     }
 
@@ -191,6 +194,13 @@ export class DashboardCatalogAssemblerService {
               relevantInstances.map((instance) => instance.uploadMetadataId),
             ),
           ],
+          sourceInstances: relevantInstances.map(
+            (instance): EvidenceCatalogThemeSourceInstance => ({
+              uploadMetadataId: instance.uploadMetadataId,
+              interpretationResultId: instance.interpretationResultId,
+              sourceReference: instance.sourceReference,
+            }),
+          ),
         });
         continue;
       }

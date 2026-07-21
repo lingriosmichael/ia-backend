@@ -1,5 +1,4 @@
 import type { DatabaseSession } from "../../shared/database/databaseClient.js";
-import type { InterpretationIndicatorStatus } from "../../shared/contracts.js";
 import type {
   InterpretationQuestionAnswerInput,
   InterpretationResultCreateInput,
@@ -44,24 +43,6 @@ export interface InterpretationResultRepository {
     interpretationResultId: string,
     questionId: string,
     input: InterpretationQuestionAnswerInput,
-    session: DatabaseSession,
-  ): Promise<InterpretationResultPersistenceRecord | null>;
-  /**
-   * Sets an indicator's kept/rejected status. Freely toggleable in either
-   * direction — unlike question answers, there's no "already decided" lock,
-   * since curating which indicators represent the activity's real outcome
-   * is expected to be revised as often as the user likes.
-   */
-  setIndicatorStatus(
-    interpretationResultId: string,
-    indicatorId: string,
-    status: InterpretationIndicatorStatus,
-    session: DatabaseSession,
-  ): Promise<InterpretationResultPersistenceRecord | null>;
-  setQualitativeFindingStatus(
-    interpretationResultId: string,
-    qualitativeFindingId: string,
-    status: InterpretationIndicatorStatus,
     session: DatabaseSession,
   ): Promise<InterpretationResultPersistenceRecord | null>;
   deleteByProjectId(

@@ -513,6 +513,7 @@ test("a legacy result with no stored dashboard still returns a materialized fall
               interpretationResultId: "result-1",
               sourceReference: "Attendance rate",
             },
+            evidenceStrength: "strong",
           },
           {
             entryId: "theme-1",
@@ -525,6 +526,13 @@ test("a legacy result with no stored dashboard still returns a materialized fall
             outcomeAnchorTypes: ["project_outcome"],
             sourceActivityIds: ["activity-1"],
             sourceUploadMetadataIds: ["upload-2"],
+            sourceInstances: [
+              {
+                uploadMetadataId: "upload-2",
+                interpretationResultId: "result-2",
+                sourceReference: "Mentors requested more preparation time",
+              },
+            ],
           },
         ],
         omittedEntries: [],

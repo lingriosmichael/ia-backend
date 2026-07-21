@@ -707,3 +707,38 @@ test("integration: rebuilding twice over unchanged input is idempotent across th
     sourceInstanceCountsAfterFirstBuild,
   );
 });
+
+test("integration: two concurrent buildForProject calls for the same project never duplicate entities — the second is rejected, not raced", async () => {
+  const baselineRepos = buildFixtureRepos();
+  await buildService(baselineRepos).buildForProject("project-1");
+  const singleBuildEntityCount = baselineRepos.knowledgeEntities.length;
+
+  const repos = buildFixtureRepos();
+  const service = buildService(repos);
+
+  const [first, second] = await Promise.allSettled([
+    service.buildForProject("project-1"),
+    service.buildForProject("project-1"),
+  ]);
+
+  const outcomes = [first, second];
+  const fulfilled = outcomes.filter(
+    (outcome) => outcome.status === "fulfilled",
+  );
+  const rejected = outcomes.filter((outcome) => outcome.status === "rejected");
+
+  // Exactly one caller wins the build lock and completes; the other is
+  // rejected outright rather than proceeding on a stale in-memory snapshot
+  // and creating its own duplicate copy of every entity.
+  assert.equal(fulfilled.length, 1);
+  assert.equal(rejected.length, 1);
+  assert.equal(
+    (rejected[0] as PromiseRejectedResult).reason.constructor.name,
+    "ProjectKnowledgeModelBuildInProgressError",
+  );
+
+  // The winner's build produced exactly what one ordinary build produces —
+  // no extra entities from the loser having written its own copy from a
+  // stale in-memory snapshot that never saw the winner's work.
+  assert.equal(repos.knowledgeEntities.length, singleBuildEntityCount);
+});

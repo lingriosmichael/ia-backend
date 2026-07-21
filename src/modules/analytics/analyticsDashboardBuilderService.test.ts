@@ -32,6 +32,7 @@ function makeCatalog(): EvidenceCatalog {
           interpretationResultId: "result-1",
           sourceReference: "Attendance rate",
         },
+        evidenceStrength: "strong",
       },
       {
         entryId: "metric-2",
@@ -48,6 +49,7 @@ function makeCatalog(): EvidenceCatalog {
           interpretationResultId: "result-1",
           sourceReference: "Completion rate",
         },
+        evidenceStrength: "moderate",
       },
       {
         entryId: "theme-1",
@@ -60,6 +62,13 @@ function makeCatalog(): EvidenceCatalog {
         outcomeAnchorTypes: ["project_outcome"],
         sourceActivityIds: ["activity-1"],
         sourceUploadMetadataIds: ["upload-2"],
+        sourceInstances: [
+          {
+            uploadMetadataId: "upload-2",
+            interpretationResultId: "result-2",
+            sourceReference: "Mentors requested more preparation time",
+          },
+        ],
       },
     ],
     omittedEntries: [],

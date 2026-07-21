@@ -19,8 +19,11 @@ export interface ProjectKnowledgeModelRepository {
     session: DatabaseSession,
   ): Promise<ProjectKnowledgeModelPersistenceRecord>;
   /**
-   * Marks a build in progress. Does not touch version — the version only
-   * advances once a build actually completes (markReady).
+   * Atomically claims the build lock: only transitions to `"building"` if
+   * the model isn't already `"building"`. Returns `null` if another build
+   * is already in progress — callers must not proceed with the build in
+   * that case. Does not touch version — the version only advances once a
+   * build actually completes (markReady).
    */
   markBuilding(
     projectId: string,

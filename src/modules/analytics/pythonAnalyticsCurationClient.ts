@@ -6,6 +6,9 @@ import type {
   DashboardCuration,
   EvidenceCatalog,
   ProjectContextForCuration,
+  ReportReadinessActivityCoverage,
+  ReportReadinessCheckResult,
+  ReportReadinessOpenQuestion,
 } from "./analyticsContracts.js";
 
 interface CurateDashboardWidgetCopyResponse {
@@ -14,6 +17,13 @@ interface CurateDashboardWidgetCopyResponse {
 }
 
 interface CurateAnalyticsResponse extends DashboardCuration {
+  llmUsage?: LlmUsageSummary | null;
+}
+
+interface GenerateReportReadinessCheckResponse extends Omit<
+  ReportReadinessCheckResult,
+  "generatedAt"
+> {
   llmUsage?: LlmUsageSummary | null;
 }
 
@@ -74,5 +84,41 @@ export class PythonAnalyticsCurationClient {
     }
 
     return response.json() as Promise<CurateDashboardWidgetCopyResponse>;
+  }
+
+  async generateReportReadinessCheck(
+    catalog: EvidenceCatalog,
+    projectContext: ProjectContextForCuration,
+    openQuestions: ReportReadinessOpenQuestion[],
+    activityCoverage: ReportReadinessActivityCoverage[],
+    language: "de" | "en",
+  ): Promise<GenerateReportReadinessCheckResponse> {
+    const response = await fetch(
+      `${this.baseUrl}/internal/analytics/report-readiness-check`,
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-internal-service-token": this.sharedSecret,
+        },
+        body: JSON.stringify({
+          catalog,
+          projectContext,
+          openQuestions,
+          activityCoverage,
+          language,
+        }),
+      },
+    );
+
+    if (!response.ok) {
+      throw new AppError(
+        "The Python analytics service did not accept the report readiness check request.",
+        502,
+        "python_analytics_report_readiness_check_unavailable",
+      );
+    }
+
+    return response.json() as Promise<GenerateReportReadinessCheckResponse>;
   }
 }

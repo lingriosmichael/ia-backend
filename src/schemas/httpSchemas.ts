@@ -260,14 +260,6 @@ export const answerInterpretationQuestionSchema = z.object({
   answeredValue: z.string().trim().min(1).max(2000),
 });
 
-export const setIndicatorStatusSchema = z.object({
-  status: z.enum(["kept", "rejected"]),
-});
-
-export const setQualitativeCurationStatusSchema = z.object({
-  status: z.enum(["kept", "rejected"]),
-});
-
 export const startInterpretationSchema = z.object({
   language: z.enum(["de", "en"]).default("de"),
 });

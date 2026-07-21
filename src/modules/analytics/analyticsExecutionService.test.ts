@@ -106,6 +106,7 @@ function fakeCatalog(entryCount: number): EvidenceCatalog {
         interpretationResultId: "result-1",
         sourceReference: "Attendance rate",
       },
+      evidenceStrength: "strong" as const,
     })),
     omittedEntries: [],
     qualitySignals: [],

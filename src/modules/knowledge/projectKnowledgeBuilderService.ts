@@ -19,6 +19,21 @@ import type { KnowledgeIndicatorRepository } from "./knowledgeIndicatorRepositor
 import type { KnowledgeIndicatorCreateInput } from "./knowledgeIndicatorPersistence.js";
 
 /**
+ * Thrown when buildForProject cannot claim the build lock because another
+ * build is already in progress for the same project — callers must not
+ * retry the build themselves; they should surface a clean "try again
+ * shortly" signal instead (see AnalyticsExecutionService,
+ * ReportReadinessCheckService).
+ */
+export class ProjectKnowledgeModelBuildInProgressError extends Error {
+  constructor(public readonly projectId: string) {
+    super(
+      `Project Knowledge Model build is already in progress for project ${projectId}.`,
+    );
+  }
+}
+
+/**
  * Two entity types are matched on name + description agreement (the
  * dominant path today, since InterpretationIndicator/InterpretationEntity
  * carry no dedicated stable ID field). Every other type currently has no
@@ -117,10 +132,17 @@ export class ProjectKnowledgeBuilderService {
         { organizationId: project.organizationId, projectId },
         databaseSession,
       );
-    await this.projectKnowledgeModelRepository.markBuilding(
+    // Atomically claims the build lock — this is what actually prevents two
+    // concurrent callers (e.g. an analytics generation and a report
+    // readiness check firing seconds apart) from both deciding to rebuild
+    // from their own stale in-memory snapshot and duplicating entities.
+    const claimedLock = await this.projectKnowledgeModelRepository.markBuilding(
       projectId,
       databaseSession,
     );
+    if (!claimedLock) {
+      throw new ProjectKnowledgeModelBuildInProgressError(projectId);
+    }
 
     const activities = await this.activityRepository.listByProject(
       projectId,

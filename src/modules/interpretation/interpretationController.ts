@@ -1,23 +1,13 @@
 import type { FastifyRequest } from "fastify";
 import { requireAuthenticatedUser } from "../../shared/auth/requireAuthenticatedUser.js";
 import { successResponse } from "../../shared/http/apiResponse.js";
+import { resolveRequestLanguage } from "../../shared/http/resolveRequestLanguage.js";
 import {
   answerInterpretationQuestionSchema,
   idParamSchema,
-  setIndicatorStatusSchema,
-  setQualitativeCurationStatusSchema,
   startInterpretationSchema,
 } from "../../schemas/httpSchemas.js";
 import { InterpretationService } from "./interpretationService.js";
-
-function resolveRequestLanguage(
-  acceptLanguageHeader: string | string[] | undefined,
-): "de" | "en" {
-  const value = Array.isArray(acceptLanguageHeader)
-    ? acceptLanguageHeader.join(",")
-    : (acceptLanguageHeader ?? "");
-  return value.toLowerCase().includes("de") ? "de" : "en";
-}
 
 export class InterpretationController {
   constructor(private readonly interpretationService: InterpretationService) {}
@@ -42,18 +32,6 @@ export class InterpretationController {
     const response = await this.interpretationService.getByProject(
       auth.userId,
       params.projectId!,
-    );
-    return successResponse(response);
-  }
-
-  async getProjectAiKnowledge(request: FastifyRequest) {
-    const auth = requireAuthenticatedUser(request);
-
-    const params = idParamSchema.parse(request.params);
-    const response = await this.interpretationService.getProjectAiKnowledge(
-      auth.userId,
-      params.projectId!,
-      resolveRequestLanguage(request.headers["accept-language"]),
     );
     return successResponse(response);
   }
@@ -118,35 +96,6 @@ export class InterpretationController {
       params.questionId!,
       payload.answeredValue,
     );
-    return successResponse(response);
-  }
-
-  async setIndicatorStatus(request: FastifyRequest) {
-    const auth = requireAuthenticatedUser(request);
-
-    const params = idParamSchema.parse(request.params);
-    const payload = setIndicatorStatusSchema.parse(request.body);
-    const response = await this.interpretationService.setIndicatorStatus(
-      auth.userId,
-      params.interpretationResultId!,
-      params.indicatorId!,
-      payload.status,
-    );
-    return successResponse(response);
-  }
-
-  async setQualitativeFindingStatus(request: FastifyRequest) {
-    const auth = requireAuthenticatedUser(request);
-
-    const params = idParamSchema.parse(request.params);
-    const payload = setQualitativeCurationStatusSchema.parse(request.body);
-    const response =
-      await this.interpretationService.setQualitativeFindingStatus(
-        auth.userId,
-        params.interpretationResultId!,
-        params.qualitativeFindingId!,
-        payload.status,
-      );
     return successResponse(response);
   }
 

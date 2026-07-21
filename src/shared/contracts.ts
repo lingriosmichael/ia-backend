@@ -1112,29 +1112,6 @@ export interface ActivityAiKnowledgeRecord {
   insights: ActivityAiKnowledgeInsight[];
 }
 
-export interface ProjectAiKnowledgeActivity {
-  activityId: string;
-  activityName: string;
-  interpretedEvidenceCount: number;
-}
-
-export interface ProjectAiKnowledgeInsight extends ActivityAiKnowledgeInsight {
-  activityId: string;
-  activityName: string;
-}
-
-export interface ProjectAiKnowledgeRecord {
-  projectId: string;
-  projectName: string;
-  acknowledgedActivityCount: number;
-  totalActivityCount: number;
-  interpretedEvidenceCount: number;
-  generatedAt: string | null;
-  summaryText: string;
-  insights: ProjectAiKnowledgeInsight[];
-  activities: ProjectAiKnowledgeActivity[];
-}
-
 export interface AnswerInterpretationQuestionRequest {
   answeredValue: string;
 }

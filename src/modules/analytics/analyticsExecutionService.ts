@@ -1,8 +1,11 @@
 import { databaseSession } from "../../shared/database/databaseClient.js";
 import type { AuthorizationService } from "../../shared/auth/authorizationService.js";
-import type { ProjectPersistenceRecord } from "../project/projectPersistence.js";
-import type { ProjectKnowledgeBuilderService } from "../knowledge/projectKnowledgeBuilderService.js";
+import {
+  ProjectKnowledgeModelBuildInProgressError,
+  type ProjectKnowledgeBuilderService,
+} from "../knowledge/projectKnowledgeBuilderService.js";
 import type { DashboardCatalogAssemblerService } from "./dashboardCatalogAssemblerService.js";
+import { buildProjectContextForCuration } from "./projectContextForCurationBuilder.js";
 import type { AnalyticsExecutionRepository } from "./analyticsExecutionRepository.js";
 import type { AnalyticsExecutionPersistenceRecord } from "./analyticsExecutionPersistence.js";
 import type { AnalyticsResultRepository } from "./analyticsResultRepository.js";
@@ -64,7 +67,7 @@ export class AnalyticsExecutionService {
     return this.generate(
       project.organizationId,
       { type: "PROJECT", projectId, activityId: null },
-      this.buildProjectContext(project),
+      buildProjectContextForCuration(project),
     );
   }
 
@@ -86,21 +89,8 @@ export class AnalyticsExecutionService {
     return this.generate(
       project.organizationId,
       { type: "ACTIVITY", projectId, activityId },
-      this.buildProjectContext(project),
+      buildProjectContextForCuration(project),
     );
-  }
-
-  private buildProjectContext(
-    project: ProjectPersistenceRecord,
-  ): ProjectContextForCuration {
-    return {
-      name: project.name,
-      projectGoal: project.projectGoal,
-      impactModel: project.impactModel,
-      successIndicators: project.successIndicators,
-      targetGroups: project.targetGroups,
-      areaOfOperation: project.areaOfOperation,
-    };
   }
 
   private async generate(
@@ -139,9 +129,16 @@ export class AnalyticsExecutionService {
         projectKnowledgeModelStatus === null ||
         projectKnowledgeModelStatus === "stale"
       ) {
-        await this.projectKnowledgeBuilderService.buildForProject(
-          scope.projectId,
-        );
+        try {
+          await this.projectKnowledgeBuilderService.buildForProject(
+            scope.projectId,
+          );
+        } catch (error) {
+          if (error instanceof ProjectKnowledgeModelBuildInProgressError) {
+            return this.markKnowledgeModelNotReady(execution);
+          }
+          throw error;
+        }
         ({
           catalog,
           projectKnowledgeModelStatus,
@@ -150,19 +147,7 @@ export class AnalyticsExecutionService {
       }
 
       if (projectKnowledgeModelStatus === "building") {
-        return (
-          (await this.analyticsExecutionRepository.updateStatus(
-            execution.id,
-            {
-              status: "FAILED",
-              completedAt: new Date(),
-              errorCode: "knowledge_model_not_ready",
-              errorMessage:
-                "The Project Knowledge Model is already being rebuilt. Try again shortly.",
-            },
-            databaseSession,
-          )) ?? execution
-        );
+        return this.markKnowledgeModelNotReady(execution);
       }
 
       const curationWithUsage =
@@ -261,6 +246,24 @@ export class AnalyticsExecutionService {
       );
       throw error;
     }
+  }
+
+  private async markKnowledgeModelNotReady(
+    execution: AnalyticsExecutionPersistenceRecord,
+  ): Promise<AnalyticsExecutionPersistenceRecord> {
+    return (
+      (await this.analyticsExecutionRepository.updateStatus(
+        execution.id,
+        {
+          status: "FAILED",
+          completedAt: new Date(),
+          errorCode: "knowledge_model_not_ready",
+          errorMessage:
+            "The Project Knowledge Model is already being rebuilt. Try again shortly.",
+        },
+        databaseSession,
+      )) ?? execution
+    );
   }
 
   private async tryCurateWidgetCopy(

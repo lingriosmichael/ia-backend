@@ -118,7 +118,7 @@ export function createFakeRepositories(options: {
     organizationId: "org-1",
     projectId: "project-1",
     version: 0,
-    status: "building",
+    status: "stale",
     createdAt: NOW,
     updatedAt: NOW,
   };
@@ -158,6 +158,11 @@ export function createFakeRepositories(options: {
   const projectKnowledgeModelRepository = {
     findOrCreateByProjectId: async () => projectKnowledgeModel,
     markBuilding: async () => {
+      // Mirrors the real Mongo repository's CAS semantics: claiming the
+      // lock fails (returns null) if a build is already in progress.
+      if (projectKnowledgeModel.status === "building") {
+        return null;
+      }
       projectKnowledgeModel = { ...projectKnowledgeModel, status: "building" };
       return projectKnowledgeModel;
     },

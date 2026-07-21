@@ -45,6 +45,12 @@ export interface EvidenceCatalogMetricProvenance {
   sourceReference: string;
 }
 
+// Weak/moderate/strong bucketing of a KnowledgeIndicator's numeric
+// confidence — computed once, server-side (see evidenceStrength.ts), and
+// attached to the catalog entry rather than left for an LLM to restate.
+export const evidenceStrengthValues = ["weak", "moderate", "strong"] as const;
+export type EvidenceStrength = (typeof evidenceStrengthValues)[number];
+
 export interface EvidenceCatalogMetricEntry {
   entryId: string;
   entryType: "METRIC";
@@ -55,6 +61,13 @@ export interface EvidenceCatalogMetricEntry {
   deduplicationConfidence: KnowledgeIndicatorDeduplicationConfidence;
   activityId: string;
   provenance: EvidenceCatalogMetricProvenance;
+  evidenceStrength: EvidenceStrength;
+}
+
+export interface EvidenceCatalogThemeSourceInstance {
+  uploadMetadataId: string;
+  interpretationResultId: string;
+  sourceReference: string;
 }
 
 export interface EvidenceCatalogThemeEntry {
@@ -68,6 +81,11 @@ export interface EvidenceCatalogThemeEntry {
   outcomeAnchorTypes: InterpretationQualitativeOutcomeAnchorType[];
   sourceActivityIds: string[];
   sourceUploadMetadataIds: string[];
+  // Per-instance provenance for the individual qualitative findings merged
+  // into this theme — no evidenceStrength here: KnowledgeEntity carries no
+  // confidence field, so quoteCount is the corroboration signal instead of
+  // a manufactured one.
+  sourceInstances: EvidenceCatalogThemeSourceInstance[];
 }
 
 export type EvidenceCatalogEntry =
@@ -325,4 +343,131 @@ export interface ProjectContextForCuration {
   successIndicators: string | null;
   targetGroups: string[];
   areaOfOperation: string | null;
+}
+
+// --- Report Readiness Check ("Berichtscheck") -----------------------------
+// Consumes the same EvidenceCatalog/ProjectContextForCuration as the
+// dashboard curator above, plus open (pending) interpretation questions and
+// per-activity evidence coverage — the two things the catalog doesn't carry.
+// Mirrors ia_python_service's app/analytics/models.py Report Readiness types.
+
+export interface ReportReadinessOpenQuestion {
+  questionId: string;
+  prompt: string;
+  questionDomain: "preparation" | "interpretation";
+  isBlocking: boolean;
+  activityId: string;
+  activityName: string;
+}
+
+export interface ReportReadinessActivityCoverage {
+  activityId: string;
+  activityName: string;
+  isAcknowledged: boolean;
+  hasFullyInterpretedEvidence: boolean;
+}
+
+export interface ReportReadinessFinding {
+  statement: string;
+  sourceEntryIds: string[];
+  // Human-readable catalog entry labels, same order as sourceEntryIds —
+  // looked up server-side so the frontend never renders a raw entryId.
+  sourceLabels: string[];
+  kind: "observed_fact" | "interpretation";
+  caveat: string | null;
+  evidenceStrength: EvidenceStrength | null;
+}
+
+export interface ReportReadinessGapFinding {
+  gap: string;
+  whyItMattersForReporting: string;
+  relatedOmittedEntryIds: string[];
+}
+
+export const reportReadinessDeviationSignalTypeValues = [
+  "contradiction",
+  "low_confidence",
+  "sharp_cross_activity_difference",
+] as const;
+export type ReportReadinessDeviationSignalType =
+  (typeof reportReadinessDeviationSignalTypeValues)[number];
+
+export interface ReportReadinessDeviationFinding {
+  observation: string;
+  signalType: ReportReadinessDeviationSignalType;
+  sourceEntryIds: string[];
+  sourceLabels: string[];
+  suggestedQuestionForTeam: string;
+  evidenceStrength: EvidenceStrength | null;
+}
+
+export const reportReadinessLevelValues = [
+  "not_ready",
+  "partially_ready",
+  "ready_with_caveats",
+  "ready",
+] as const;
+export type ReportReadinessLevel = (typeof reportReadinessLevelValues)[number];
+
+export interface ReportReadinessOverallReadiness {
+  level: ReportReadinessLevel;
+  rationale: string;
+}
+
+export interface ReportReadinessEvidenceSummaryRow {
+  area: string;
+  whatWeKnow: string;
+  sourceEntryIds: string[];
+  sourceLabels: string[];
+  // The weakest evidenceStrength among cited METRIC entries — same
+  // derivation as ReportReadinessFinding.evidenceStrength, never asserted
+  // by the LLM.
+  confidence: EvidenceStrength | null;
+  mainGap: string;
+}
+
+export interface ReportReadinessHonestStory {
+  narrative: string;
+  sourceEntryIds: string[];
+  sourceLabels: string[];
+}
+
+export interface ReportReadinessActionItem {
+  action: string;
+  reason: string;
+}
+
+export const reportReadinessActionPriorityValues = [
+  "critical_before_reporting",
+  "needed_this_cycle",
+] as const;
+export type ReportReadinessActionPriority =
+  (typeof reportReadinessActionPriorityValues)[number];
+
+export interface ReportReadinessPriorityActionItem {
+  action: string;
+  reason: string;
+  priority: ReportReadinessActionPriority;
+}
+
+// Hand-kept in sync with REPORT_READINESS_MODEL_VERSION in
+// ia_python_service/app/analytics/models.py — same manual-sync rationale as
+// CURATOR_MODEL_VERSION above. Keep both edits in the same commit.
+export const REPORT_READINESS_MODEL_VERSION = "report-readiness-prompt-v2";
+
+export interface ReportReadinessCheckResult {
+  overallReadiness: ReportReadinessOverallReadiness;
+  evidenceSummary: ReportReadinessEvidenceSummaryRow[];
+  confidentlyReportable: ReportReadinessFinding[];
+  reportableWithCaveats: ReportReadinessFinding[];
+  missingOrWeakEvidence: ReportReadinessGapFinding[];
+  deviationsRequiringExplanation: ReportReadinessDeviationFinding[];
+  honestEmergingStory: ReportReadinessHonestStory;
+  actionsBeforeReporting: ReportReadinessPriorityActionItem[];
+  improvementsForNextPeriod: ReportReadinessActionItem[];
+  groundingStatus: GroundingStatus;
+  groundingRetryCount: number;
+  reportReadinessModelVersion: string;
+  fellBackToSelectionOnly: boolean;
+  generatedAt: Date;
 }
