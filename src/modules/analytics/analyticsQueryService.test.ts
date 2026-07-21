@@ -398,6 +398,47 @@ test("a FAILED execution is returned as-is, never re-checked for staleness", asy
   assert.equal(execution!.status, "FAILED");
 });
 
+test("an execution abandoned mid-flight (RUNNING far past a real run's duration) is healed to FAILED", async () => {
+  const repos = createFakeRepos({
+    model: null,
+    execution: makeExecution({
+      status: "RUNNING",
+      startedAt: NOW,
+      completedAt: null,
+    }),
+    result: null,
+  });
+  const service = createService(repos);
+
+  const { execution } = await service.getProjectAnalytics(
+    "user-1",
+    "project-1",
+  );
+
+  assert.equal(execution!.status, "FAILED");
+  assert.equal(repos.getCurrentExecution()!.status, "FAILED");
+});
+
+test("a genuinely in-progress execution (started moments ago) is left RUNNING, not prematurely healed", async () => {
+  const repos = createFakeRepos({
+    model: null,
+    execution: makeExecution({
+      status: "RUNNING",
+      startedAt: new Date(),
+      completedAt: null,
+    }),
+    result: null,
+  });
+  const service = createService(repos);
+
+  const { execution } = await service.getProjectAnalytics(
+    "user-1",
+    "project-1",
+  );
+
+  assert.equal(execution!.status, "RUNNING");
+});
+
 test("a valid persisted layout preference is normalized and returned", async () => {
   const repos = createFakeRepos({
     model: makeKnowledgeModel({ version: 1 }),

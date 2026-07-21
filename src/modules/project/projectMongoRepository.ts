@@ -46,7 +46,6 @@ function toProjectRecord(
       outcomes: document.impactModel?.outcomes ?? null,
     },
     successIndicators: document.successIndicators ?? null,
-    reportReadinessCheckSnapshot: document.reportReadinessCheckSnapshot ?? null,
     llmTokenLedger: {
       totalPromptTokensLifetime:
         document.llmTokenLedger?.totalPromptTokensLifetime ?? 0,

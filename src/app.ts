@@ -13,7 +13,6 @@ import { registerInterpretationRoutes } from "./modules/interpretation/interpret
 import { registerOrganizationRoutes } from "./modules/organization/organizationRoutes.js";
 import { registerProjectRoutes } from "./modules/project/projectRoutes.js";
 import { registerPrivacyReviewRoutes } from "./modules/processing/privacyReviewRoutes.js";
-import { registerReportReadinessCheckRoutes } from "./modules/reporting/reportReadinessCheckRoutes.js";
 import { registerActivityUploadRoutes } from "./modules/upload/activityUploadRoutes.js";
 import { registerUploadMetadataRoutes } from "./modules/upload/uploadMetadataRoutes.js";
 import type { BackendConfig } from "./shared/config/env.js";
@@ -175,11 +174,6 @@ export async function buildApp(config: BackendConfig) {
   await registerAnalyticsRoutes(
     app,
     context.analyticsController,
-    context.authenticate,
-  );
-  await registerReportReadinessCheckRoutes(
-    app,
-    context.reportReadinessCheckController,
     context.authenticate,
   );
 

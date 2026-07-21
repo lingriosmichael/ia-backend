@@ -1,5 +1,4 @@
 import type { ProjectStatus } from "../../shared/contracts.js";
-import type { ReportReadinessCheckSnapshotPersistenceRecord } from "../reporting/reportReadinessCheckPersistence.js";
 
 export interface ProjectImpactModelPersistence {
   inputs: string | null;
@@ -32,7 +31,6 @@ export interface ProjectPersistenceRecord {
   impactModel: ProjectImpactModelPersistence;
   successIndicators: string | null;
   llmTokenLedger?: ProjectLlmTokenLedgerPersistence;
-  reportReadinessCheckSnapshot?: ReportReadinessCheckSnapshotPersistenceRecord | null;
   status: ProjectStatus;
   createdAt: Date;
   updatedAt: Date;
@@ -73,7 +71,6 @@ export interface ProjectUpdateInput {
   sdgs?: string[];
   impactModel?: Partial<ProjectImpactModelPersistence>;
   successIndicators?: string | null;
-  reportReadinessCheckSnapshot?: ReportReadinessCheckSnapshotPersistenceRecord | null;
   status?: ProjectStatus;
 }
 

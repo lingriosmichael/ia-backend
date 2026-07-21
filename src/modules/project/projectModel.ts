@@ -24,11 +24,6 @@ const projectSchema = new Schema(
       outcomes: { type: String, default: null },
     },
     successIndicators: { type: String, default: null },
-    // The full ReportReadinessCheckResult (see reporting/reportReadinessCheckPersistence.ts)
-    // stored as one opaque, display-only blob — never partially queried, so
-    // a single Mixed field is simpler than a typed sub-schema per section.
-    // Validated at the app boundary via TS types, not by Mongoose.
-    reportReadinessCheckSnapshot: { type: Schema.Types.Mixed, default: null },
     llmTokenLedger: {
       totalPromptTokensLifetime: { type: Number, default: 0 },
       totalCompletionTokensLifetime: { type: Number, default: 0 },

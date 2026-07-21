@@ -24,6 +24,16 @@ const LIVE_EXECUTION_STATUSES = new Set([
   "COMPLETED_WITH_WARNINGS",
 ]);
 
+// Generous margin above a real generation's observed duration (a live run
+// completed in ~90s) — this only exists to detect an execution truly
+// abandoned mid-flight (e.g. the server process restarting or crashing
+// before its own try/catch could persist FAILED), not to race a normal
+// slow run. Without this, an orphaned RUNNING execution blocks the
+// "regenerate" button forever with no recovery path other than editing the
+// database directly.
+const ORPHANED_EXECUTION_TIMEOUT_MS = 10 * 60 * 300;
+const IN_FLIGHT_EXECUTION_STATUSES = new Set(["QUEUED", "RUNNING"]);
+
 export interface AnalyticsQueryResult {
   execution: AnalyticsExecutionPersistenceRecord | null;
   result: AnalyticsResultPersistenceRecord | null;
@@ -180,20 +190,64 @@ export class AnalyticsQueryService {
     return this.getForScope({ type: "ACTIVITY", projectId, activityId });
   }
 
+  /**
+   * Self-heals an execution abandoned mid-flight — same "detect and correct
+   * on read" convention this class already uses for stale knowledge models
+   * below, applied to a different failure mode. Marks it FAILED so the
+   * regenerate button becomes eligible again; a real still-in-progress
+   * execution (started recently) is left untouched.
+   */
+  private async healOrphanedExecution(
+    execution: AnalyticsExecutionPersistenceRecord | null,
+  ): Promise<AnalyticsExecutionPersistenceRecord | null> {
+    if (
+      !execution ||
+      !IN_FLIGHT_EXECUTION_STATUSES.has(execution.status) ||
+      !execution.startedAt
+    ) {
+      return execution;
+    }
+
+    const ageMs = Date.now() - execution.startedAt.getTime();
+    if (ageMs < ORPHANED_EXECUTION_TIMEOUT_MS) {
+      return execution;
+    }
+
+    const healed = await this.analyticsExecutionRepository.updateStatus(
+      execution.id,
+      {
+        status: "FAILED",
+        completedAt: new Date(),
+        errorCode: "analytics_generation_interrupted",
+        errorMessage:
+          "This run never completed (likely interrupted by a server restart). Marked failed so it can be retried.",
+      },
+      databaseSession,
+    );
+    return healed ?? execution;
+  }
+
   private async getForScope(
     scope: AnalyticsScope,
   ): Promise<AnalyticsQueryResult> {
-    const [execution, result, persistedLayoutPreference] = await Promise.all([
-      this.analyticsExecutionRepository.findLatestByScope(
-        scope,
-        databaseSession,
-      ),
-      this.analyticsResultRepository.findLatestByScope(scope, databaseSession),
-      this.analyticsDashboardPreferenceRepository.findByScope(
-        scope,
-        databaseSession,
-      ),
-    ]);
+    const [rawExecution, result, persistedLayoutPreference] = await Promise.all(
+      [
+        this.analyticsExecutionRepository.findLatestByScope(
+          scope,
+          databaseSession,
+        ),
+        this.analyticsResultRepository.findLatestByScope(
+          scope,
+          databaseSession,
+        ),
+        this.analyticsDashboardPreferenceRepository.findByScope(
+          scope,
+          databaseSession,
+        ),
+      ],
+    );
+
+    const execution = await this.healOrphanedExecution(rawExecution);
 
     if (!execution || !result) {
       return {

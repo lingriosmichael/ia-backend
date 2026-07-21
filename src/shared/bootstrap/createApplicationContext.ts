@@ -63,8 +63,6 @@ import { ProjectController } from "../../modules/project/projectController.js";
 import { ProjectLlmTokenLedgerService } from "../../modules/project/projectLlmTokenLedgerService.js";
 import { MongoProjectRepository } from "../../modules/project/projectMongoRepository.js";
 import { ProjectService } from "../../modules/project/projectService.js";
-import { ReportReadinessCheckController } from "../../modules/reporting/reportReadinessCheckController.js";
-import { ReportReadinessCheckService } from "../../modules/reporting/reportReadinessCheckService.js";
 import { ActivityUploadController } from "../../modules/upload/activityUploadController.js";
 import { ActivityUploadService } from "../../modules/upload/activityUploadService.js";
 import { FileStorageService } from "../../modules/upload/fileStorageService.js";
@@ -323,17 +321,6 @@ export function createApplicationContext(
   const analyticsDashboardExportService = new AnalyticsDashboardExportService(
     analyticsQueryService,
   );
-  const reportReadinessCheckService = new ReportReadinessCheckService(
-    authorizationService,
-    activityRepository,
-    uploadMetadataRepository,
-    interpretationResultRepository,
-    projectRepository,
-    projectKnowledgeBuilderService,
-    dashboardCatalogAssemblerService,
-    pythonAnalyticsCurationClient,
-    projectLlmTokenLedgerService,
-  );
   const invitationService = new InvitationService(
     invitationRepository,
     organizationRepository,
@@ -374,9 +361,6 @@ export function createApplicationContext(
       analyticsDashboardExportService,
       analyticsDashboardEventService,
       analyticsDashboardPreferenceService,
-    ),
-    reportReadinessCheckController: new ReportReadinessCheckController(
-      reportReadinessCheckService,
     ),
   };
 }

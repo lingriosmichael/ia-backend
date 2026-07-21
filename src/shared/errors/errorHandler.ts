@@ -25,8 +25,8 @@ export function registerErrorHandler(app: FastifyInstance) {
       // returning a malformed response) is a genuine operational failure,
       // not expected control flow like a 404 or a validation error — log it
       // the same way an unhandled error is logged below, or an outage during
-      // analytics/report-readiness generation leaves no server-side trace at
-      // all, just a client-visible 502.
+      // analytics generation leaves no server-side trace at all, just a
+      // client-visible 502.
       if (error.statusCode >= 500) {
         request.log.error({ err: error }, "Upstream/internal AppError");
       }

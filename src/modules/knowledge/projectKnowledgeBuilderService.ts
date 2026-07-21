@@ -22,8 +22,7 @@ import type { KnowledgeIndicatorCreateInput } from "./knowledgeIndicatorPersiste
  * Thrown when buildForProject cannot claim the build lock because another
  * build is already in progress for the same project — callers must not
  * retry the build themselves; they should surface a clean "try again
- * shortly" signal instead (see AnalyticsExecutionService,
- * ReportReadinessCheckService).
+ * shortly" signal instead (see AnalyticsExecutionService).
  */
 export class ProjectKnowledgeModelBuildInProgressError extends Error {
   constructor(public readonly projectId: string) {
