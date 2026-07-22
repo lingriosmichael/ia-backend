@@ -307,8 +307,8 @@ Recommended production-facing values:
 
 ```env
 NODE_ENV=production
-PORT=10000
-API_PORT=10000
+PORT=10001
+API_PORT=10001
 CORS_ORIGIN=https://app.your-domain.com
 WEBAPP_URL=https://app.your-domain.com
 MONGODB_URI=<mongodb-atlas-uri>
@@ -324,6 +324,7 @@ Notes:
 - `src/server.ts` now honors Render's injected `PORT` automatically.
 - `/health` is the Render health check path.
 - the analytics worker should remain a separate Render background worker, not part of the web service process.
+- use `10001` for the backend service port on Render so other Render services can reach it over the private network; Render reserves `10000` there
 
 That lets every backend replica read the same evidence files and organization logos instead of depending on one machine's disk.
 

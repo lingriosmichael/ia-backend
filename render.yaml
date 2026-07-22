@@ -19,9 +19,9 @@ services:
       - key: NODE_ENV
         value: production
       - key: PORT
-        value: "10000"
+        value: "10001"
       - key: API_PORT
-        value: "10000"
+        value: "10001"
       - key: JWT_SECRET
         generateValue: true
       - key: JWT_EXPIRES_IN
