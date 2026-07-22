@@ -11,7 +11,10 @@ import { hashPassword, verifyPassword } from "../../shared/utils/password.js";
 import jwt from "jsonwebtoken";
 import type { Secret, SignOptions } from "jsonwebtoken";
 import type { OrganizationRepository } from "../organization/organizationRepository.js";
+import type { OrganizationPersistenceRecord } from "../organization/organizationPersistence.js";
 import type { UserRepository } from "../user/userRepository.js";
+import type { UserPersistenceRecord } from "../user/userPersistence.js";
+import type { OrganizationRole } from "../../shared/contracts.js";
 
 function expiresToSeconds(value: string): number {
   const match = /^(\d+)([smhd])$/.exec(value);
@@ -63,14 +66,7 @@ export class AuthService {
       },
       databaseSession,
     );
-    const accessToken = this.signToken(user.id, user.email);
-
-    return mapAuthResponse({
-      accessToken,
-      expiresInSeconds: expiresToSeconds(this.config.JWT_EXPIRES_IN),
-      user,
-      organizations: [],
-    });
+    return this.createAuthResult(user, []);
   }
 
   async login(input: { email: string; password: string }) {
@@ -98,14 +94,7 @@ export class AuthService {
       user.id,
       databaseSession,
     );
-    const accessToken = this.signToken(user.id, user.email);
-
-    return mapAuthResponse({
-      accessToken,
-      expiresInSeconds: expiresToSeconds(this.config.JWT_EXPIRES_IN),
-      user,
-      organizations: memberships,
-    });
+    return this.createAuthResult(user, memberships);
   }
 
   async getSession(userId: string) {
@@ -149,5 +138,24 @@ export class AuthService {
         expiresIn: this.config.JWT_EXPIRES_IN as SignOptions["expiresIn"],
       },
     );
+  }
+
+  private createAuthResult(
+    user: UserPersistenceRecord,
+    organizations: Array<{
+      role: OrganizationRole;
+      organization: OrganizationPersistenceRecord;
+    }>,
+  ) {
+    const expiresInSeconds = expiresToSeconds(this.config.JWT_EXPIRES_IN);
+
+    return {
+      sessionToken: this.signToken(user.id, user.email),
+      response: mapAuthResponse({
+        expiresInSeconds,
+        user,
+        organizations,
+      }),
+    };
   }
 }

@@ -4,17 +4,13 @@ import { databaseSession } from "../../shared/database/databaseClient.js";
 import { AppError } from "../../shared/errors/appError.js";
 import { mapProcessingJob } from "../../shared/utils/mappers.js";
 import type { ProcessingJobRepository } from "../ai/execution/processingJobRepository.js";
-import { FileStorageService } from "../upload/fileStorageService.js";
 import type { UploadMetadataRepository } from "../upload/uploadMetadataRepository.js";
-import { PythonProcessingClient } from "./pythonProcessingClient.js";
 
 export class EvidenceProcessingService {
   constructor(
     private readonly processingJobRepository: ProcessingJobRepository,
     private readonly uploadMetadataRepository: UploadMetadataRepository,
     private readonly authorizationService: AuthorizationService,
-    private readonly fileStorageService: FileStorageService,
-    private readonly pythonProcessingClient: PythonProcessingClient,
   ) {}
 
   async startEvidenceAnalysis(
@@ -69,10 +65,6 @@ export class EvidenceProcessingService {
       );
     }
 
-    const storedFile = await this.fileStorageService.readStoredFile(
-      uploadMetadata.storageKey,
-    );
-
     const queuedJob = await this.processingJobRepository.create(
       {
         organizationId: uploadMetadata.organizationId,
@@ -88,52 +80,8 @@ export class EvidenceProcessingService {
       databaseSession,
     );
 
-    try {
-      const pythonJob =
-        await this.pythonProcessingClient.startEvidenceProcessing({
-          processingJobId: queuedJob.id,
-          uploadMetadataId: uploadMetadata.id,
-          projectId: uploadMetadata.projectId,
-          activityId: uploadMetadata.activityId,
-          storageKey: uploadMetadata.storageKey,
-          originalFileName: uploadMetadata.originalFileName,
-          contentType: uploadMetadata.contentType,
-          fileBuffer: storedFile.buffer,
-        });
-
-      const startedJob = await this.processingJobRepository.update(
-        queuedJob.id,
-        {
-          status: "processing",
-          startedAt: new Date(),
-          payload: {
-            ...(queuedJob.payload ?? {}),
-            pythonJob,
-          },
-        },
-        databaseSession,
-      );
-
-      return {
-        job: mapProcessingJob(startedJob),
-      };
-    } catch (error) {
-      const failedJob = await this.processingJobRepository.update(
-        queuedJob.id,
-        {
-          status: "failed",
-          errorMessage:
-            error instanceof Error
-              ? error.message
-              : "Evidence processing could not be started.",
-          completedAt: new Date(),
-        },
-        databaseSession,
-      );
-
-      return {
-        job: mapProcessingJob(failedJob),
-      };
-    }
+    return {
+      job: mapProcessingJob(queuedJob),
+    };
   }
 }

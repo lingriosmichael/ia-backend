@@ -125,6 +125,7 @@ test("upload create clears acknowledgment and invalidates project derived state 
     {} as ProcessingJobRepository,
     {} as ProcessingResourceCleanupService,
     projectDerivedStateInvalidationService,
+    { error: () => undefined } as never,
   );
 
   const created = await service.create("user-1", "project-1", {
@@ -237,6 +238,7 @@ test("upload delete clears acknowledgment and invalidates project derived state 
     processingJobRepository,
     processingResourceCleanupService,
     projectDerivedStateInvalidationService,
+    { error: () => undefined } as never,
   );
 
   const deleted = await service.delete("user-1", "upload-1");
@@ -296,6 +298,7 @@ test("upload delete does not remove stored files when transactional cleanup fail
     {
       invalidateProject: async () => undefined,
     } as unknown as ProjectDerivedStateInvalidationService,
+    { error: () => undefined } as never,
   );
 
   await assert.rejects(service.delete("user-1", "upload-1"), /cleanup failed/);
@@ -340,6 +343,7 @@ test("upload delete still succeeds when best-effort stored file cleanup fails", 
     {
       invalidateProject: async () => undefined,
     } as unknown as ProjectDerivedStateInvalidationService,
+    { error: () => undefined } as never,
   );
 
   const deleted = await service.delete("user-1", "upload-1");

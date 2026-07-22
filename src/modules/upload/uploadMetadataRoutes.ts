@@ -1,5 +1,6 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { UploadMetadataController } from "./uploadMetadataController.js";
+import { processingKickoffRateLimitConfig } from "../../shared/http/rateLimitConfigs.js";
 
 export async function registerUploadMetadataRoutes(
   app: FastifyInstance,
@@ -18,7 +19,10 @@ export async function registerUploadMetadataRoutes(
   );
   app.post(
     "/evidence/:evidenceId/analyse",
-    { preHandler: authenticate },
+    {
+      preHandler: authenticate,
+      config: processingKickoffRateLimitConfig,
+    },
     controller.analyse.bind(controller),
   );
   app.get(

@@ -16,6 +16,13 @@ export interface ProcessingJobPersistenceRecord {
   status: ProcessingJobStatus;
   payload: StructuredAIPayload;
   errorMessage: string | null;
+  leaseOwner: string | null;
+  leaseExpiresAt: Date | null;
+  lastHeartbeatAt: Date | null;
+  attemptCount: number;
+  nextAttemptAt: Date | null;
+  failureCode: string | null;
+  maxAttempts: number;
   startedAt: Date | null;
   completedAt: Date | null;
   createdAt: Date;
@@ -36,6 +43,13 @@ export interface ProcessingJobUpdateInput {
   status?: ProcessingJobStatus;
   payload?: StructuredAIPayload;
   errorMessage?: string | null;
+  leaseOwner?: string | null;
+  leaseExpiresAt?: Date | null;
+  lastHeartbeatAt?: Date | null;
+  attemptCount?: number;
+  nextAttemptAt?: Date | null;
+  failureCode?: string | null;
+  maxAttempts?: number;
   startedAt?: Date | null;
   completedAt?: Date | null;
 }

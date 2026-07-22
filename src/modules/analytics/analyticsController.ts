@@ -1,6 +1,7 @@
 import type { FastifyReply, FastifyRequest } from "fastify";
 import { requireAuthenticatedUser } from "../../shared/auth/requireAuthenticatedUser.js";
 import { successResponse } from "../../shared/http/apiResponse.js";
+import { resolveRequestLanguage } from "../../shared/http/resolveRequestLanguage.js";
 import {
   analyticsDashboardExportRequestSchema,
   analyticsDashboardInteractionSchema,
@@ -25,9 +26,10 @@ export class AnalyticsController {
   async generateForProject(request: FastifyRequest) {
     const auth = requireAuthenticatedUser(request);
     const params = idParamSchema.parse(request.params);
-    const execution = await this.analyticsExecutionService.generateForProject(
+    const execution = await this.analyticsExecutionService.enqueueForProject(
       auth.userId,
       params.projectId!,
+      resolveRequestLanguage(request.headers["accept-language"]),
     );
     return successResponse(execution);
   }
@@ -103,10 +105,11 @@ export class AnalyticsController {
   async generateForActivity(request: FastifyRequest) {
     const auth = requireAuthenticatedUser(request);
     const params = idParamSchema.parse(request.params);
-    const execution = await this.analyticsExecutionService.generateForActivity(
+    const execution = await this.analyticsExecutionService.enqueueForActivity(
       auth.userId,
       params.projectId!,
       params.activityId!,
+      resolveRequestLanguage(request.headers["accept-language"]),
     );
     return successResponse(execution);
   }

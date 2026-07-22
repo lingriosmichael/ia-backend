@@ -40,6 +40,13 @@ const processingJobSchema = new Schema(
     },
     payload: { type: Schema.Types.Mixed, default: null },
     errorMessage: { type: String, default: null },
+    leaseOwner: { type: String, default: null, index: true },
+    leaseExpiresAt: { type: Date, default: null, index: true },
+    lastHeartbeatAt: { type: Date, default: null },
+    attemptCount: { type: Number, required: true, default: 0, min: 0 },
+    nextAttemptAt: { type: Date, default: null, index: true },
+    failureCode: { type: String, default: null },
+    maxAttempts: { type: Number, required: true, default: 3, min: 1 },
     startedAt: { type: Date, default: null },
     completedAt: { type: Date, default: null },
   },
@@ -67,6 +74,14 @@ processingJobSchema.index(
     },
   },
 );
+
+processingJobSchema.index({
+  jobType: 1,
+  status: 1,
+  nextAttemptAt: 1,
+  leaseExpiresAt: 1,
+  createdAt: 1,
+});
 
 export type ProcessingJobMongoDocument = InferSchemaType<
   typeof processingJobSchema

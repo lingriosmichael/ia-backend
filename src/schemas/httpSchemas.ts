@@ -1,5 +1,6 @@
 import {
   activityStatusValues,
+  processingJobTypeValues,
   projectStatusValues,
 } from "../shared/contracts.js";
 import { z } from "zod";
@@ -276,6 +277,16 @@ export const processingJobCallbackSchema = z.object({
     "cancelled",
   ]),
   updatedAt: z.string().min(1),
+  failureCode: z.string().trim().min(1).max(120).nullable().optional(),
   errorMessage: z.string().nullable().optional(),
   details: jsonPayloadSchema.nullable().optional(),
+});
+
+export const workerClaimProcessingJobSchema = z.object({
+  workerId: z.string().trim().min(1).max(200),
+  supportedJobTypes: z.array(z.enum(processingJobTypeValues)).min(1).max(20),
+});
+
+export const workerHeartbeatSchema = z.object({
+  workerId: z.string().trim().min(1).max(200),
 });

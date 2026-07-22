@@ -68,6 +68,25 @@ export interface ProcessingJobRepository {
     input: ProcessingJobUpdateInput,
     session: DatabaseSession,
   ): Promise<ProcessingJobPersistenceRecord>;
+  claimNextRunnable(
+    input: {
+      workerId: string;
+      supportedJobTypes: ProcessingJobPersistenceRecord["jobType"][];
+      leaseExpiresAt: Date;
+      now: Date;
+      claimedStatus: ProcessingJobPersistenceRecord["status"];
+    },
+    session: DatabaseSession,
+  ): Promise<ProcessingJobPersistenceRecord | null>;
+  renewLease(
+    input: {
+      processingJobId: string;
+      workerId: string;
+      leaseExpiresAt: Date;
+      heartbeatAt: Date;
+    },
+    session: DatabaseSession,
+  ): Promise<ProcessingJobPersistenceRecord | null>;
   cancelIfActive(
     processingJobId: string,
     completedAt: Date,

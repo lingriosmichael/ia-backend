@@ -4,16 +4,22 @@ import { AppError } from "../../../shared/errors/appError.js";
 import { AuthorizationService } from "../../../shared/auth/authorizationService.js";
 import { mapProcessingJob } from "../../../shared/utils/mappers.js";
 import type {
+  PrivacyReviewDecisions,
+  ProcessingJobRecord,
   ProcessingJobType,
   ProcessingJobStatus,
 } from "../../../shared/contracts.js";
 import { InterpretationArtifactService } from "../../interpretation/interpretationArtifactService.js";
+import type { ParsedRepresentationRepository } from "../../processing/parsedRepresentationRepository.js";
+import type { PrivacyReviewRepository } from "../../processing/privacyReviewRepository.js";
+import type { PrivacySafeRepresentationRepository } from "../../processing/privacySafeRepresentationRepository.js";
 import { EvidenceProcessingArtifactService } from "../../processing/evidenceProcessingArtifactService.js";
-import { PythonProcessingClient } from "../../processing/pythonProcessingClient.js";
+import { FileStorageService } from "../../upload/fileStorageService.js";
 import type { UploadMetadataRepository } from "../../upload/uploadMetadataRepository.js";
 import type { ProcessingJobPersistenceRecord } from "../persistence/aiPersistenceTypes.js";
 import type { ProcessingJobRepository } from "./processingJobRepository.js";
 
+const workerLeaseDurationMs = 90_000;
 const terminalJobStatuses: ProcessingJobStatus[] = [
   "completed",
   "failed",
@@ -31,26 +37,124 @@ interface ProcessorStatusPayload {
     | "failed"
     | "cancelled";
   updatedAt: string;
+  failureCode?: string | null;
   errorMessage?: string | null;
   details?: Record<string, unknown> | null;
 }
 
-// Job types whose lifecycle is driven by an external Python job that this
-// service polls and ingests artifacts from. Every other jobType is a no-op
-// for sync() (e.g. it may be updated directly by its own service instead).
-const syncableJobTypes: ProcessingJobType[] = [
-  "evidence_processing",
-  "dataset_interpretation",
-];
+interface ActivityGoalsContext {
+  objectives: string | null;
+  successIndicators: string | null;
+}
+
+interface ProjectImpactModelContext {
+  inputs: string | null;
+  activities: string | null;
+  outputs: string | null;
+  outcomes: string | null;
+  impact: string | null;
+}
+
+interface ProjectGoalsContext {
+  projectGoal: string | null;
+  impactModel: ProjectImpactModelContext | null;
+  successIndicators: string | null;
+}
+
+type WorkerJobContext =
+  | {
+      kind: "evidence_processing_parse";
+      uploadMetadataId: string;
+      projectId: string;
+      activityId: string | null;
+      storageKey: string;
+      originalFileName: string;
+      contentType: string | null;
+    }
+  | {
+      kind: "evidence_processing_transform";
+      uploadMetadataId: string;
+      parsedRepresentation: Record<string, unknown>;
+      decisions: PrivacyReviewDecisions;
+    }
+  | {
+      kind: "dataset_interpretation";
+      privacySafeRepresentationId: string;
+      payload: Record<string, unknown>;
+      language: "de" | "en";
+      activityGoals: ActivityGoalsContext | null;
+      projectGoals: ProjectGoalsContext | null;
+    };
+
+interface ClaimedWorkerJobResponse {
+  job: ProcessingJobRecord;
+  context: WorkerJobContext;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function readNullableString(value: unknown): string | null {
+  return typeof value === "string" ? value : null;
+}
+
+function readLanguageFromPayload(
+  payload: Record<string, unknown> | null,
+): "de" | "en" {
+  return payload?.language === "en" ? "en" : "de";
+}
+
+function readActivityGoalsFromPayload(
+  payload: Record<string, unknown> | null,
+): ActivityGoalsContext | null {
+  const activityGoals = payload?.activityGoals;
+  if (!isRecord(activityGoals)) {
+    return null;
+  }
+
+  return {
+    objectives: readNullableString(activityGoals.objectives),
+    successIndicators: readNullableString(activityGoals.successIndicators),
+  };
+}
+
+function readProjectGoalsFromPayload(
+  payload: Record<string, unknown> | null,
+): ProjectGoalsContext | null {
+  const projectGoals = payload?.projectGoals;
+  if (!isRecord(projectGoals)) {
+    return null;
+  }
+
+  const impactModel = isRecord(projectGoals.impactModel)
+    ? {
+        inputs: readNullableString(projectGoals.impactModel.inputs),
+        activities: readNullableString(projectGoals.impactModel.activities),
+        outputs: readNullableString(projectGoals.impactModel.outputs),
+        outcomes: readNullableString(projectGoals.impactModel.outcomes),
+        impact: readNullableString(projectGoals.impactModel.impact),
+      }
+    : null;
+
+  return {
+    projectGoal: readNullableString(projectGoals.projectGoal),
+    impactModel,
+    successIndicators: readNullableString(projectGoals.successIndicators),
+  };
+}
 
 export class ProcessingJobService {
   constructor(
     private readonly processingJobRepository: ProcessingJobRepository,
     private readonly uploadMetadataRepository: UploadMetadataRepository,
     private readonly authorizationService: AuthorizationService,
-    private readonly pythonProcessingClient: PythonProcessingClient,
     private readonly evidenceProcessingArtifactService: EvidenceProcessingArtifactService,
     private readonly interpretationArtifactService: InterpretationArtifactService,
+    private readonly parsedRepresentationRepository: ParsedRepresentationRepository,
+    private readonly privacyReviewRepository: PrivacyReviewRepository,
+    private readonly privacySafeRepresentationRepository: PrivacySafeRepresentationRepository,
+    private readonly fileStorageService: FileStorageService,
     private readonly logger: FastifyBaseLogger,
   ) {}
 
@@ -196,44 +300,102 @@ export class ProcessingJobService {
     }
 
     await this.authorizationService.canViewProject(userId, job.projectId);
+    return mapProcessingJob(job);
+  }
 
+  async claimNextRunnableJob(
+    workerId: string,
+    supportedJobTypes: ProcessingJobType[],
+  ): Promise<ClaimedWorkerJobResponse | null> {
+    const now = new Date();
+    const claimedJob = await this.processingJobRepository.claimNextRunnable(
+      {
+        workerId,
+        supportedJobTypes,
+        leaseExpiresAt: new Date(now.getTime() + workerLeaseDurationMs),
+        now,
+        claimedStatus: "processing",
+      },
+      databaseSession,
+    );
+
+    if (!claimedJob) {
+      return null;
+    }
+
+    const context = await this.buildWorkerContext(claimedJob);
+    return {
+      job: mapProcessingJob(claimedJob),
+      context,
+    };
+  }
+
+  async renewLease(processingJobId: string, workerId: string) {
+    const now = new Date();
+    const renewedJob = await this.processingJobRepository.renewLease(
+      {
+        processingJobId,
+        workerId,
+        leaseExpiresAt: new Date(now.getTime() + workerLeaseDurationMs),
+        heartbeatAt: now,
+      },
+      databaseSession,
+    );
+
+    if (!renewedJob) {
+      throw new AppError(
+        "Processing job lease could not be renewed.",
+        409,
+        "processing_job_lease_not_owned",
+      );
+    }
+
+    return mapProcessingJob(renewedJob);
+  }
+
+  async getSourceFileForWorker(processingJobId: string) {
+    const job = await this.processingJobRepository.findById(
+      processingJobId,
+      databaseSession,
+    );
+
+    if (!job?.uploadMetadataId) {
+      throw new AppError(
+        "Processing job source file is not available.",
+        404,
+        "processing_job_source_file_not_found",
+      );
+    }
+
+    const uploadMetadata = await this.uploadMetadataRepository.findById(
+      job.uploadMetadataId,
+      databaseSession,
+    );
     if (
-      !syncableJobTypes.includes(job.jobType) ||
-      terminalJobStatuses.includes(job.status)
+      !uploadMetadata ||
+      !uploadMetadata.storageKey ||
+      uploadMetadata.originalFileDeletedAt
     ) {
-      return mapProcessingJob(job);
+      throw new AppError(
+        "Processing job source file is not available.",
+        404,
+        "processing_job_source_file_not_found",
+      );
     }
 
-    const externalJobId = this.getExternalJobId(job.payload);
+    const storedFile = await this.fileStorageService.openStoredFileStream(
+      uploadMetadata.storageKey,
+    );
 
-    if (!externalJobId) {
-      return mapProcessingJob(job);
-    }
-
-    // Pulls the current status from Python. Interpretation jobs also push
-    // their completion directly (see applyExternalCompletion) the instant
-    // they finish, so by the time this poll fires the job is very often
-    // already terminal in the database and this pull never happens at all
-    // — this remains as a fallback for evidence-processing jobs (which
-    // don't push) and as resilience if a push callback is ever missed.
-    let processorStatus: ProcessorStatusPayload;
-    try {
-      processorStatus =
-        await this.pythonProcessingClient.getProcessingJobStatus(externalJobId);
-    } catch (error) {
-      if (
-        error instanceof AppError &&
-        error.code === "python_processing_job_not_found"
-      ) {
-        const failedJob =
-          await this.failJobBecauseExternalProcessorLostState(job);
-        return mapProcessingJob(failedJob);
-      }
-      throw error;
-    }
-    const updatedJob = await this.applyProcessorStatus(job, processorStatus);
-
-    return mapProcessingJob(updatedJob);
+    return {
+      stream: storedFile.stream,
+      contentType:
+        uploadMetadata.contentType ??
+        this.fileStorageService.getContentTypeForPath(
+          uploadMetadata.storageKey,
+        ),
+      originalFileName: uploadMetadata.originalFileName,
+    };
   }
 
   /**
@@ -269,6 +431,110 @@ export class ProcessingJobService {
     return mapProcessingJob(updatedJob);
   }
 
+  private async buildWorkerContext(
+    job: ProcessingJobPersistenceRecord,
+  ): Promise<WorkerJobContext> {
+    if (job.jobType === "evidence_processing") {
+      const review = await this.privacyReviewRepository.findByProcessingJobId(
+        job.id,
+        databaseSession,
+      );
+
+      if (review?.status === "approved" && review.decisions) {
+        if (!job.uploadMetadataId) {
+          throw new AppError(
+            "Processing job context is missing upload metadata.",
+            500,
+            "processing_job_context_incomplete",
+          );
+        }
+
+        const parsedRepresentation =
+          await this.parsedRepresentationRepository.findByProcessingJobId(
+            job.id,
+            databaseSession,
+          );
+
+        if (!parsedRepresentation) {
+          throw new AppError(
+            "Parsed representation is missing for privacy-safe transformation.",
+            500,
+            "processing_job_context_incomplete",
+          );
+        }
+
+        return {
+          kind: "evidence_processing_transform",
+          uploadMetadataId: job.uploadMetadataId,
+          parsedRepresentation: parsedRepresentation.payload,
+          decisions: review.decisions,
+        };
+      }
+
+      if (!job.uploadMetadataId) {
+        throw new AppError(
+          "Processing job context is missing upload metadata.",
+          500,
+          "processing_job_context_incomplete",
+        );
+      }
+
+      const uploadMetadata = await this.uploadMetadataRepository.findById(
+        job.uploadMetadataId,
+        databaseSession,
+      );
+      if (!uploadMetadata || !uploadMetadata.storageKey) {
+        throw new AppError(
+          "Processing job source file is not available.",
+          404,
+          "processing_job_source_file_not_found",
+        );
+      }
+
+      return {
+        kind: "evidence_processing_parse",
+        uploadMetadataId: uploadMetadata.id,
+        projectId: uploadMetadata.projectId,
+        activityId: uploadMetadata.activityId,
+        storageKey: uploadMetadata.storageKey,
+        originalFileName: uploadMetadata.originalFileName,
+        contentType: uploadMetadata.contentType,
+      };
+    }
+
+    const privacySafeRepresentationId =
+      job.payload?.privacySafeRepresentationId;
+    if (typeof privacySafeRepresentationId !== "string") {
+      throw new AppError(
+        "Privacy-safe representation reference is missing from the job payload.",
+        500,
+        "processing_job_context_incomplete",
+      );
+    }
+
+    const privacySafeRepresentation =
+      await this.privacySafeRepresentationRepository.findById(
+        privacySafeRepresentationId,
+        databaseSession,
+      );
+    if (!privacySafeRepresentation) {
+      throw new AppError(
+        "Privacy-safe representation not found for dataset interpretation.",
+        404,
+        "privacy_safe_representation_not_found",
+      );
+    }
+
+    return {
+      kind: "dataset_interpretation",
+      privacySafeRepresentationId,
+      payload: privacySafeRepresentation.payload,
+      language: readLanguageFromPayload(job.payload),
+      activityGoals: readActivityGoalsFromPayload(job.payload),
+      projectGoals: readProjectGoalsFromPayload(job.payload),
+    };
+  }
+
   private async applyProcessorStatus(
     job: ProcessingJobPersistenceRecord,
     processorStatus: ProcessorStatusPayload,
@@ -293,13 +559,31 @@ export class ProcessingJobService {
       job.id,
       {
         status: mappedStatus,
+        failureCode:
+          processorStatus.failureCode === undefined
+            ? undefined
+            : (processorStatus.failureCode ?? null),
         errorMessage:
           processorStatus.errorMessage === undefined
             ? undefined
             : (processorStatus.errorMessage ?? null),
+        leaseOwner:
+          mappedStatus === "processing" || mappedStatus === "transforming"
+            ? job.leaseOwner
+            : null,
+        leaseExpiresAt:
+          mappedStatus === "processing" || mappedStatus === "transforming"
+            ? job.leaseExpiresAt
+            : null,
+        lastHeartbeatAt:
+          mappedStatus === "processing" || mappedStatus === "transforming"
+            ? job.lastHeartbeatAt
+            : null,
         completedAt: terminalJobStatuses.includes(mappedStatus)
           ? new Date(processorStatus.updatedAt)
-          : undefined,
+          : mappedStatus === "awaiting_privacy_review"
+            ? null
+            : undefined,
         payload: {
           ...(job.payload ?? {}),
           pythonJob: {
@@ -335,54 +619,6 @@ export class ProcessingJobService {
     }
 
     return updatedJob;
-  }
-
-  private async failJobBecauseExternalProcessorLostState(
-    job: ProcessingJobPersistenceRecord,
-  ): Promise<ProcessingJobPersistenceRecord> {
-    const now = new Date();
-    const updatedJob = await this.processingJobRepository.update(
-      job.id,
-      {
-        status: "failed",
-        errorMessage:
-          "The external Python processing job is no longer available. Retry the upload to start a fresh processing run.",
-        completedAt: now,
-        payload: {
-          ...(job.payload ?? {}),
-          sync: {
-            syncedAt: now.toISOString(),
-            failureCode: "python_processing_job_not_found",
-          },
-        },
-      },
-      databaseSession,
-    );
-
-    this.logger.warn(
-      {
-        processingJobId: job.id,
-        jobType: job.jobType,
-        fromStatus: job.status,
-        toStatus: updatedJob.status,
-        pythonExternalJobId: this.getExternalJobId(job.payload),
-      },
-      "processing job failed because external Python job state was lost",
-    );
-
-    return updatedJob;
-  }
-
-  private getExternalJobId(payload: Record<string, unknown> | null) {
-    const pythonJob = payload?.pythonJob;
-    if (!pythonJob || typeof pythonJob !== "object") {
-      return null;
-    }
-
-    const externalJobId = (pythonJob as Record<string, unknown>).externalJobId;
-    return typeof externalJobId === "string" && externalJobId.length > 0
-      ? externalJobId
-      : null;
   }
 
   private mapProcessorStatus(

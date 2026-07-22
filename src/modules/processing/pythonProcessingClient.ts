@@ -4,23 +4,6 @@ import type {
   PrivacyReviewDecisions,
 } from "../../shared/contracts.js";
 
-interface StartEvidenceProcessingInput {
-  processingJobId: string;
-  uploadMetadataId: string;
-  projectId: string;
-  activityId: string | null;
-  storageKey: string;
-  originalFileName: string;
-  contentType: string | null;
-  fileBuffer: Buffer;
-}
-
-interface PythonEvidenceProcessingResponse {
-  externalJobId: string;
-  status: "accepted" | "processing";
-  acceptedAt: string;
-}
-
 interface PythonProcessingJobStatusResponse {
   externalJobId: string;
   status:
@@ -435,59 +418,73 @@ export class PythonProcessingClient {
   constructor(
     private readonly baseUrl: string,
     private readonly sharedSecret: string,
+    private readonly timeoutMs: number,
   ) {}
 
   private authHeaders(): Record<string, string> {
     return { "x-internal-service-token": this.sharedSecret };
   }
 
-  async startEvidenceProcessing(
-    input: StartEvidenceProcessingInput,
-  ): Promise<PythonEvidenceProcessingResponse> {
-    const formData = new FormData();
-    formData.set("processingJobId", input.processingJobId);
-    formData.set("uploadMetadataId", input.uploadMetadataId);
-    formData.set("projectId", input.projectId);
-    if (input.activityId) {
-      formData.set("activityId", input.activityId);
-    }
-    formData.set("storageKey", input.storageKey);
-    formData.set("originalFileName", input.originalFileName);
-    if (input.contentType) {
-      formData.set("contentType", input.contentType);
-    }
-    formData.set(
-      "file",
-      new Blob([new Uint8Array(input.fileBuffer)], {
-        type: input.contentType ?? "application/octet-stream",
-      }),
-      input.originalFileName,
-    );
+  private async request(
+    path: string,
+    init: RequestInit,
+    unavailableMessage: string,
+    unavailableCode: string,
+    timeoutMessage: string,
+    timeoutCode: string,
+  ): Promise<Response> {
+    try {
+      const response = await fetch(`${this.baseUrl}${path}`, {
+        ...init,
+        signal: AbortSignal.timeout(this.timeoutMs),
+      });
 
-    const response = await fetch(`${this.baseUrl}/processing/evidence`, {
-      method: "POST",
-      headers: this.authHeaders(),
-      body: formData,
-    });
+      if (!response.ok) {
+        throw new AppError(unavailableMessage, 502, unavailableCode);
+      }
 
-    if (!response.ok) {
-      throw new AppError(
-        "The Python processing service did not accept the evidence job.",
-        502,
-        "python_processing_unavailable",
-      );
+      return response;
+    } catch (error) {
+      if (error instanceof AppError) {
+        throw error;
+      }
+
+      if (
+        error instanceof Error &&
+        (error.name === "TimeoutError" || error.name === "AbortError")
+      ) {
+        throw new AppError(timeoutMessage, 504, timeoutCode);
+      }
+
+      throw error;
     }
-
-    return response.json() as Promise<PythonEvidenceProcessingResponse>;
   }
 
   async getProcessingJobStatus(
     externalJobId: string,
   ): Promise<PythonProcessingJobStatusResponse> {
-    const response = await fetch(
-      `${this.baseUrl}/processing/jobs/${externalJobId}`,
-      { headers: this.authHeaders() },
-    );
+    let response: Response;
+    try {
+      response = await fetch(
+        `${this.baseUrl}/processing/jobs/${externalJobId}`,
+        {
+          headers: this.authHeaders(),
+          signal: AbortSignal.timeout(this.timeoutMs),
+        },
+      );
+    } catch (error) {
+      if (
+        error instanceof Error &&
+        (error.name === "TimeoutError" || error.name === "AbortError")
+      ) {
+        throw new AppError(
+          "The Python processing service timed out while returning the job status.",
+          504,
+          "python_processing_status_timeout",
+        );
+      }
+      throw error;
+    }
 
     if (response.status === 404) {
       throw new AppError(
@@ -512,8 +509,8 @@ export class PythonProcessingClient {
     externalJobId: string,
     decisions: PrivacyReviewDecisions,
   ): Promise<ApprovePrivacyReviewResponse> {
-    const response = await fetch(
-      `${this.baseUrl}/processing/jobs/${externalJobId}/approve`,
+    const response = await this.request(
+      `/processing/jobs/${externalJobId}/approve`,
       {
         method: "POST",
         headers: {
@@ -522,15 +519,11 @@ export class PythonProcessingClient {
         },
         body: JSON.stringify({ decisions }),
       },
+      "The Python processing service did not accept the privacy approval.",
+      "python_processing_privacy_approval_unavailable",
+      "The Python processing service timed out while approving the privacy review.",
+      "python_processing_privacy_approval_timeout",
     );
-
-    if (!response.ok) {
-      throw new AppError(
-        "The Python processing service did not accept the privacy approval.",
-        502,
-        "python_processing_privacy_approval_unavailable",
-      );
-    }
 
     return response.json() as Promise<ApprovePrivacyReviewResponse>;
   }
@@ -538,29 +531,28 @@ export class PythonProcessingClient {
   async startDatasetInterpretation(
     input: StartDatasetInterpretationInput,
   ): Promise<PythonDatasetInterpretationResponse> {
-    const response = await fetch(`${this.baseUrl}/processing/interpretation`, {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        ...this.authHeaders(),
+    const response = await this.request(
+      "/processing/interpretation",
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          ...this.authHeaders(),
+        },
+        body: JSON.stringify({
+          processingJobId: input.processingJobId,
+          privacySafeRepresentationId: input.privacySafeRepresentationId,
+          payload: input.payload,
+          language: input.language,
+          activityGoals: input.activityGoals,
+          projectGoals: input.projectGoals,
+        }),
       },
-      body: JSON.stringify({
-        processingJobId: input.processingJobId,
-        privacySafeRepresentationId: input.privacySafeRepresentationId,
-        payload: input.payload,
-        language: input.language,
-        activityGoals: input.activityGoals,
-        projectGoals: input.projectGoals,
-      }),
-    });
-
-    if (!response.ok) {
-      throw new AppError(
-        "The Python processing service did not accept the interpretation job.",
-        502,
-        "python_processing_interpretation_unavailable",
-      );
-    }
+      "The Python processing service did not accept the interpretation job.",
+      "python_processing_interpretation_unavailable",
+      "The Python processing service timed out while accepting the interpretation job.",
+      "python_processing_interpretation_timeout",
+    );
 
     return response.json() as Promise<PythonDatasetInterpretationResponse>;
   }
@@ -568,8 +560,8 @@ export class PythonProcessingClient {
   async synthesizeQuantitativeInterpretation(
     input: QuantitativeInterpretationSynthesisInput,
   ): Promise<QuantitativeInterpretationSynthesisResponse> {
-    const response = await fetch(
-      `${this.baseUrl}/processing/interpretation/quantitative-synthesis`,
+    const response = await this.request(
+      "/processing/interpretation/quantitative-synthesis",
       {
         method: "POST",
         headers: {
@@ -585,15 +577,11 @@ export class PythonProcessingClient {
           projectGoals: input.projectGoals,
         }),
       },
+      "The Python processing service could not synthesize the quantitative interpretation.",
+      "python_processing_quantitative_synthesis_unavailable",
+      "The Python processing service timed out while synthesizing the quantitative interpretation.",
+      "python_processing_quantitative_synthesis_timeout",
     );
-
-    if (!response.ok) {
-      throw new AppError(
-        "The Python processing service could not synthesize the quantitative interpretation.",
-        502,
-        "python_processing_quantitative_synthesis_unavailable",
-      );
-    }
 
     return response.json() as Promise<QuantitativeInterpretationSynthesisResponse>;
   }
@@ -601,8 +589,8 @@ export class PythonProcessingClient {
   async synthesizeMixedInterpretation(
     input: MixedInterpretationSynthesisInput,
   ): Promise<QuantitativeInterpretationSynthesisResponse> {
-    const response = await fetch(
-      `${this.baseUrl}/processing/interpretation/mixed-synthesis`,
+    const response = await this.request(
+      "/processing/interpretation/mixed-synthesis",
       {
         method: "POST",
         headers: {
@@ -620,15 +608,11 @@ export class PythonProcessingClient {
           projectGoals: input.projectGoals,
         }),
       },
+      "The Python processing service could not synthesize the mixed interpretation.",
+      "python_processing_mixed_synthesis_unavailable",
+      "The Python processing service timed out while synthesizing the mixed interpretation.",
+      "python_processing_mixed_synthesis_timeout",
     );
-
-    if (!response.ok) {
-      throw new AppError(
-        "The Python processing service could not synthesize the mixed interpretation.",
-        502,
-        "python_processing_mixed_synthesis_unavailable",
-      );
-    }
 
     return response.json() as Promise<QuantitativeInterpretationSynthesisResponse>;
   }
@@ -636,8 +620,8 @@ export class PythonProcessingClient {
   async generateAiKnowledgeSummary(
     input: GenerateAiKnowledgeSummaryInput,
   ): Promise<GenerateAiKnowledgeSummaryResponse> {
-    const response = await fetch(
-      `${this.baseUrl}/internal/interpretation/ai-knowledge-summary`,
+    const response = await this.request(
+      "/internal/interpretation/ai-knowledge-summary",
       {
         method: "POST",
         headers: {
@@ -646,15 +630,11 @@ export class PythonProcessingClient {
         },
         body: JSON.stringify(input),
       },
+      "The Python processing service could not summarize the AI knowledge.",
+      "python_processing_ai_knowledge_summary_unavailable",
+      "The Python processing service timed out while summarizing the AI knowledge.",
+      "python_processing_ai_knowledge_summary_timeout",
     );
-
-    if (!response.ok) {
-      throw new AppError(
-        "The Python processing service could not summarize the AI knowledge.",
-        502,
-        "python_processing_ai_knowledge_summary_unavailable",
-      );
-    }
 
     return response.json() as Promise<GenerateAiKnowledgeSummaryResponse>;
   }

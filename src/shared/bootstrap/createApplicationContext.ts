@@ -147,7 +147,7 @@ export function createApplicationContext(
     organizationRepository,
     transactionManager,
   );
-  const fileStorageService = new FileStorageService(config.UPLOAD_DIR);
+  const fileStorageService = FileStorageService.fromConfig(config);
   const organizationService = new OrganizationService(
     organizationRepository,
     fileStorageService,
@@ -169,6 +169,7 @@ export function createApplicationContext(
     userRepository,
     processingResourceCleanupService,
     organizationRepository,
+    logger,
   );
   const projectLlmTokenLedgerService = new ProjectLlmTokenLedgerService(
     projectRepository,
@@ -182,6 +183,7 @@ export function createApplicationContext(
     processingJobRepository,
     processingResourceCleanupService,
     projectDerivedStateInvalidationService,
+    logger,
   );
   const uploadMetadataService = new UploadMetadataService(
     uploadMetadataRepository,
@@ -194,10 +196,12 @@ export function createApplicationContext(
     processingJobRepository,
     processingResourceCleanupService,
     projectDerivedStateInvalidationService,
+    logger,
   );
   const pythonProcessingClient = new PythonProcessingClient(
     config.PYTHON_SERVICE_URL,
     config.PYTHON_SERVICE_SHARED_SECRET,
+    config.PYTHON_SERVICE_TIMEOUT_MS,
   );
   const evidenceProcessingArtifactService =
     new EvidenceProcessingArtifactService(
@@ -236,22 +240,22 @@ export function createApplicationContext(
     processingJobRepository,
     uploadMetadataRepository,
     authorizationService,
-    pythonProcessingClient,
     evidenceProcessingArtifactService,
     interpretationArtifactService,
+    parsedRepresentationRepository,
+    privacyReviewRepository,
+    privacySafeRepresentationRepository,
+    fileStorageService,
     logger,
   );
   const evidenceProcessingService = new EvidenceProcessingService(
     processingJobRepository,
     uploadMetadataRepository,
     authorizationService,
-    fileStorageService,
-    pythonProcessingClient,
   );
   const privacyReviewService = new PrivacyReviewService(
     processingJobRepository,
     authorizationService,
-    pythonProcessingClient,
     privacyReviewRepository,
     parsedRepresentationRepository,
   );
@@ -286,6 +290,7 @@ export function createApplicationContext(
   const pythonAnalyticsCurationClient = new PythonAnalyticsCurationClient(
     config.PYTHON_SERVICE_URL,
     config.PYTHON_SERVICE_SHARED_SECRET,
+    config.PYTHON_ANALYTICS_TIMEOUT_MS,
   );
   const analyticsDashboardBuilderService =
     new AnalyticsDashboardBuilderService();
@@ -309,6 +314,8 @@ export function createApplicationContext(
     deterministicAnalysisRepository,
     analyticsDashboardBuilderService,
     projectLlmTokenLedgerService,
+    projectRepository,
+    logger,
   );
   const analyticsQueryService = new AnalyticsQueryService(
     authorizationService,
@@ -332,13 +339,16 @@ export function createApplicationContext(
   );
 
   return {
-    authenticate: createAuthenticateMiddleware(authService),
-    authenticateIfPresent: createAuthenticateIfPresentMiddleware(authService),
+    authenticate: createAuthenticateMiddleware(config, authService),
+    authenticateIfPresent: createAuthenticateIfPresentMiddleware(
+      config,
+      authService,
+    ),
     requireInternalServiceSecret: createRequireInternalServiceSecretMiddleware(
       config.PYTHON_SERVICE_SHARED_SECRET,
     ),
     healthController: new HealthController(),
-    authController: new AuthController(authService),
+    authController: new AuthController(authService, config),
     invitationController: new InvitationController(invitationService),
     organizationController: new OrganizationController(organizationService),
     projectController: new ProjectController(projectService),
@@ -362,5 +372,6 @@ export function createApplicationContext(
       analyticsDashboardEventService,
       analyticsDashboardPreferenceService,
     ),
+    analyticsExecutionService,
   };
 }

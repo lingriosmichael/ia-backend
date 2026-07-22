@@ -658,13 +658,11 @@ export class InterpretationService {
       );
     }
 
-    try {
-      const pythonJob =
-        await this.pythonProcessingClient.startDatasetInterpretation({
-          processingJobId: queuedJob.id,
-          privacySafeRepresentationId: privacySafeRepresentation.id,
-          payload: privacySafeRepresentation.payload,
-          language,
+    const updatedQueuedJob = await this.processingJobRepository.update(
+      queuedJob.id,
+      {
+        payload: {
+          ...(queuedJob.payload ?? {}),
           activityGoals: activity
             ? {
                 objectives: activity.objectives,
@@ -676,47 +674,12 @@ export class InterpretationService {
             impactModel: project.impactModel,
             successIndicators: project.successIndicators,
           },
-        });
-
-      const startedJob = await this.processingJobRepository.update(
-        queuedJob.id,
-        {
-          status: "processing",
-          startedAt: new Date(),
-          payload: {
-            ...(queuedJob.payload ?? {}),
-            pythonJob,
-          },
         },
-        databaseSession,
-      );
+      },
+      databaseSession,
+    );
 
-      return { job: mapProcessingJob(startedJob) };
-    } catch (error) {
-      // The Python service being unreachable (wrong URL, not running, bad
-      // shared secret) is the most likely cause here, and it's easy to miss
-      // amid routine request logs — log the real error server-side so it's
-      // not just a generic "failed" status with no trail to follow.
-      this.logger.error(
-        { processingJobId: queuedJob.id, error },
-        "dataset interpretation could not be started",
-      );
-
-      const failedJob = await this.processingJobRepository.update(
-        queuedJob.id,
-        {
-          status: "failed",
-          errorMessage:
-            error instanceof Error
-              ? error.message
-              : "Interpretation could not be started.",
-          completedAt: new Date(),
-        },
-        databaseSession,
-      );
-
-      return { job: mapProcessingJob(failedJob) };
-    }
+    return { job: mapProcessingJob(updatedQueuedJob) };
   }
 
   async getByProject(

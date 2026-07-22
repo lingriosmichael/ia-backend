@@ -1,3 +1,4 @@
+import type { FastifyBaseLogger } from "fastify";
 import { databaseSession } from "../../shared/database/databaseClient.js";
 import type { TransactionManager } from "../../shared/database/transactionManager.js";
 import { AppError } from "../../shared/errors/appError.js";
@@ -67,6 +68,7 @@ export class ProjectService {
     private readonly userRepository: UserRepository,
     private readonly processingResourceCleanupService: ProcessingResourceCleanupService,
     private readonly organizationRepository: OrganizationRepository,
+    private readonly logger: FastifyBaseLogger,
   ) {}
 
   async listForOrganization(userId: string, organizationId: string) {
@@ -522,11 +524,10 @@ export class ProjectService {
       try {
         await this.fileStorageService.deleteStoredFiles(storageKeys);
       } catch (error) {
-        console.error("Failed to delete stored project files.", {
-          projectId,
-          storageKeys,
-          error,
-        });
+        this.logger.error(
+          { projectId, storageKeys, error },
+          "Failed to delete stored project files.",
+        );
       }
     }
 

@@ -1,5 +1,6 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { InterpretationController } from "./interpretationController.js";
+import { processingKickoffRateLimitConfig } from "../../shared/http/rateLimitConfigs.js";
 
 export async function registerInterpretationRoutes(
   app: FastifyInstance,
@@ -8,7 +9,10 @@ export async function registerInterpretationRoutes(
 ) {
   app.post(
     "/evidence/:evidenceId/interpret",
-    { preHandler: authenticate },
+    {
+      preHandler: authenticate,
+      config: processingKickoffRateLimitConfig,
+    },
     controller.start.bind(controller),
   );
 
@@ -20,7 +24,10 @@ export async function registerInterpretationRoutes(
 
   app.post(
     "/activities/:activityId/interpret",
-    { preHandler: authenticate },
+    {
+      preHandler: authenticate,
+      config: processingKickoffRateLimitConfig,
+    },
     controller.startForActivity.bind(controller),
   );
 
@@ -32,7 +39,10 @@ export async function registerInterpretationRoutes(
 
   app.post(
     "/activities/:activityId/ai-knowledge",
-    { preHandler: authenticate },
+    {
+      preHandler: authenticate,
+      config: processingKickoffRateLimitConfig,
+    },
     controller.generateActivityAiKnowledge.bind(controller),
   );
 

@@ -18,6 +18,10 @@ truthful map, not an aspiration.)
 - `src/shared/` — cross-cutting infrastructure such as auth, bootstrap, database, errors, http
 - `src/schemas/` — request validation schemas
 - `src/scripts/` — explicit maintenance/migration scripts
+- `src/workers/` — standalone worker entrypoints deployed as separate processes
+  from the main API (e.g. `analyticsWorker.ts`, started via `npm run
+start:analytics-worker`) — not reachable through any HTTP route, so grep
+  here if async job processing looks like it "isn't doing anything"
 
 ## Layering rule
 

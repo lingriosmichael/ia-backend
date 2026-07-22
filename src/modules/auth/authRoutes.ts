@@ -28,4 +28,5 @@ export async function registerAuthRoutes(
     { preHandler: authenticate },
     controller.me.bind(controller),
   );
+  app.post("/auth/logout", controller.logout.bind(controller));
 }

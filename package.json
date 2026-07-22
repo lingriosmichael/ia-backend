@@ -1,5 +1,5 @@
 {
-  "name": "@gr/backend",
+  "name": "@impact-atlas/backend",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -8,8 +8,10 @@
   },
   "scripts": {
     "dev": "tsx watch src/server.ts",
+    "dev:analytics-worker": "tsx watch src/workers/analyticsWorker.ts",
     "build": "tsc -p tsconfig.json",
     "start": "node dist/src/server.js",
+    "start:analytics-worker": "node dist/src/workers/analyticsWorker.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "eslint . && npm run typecheck",
     "lint:fix": "eslint . --fix && npm run typecheck",

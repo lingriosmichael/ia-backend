@@ -30,7 +30,14 @@ function makeExecution(
     projectId: "project-1",
     activityId: null,
     scopeType: "PROJECT",
+    language: "en",
     status: "COMPLETED",
+    leaseOwner: null,
+    leaseExpiresAt: null,
+    lastHeartbeatAt: null,
+    attemptCount: 1,
+    nextAttemptAt: null,
+    maxAttempts: 10,
     startedAt: NOW,
     completedAt: NOW,
     errorCode: null,
@@ -120,7 +127,10 @@ function createFakeRepos(options: {
 
   const analyticsExecutionRepository = {
     findLatestByScope: async () => currentExecution,
-    updateStatus: async (_id: string, update: { status: string }) => {
+    update: async (
+      _id: string,
+      update: Partial<AnalyticsExecutionPersistenceRecord> & { status: string },
+    ) => {
       if (!currentExecution) {
         return null;
       }

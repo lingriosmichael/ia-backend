@@ -1,0 +1,100 @@
+services:
+  - type: web
+    name: impact-atlas-backend
+    runtime: node
+    buildCommand: npm ci && npm run build
+    startCommand: npm run start
+    healthCheckPath: /health
+    # numInstances MUST stay 1 as long as FILE_STORAGE_DRIVER=local below —
+    # uploads are written to this instance's local disk and are not shared
+    # across replicas. Do not add a `scaling:` block or raise numInstances
+    # without first switching FILE_STORAGE_DRIVER to s3.
+    numInstances: 1
+    maxShutdownDelaySeconds: 120
+    disk:
+      name: uploads
+      mountPath: /opt/render/project/src/uploads
+      sizeGB: 10
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: "10000"
+      - key: API_PORT
+        value: "10000"
+      - key: JWT_SECRET
+        generateValue: true
+      - key: JWT_EXPIRES_IN
+        value: 7d
+      - key: AUTH_COOKIE_NAME
+        value: ia_session
+      - key: AUTH_COOKIE_SAME_SITE
+        # ia_webapp (Vercel) and this API (Render) are different sites, so the
+        # session cookie must be sent cross-site. SameSite=Lax is dropped on
+        # cross-site fetch/XHR and would silently break auth after login.
+        value: none
+      - key: AUTH_COOKIE_SECURE
+        value: "true"
+      - key: CORS_ORIGIN
+        sync: false
+      - key: WEBAPP_URL
+        sync: false
+      - key: MONGODB_URI
+        sync: false
+      - key: MONGODB_DB_NAME
+        value: impact_atlas_backend
+      - key: PYTHON_SERVICE_URL
+        sync: false
+      - key: PYTHON_SERVICE_SHARED_SECRET
+        sync: false
+      - key: PYTHON_SERVICE_TIMEOUT_MS
+        value: "30000"
+      - key: PYTHON_ANALYTICS_TIMEOUT_MS
+        value: "120000"
+      - key: FILE_STORAGE_DRIVER
+        value: local
+      - key: ALLOW_LOCAL_FILE_STORAGE_IN_PRODUCTION
+        value: "true"
+      - key: UPLOAD_DIR
+        value: /opt/render/project/src/uploads
+      - key: EMAIL_PROVIDER
+        value: mailersend
+      - key: EMAIL_FROM
+        sync: false
+      - key: EMAIL_FROM_NAME
+        value: Impact Atlas
+      - key: EMAIL_REPLY_TO
+        sync: false
+      - key: EMAIL_REPLY_TO_NAME
+        sync: false
+      - key: MAILERSEND_API_TOKEN
+        sync: false
+      - key: AI_PROVIDER
+        value: mock
+      - key: AI_MODEL
+        value: mock-structured-v1
+
+  - type: worker
+    name: impact-atlas-analytics-worker
+    runtime: node
+    buildCommand: npm ci && npm run build
+    startCommand: npm run start:analytics-worker
+    numInstances: 1
+    maxShutdownDelaySeconds: 120
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: MONGODB_URI
+        sync: false
+      - key: MONGODB_DB_NAME
+        value: impact_atlas_backend
+      - key: PYTHON_SERVICE_URL
+        sync: false
+      - key: PYTHON_SERVICE_SHARED_SECRET
+        sync: false
+      - key: PYTHON_ANALYTICS_TIMEOUT_MS
+        value: "120000"
+      - key: AI_PROVIDER
+        value: mock
+      - key: AI_MODEL
+        value: mock-structured-v1

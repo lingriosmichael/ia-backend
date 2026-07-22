@@ -1,3 +1,4 @@
+import type { FastifyBaseLogger } from "fastify";
 import { databaseSession } from "../../shared/database/databaseClient.js";
 import type { AuthorizationService } from "../../shared/auth/authorizationService.js";
 import {
@@ -22,6 +23,7 @@ import { AppError } from "../../shared/errors/appError.js";
 import type { DeterministicAnalysisRepository } from "../interpretation/deterministicAnalysisRepository.js";
 import type { AnalyticsDashboardBuilderService } from "./analyticsDashboardBuilderService.js";
 import type { ProjectLlmTokenLedgerService } from "../project/projectLlmTokenLedgerService.js";
+import type { ProjectRepository } from "../project/projectRepository.js";
 
 const EMPTY_CATALOG_CURATION: DashboardCuration = {
   featuredEntryIds: [],
@@ -31,6 +33,9 @@ const EMPTY_CATALOG_CURATION: DashboardCuration = {
   curatorModelVersion: CURATOR_MODEL_VERSION,
   fellBackToSelectionOnly: false,
 };
+const IN_FLIGHT_EXECUTION_STATUSES = new Set(["QUEUED", "RUNNING"]);
+const analyticsWorkerLeaseDurationMs = 120_000;
+const knowledgeModelRetryDelayMs = 30_000;
 
 function uniqueWarnings(messages: string[]): string[] {
   return [...new Set(messages)];
@@ -54,11 +59,14 @@ export class AnalyticsExecutionService {
     private readonly deterministicAnalysisRepository: DeterministicAnalysisRepository,
     private readonly analyticsDashboardBuilderService: AnalyticsDashboardBuilderService,
     private readonly projectLlmTokenLedgerService: ProjectLlmTokenLedgerService,
+    private readonly projectRepository: ProjectRepository,
+    private readonly logger: FastifyBaseLogger,
   ) {}
 
   async generateForProject(
     userId: string,
     projectId: string,
+    language: "de" | "en" = "en",
   ): Promise<AnalyticsExecutionPersistenceRecord> {
     const { project } = await this.authorizationService.canViewProject(
       userId,
@@ -68,6 +76,24 @@ export class AnalyticsExecutionService {
       project.organizationId,
       { type: "PROJECT", projectId, activityId: null },
       buildProjectContextForCuration(project),
+      language,
+    );
+  }
+
+  async enqueueForProject(
+    userId: string,
+    projectId: string,
+    language: "de" | "en" = "en",
+  ): Promise<AnalyticsExecutionPersistenceRecord> {
+    const { project } = await this.authorizationService.canViewProject(
+      userId,
+      projectId,
+    );
+    return this.enqueueGeneration(
+      project.organizationId,
+      { type: "PROJECT", projectId, activityId: null },
+      buildProjectContextForCuration(project),
+      language,
     );
   }
 
@@ -75,6 +101,7 @@ export class AnalyticsExecutionService {
     userId: string,
     projectId: string,
     activityId: string,
+    language: "de" | "en" = "en",
   ): Promise<AnalyticsExecutionPersistenceRecord> {
     const { project, activity } =
       await this.authorizationService.canViewActivity(userId, activityId);
@@ -90,6 +117,31 @@ export class AnalyticsExecutionService {
       project.organizationId,
       { type: "ACTIVITY", projectId, activityId },
       buildProjectContextForCuration(project),
+      language,
+    );
+  }
+
+  async enqueueForActivity(
+    userId: string,
+    projectId: string,
+    activityId: string,
+    language: "de" | "en" = "en",
+  ): Promise<AnalyticsExecutionPersistenceRecord> {
+    const { project, activity } =
+      await this.authorizationService.canViewActivity(userId, activityId);
+    if (activity.projectId !== projectId) {
+      throw new AppError(
+        "This activity does not belong to the given project.",
+        404,
+        "activity_not_in_project",
+      );
+    }
+
+    return this.enqueueGeneration(
+      project.organizationId,
+      { type: "ACTIVITY", projectId, activityId },
+      buildProjectContextForCuration(project),
+      language,
     );
   }
 
@@ -97,6 +149,7 @@ export class AnalyticsExecutionService {
     organizationId: string,
     scope: AnalyticsScope,
     projectContext: ProjectContextForCuration,
+    language: "de" | "en",
   ): Promise<AnalyticsExecutionPersistenceRecord> {
     const execution = await this.analyticsExecutionRepository.create(
       {
@@ -104,12 +157,187 @@ export class AnalyticsExecutionService {
         projectId: scope.projectId,
         activityId: scope.activityId,
         scopeType: scope.type,
+        language,
         status: "RUNNING",
         startedAt: new Date(),
       },
       databaseSession,
     );
 
+    return this.runGeneration(
+      execution,
+      organizationId,
+      scope,
+      projectContext,
+      language,
+    );
+  }
+
+  private async enqueueGeneration(
+    organizationId: string,
+    scope: AnalyticsScope,
+    _projectContext: ProjectContextForCuration,
+    language: "de" | "en",
+  ): Promise<AnalyticsExecutionPersistenceRecord> {
+    const existingExecution =
+      await this.analyticsExecutionRepository.findLatestByScope(
+        scope,
+        databaseSession,
+      );
+    if (
+      existingExecution &&
+      IN_FLIGHT_EXECUTION_STATUSES.has(existingExecution.status)
+    ) {
+      return existingExecution;
+    }
+
+    let execution: AnalyticsExecutionPersistenceRecord;
+    try {
+      execution = await this.analyticsExecutionRepository.create(
+        {
+          organizationId,
+          projectId: scope.projectId,
+          activityId: scope.activityId,
+          scopeType: scope.type,
+          language,
+          status: "QUEUED",
+          startedAt: null,
+        },
+        databaseSession,
+      );
+    } catch (error) {
+      if (
+        error instanceof AppError &&
+        error.code === "analytics_generation_already_running"
+      ) {
+        const activeExecution =
+          await this.analyticsExecutionRepository.findLatestByScope(
+            scope,
+            databaseSession,
+          );
+        if (
+          activeExecution &&
+          IN_FLIGHT_EXECUTION_STATUSES.has(activeExecution.status)
+        ) {
+          return activeExecution;
+        }
+      }
+
+      throw error;
+    }
+    return execution;
+  }
+
+  async claimNextRunnableExecution(workerId: string) {
+    const now = new Date();
+    return this.analyticsExecutionRepository.claimNextRunnable(
+      {
+        workerId,
+        leaseExpiresAt: new Date(
+          now.getTime() + analyticsWorkerLeaseDurationMs,
+        ),
+        now,
+        claimedStatus: "RUNNING",
+      },
+      databaseSession,
+    );
+  }
+
+  async renewLease(executionId: string, workerId: string) {
+    const now = new Date();
+    const renewedExecution = await this.analyticsExecutionRepository.renewLease(
+      {
+        analyticsExecutionId: executionId,
+        workerId,
+        leaseExpiresAt: new Date(
+          now.getTime() + analyticsWorkerLeaseDurationMs,
+        ),
+        heartbeatAt: now,
+      },
+      databaseSession,
+    );
+
+    if (!renewedExecution) {
+      throw new AppError(
+        "Analytics execution lease could not be renewed.",
+        409,
+        "analytics_execution_lease_not_owned",
+      );
+    }
+
+    return renewedExecution;
+  }
+
+  async executeClaimedExecution(
+    executionId: string,
+    workerId: string,
+  ): Promise<AnalyticsExecutionPersistenceRecord> {
+    const execution = await this.analyticsExecutionRepository.findById(
+      executionId,
+      databaseSession,
+    );
+
+    if (!execution) {
+      throw new AppError(
+        "Analytics execution not found.",
+        404,
+        "analytics_execution_not_found",
+      );
+    }
+
+    if (execution.status !== "RUNNING" || execution.leaseOwner !== workerId) {
+      throw new AppError(
+        "Analytics execution is not owned by this worker.",
+        409,
+        "analytics_execution_lease_not_owned",
+      );
+    }
+
+    const project = await this.projectRepository.findById(
+      execution.projectId,
+      databaseSession,
+    );
+    if (!project) {
+      return (
+        (await this.analyticsExecutionRepository.update(
+          execution.id,
+          {
+            status: "FAILED",
+            completedAt: new Date(),
+            errorCode: "analytics_project_not_found",
+            errorMessage:
+              "The project required for this analytics execution no longer exists.",
+            leaseOwner: null,
+            leaseExpiresAt: null,
+            lastHeartbeatAt: null,
+          },
+          databaseSession,
+        )) ?? execution
+      );
+    }
+
+    const scope: AnalyticsScope = {
+      type: execution.scopeType,
+      projectId: execution.projectId,
+      activityId: execution.activityId,
+    };
+
+    return this.runGeneration(
+      execution,
+      execution.organizationId,
+      scope,
+      buildProjectContextForCuration(project),
+      execution.language,
+    );
+  }
+
+  private async runGeneration(
+    execution: AnalyticsExecutionPersistenceRecord,
+    organizationId: string,
+    scope: AnalyticsScope,
+    projectContext: ProjectContextForCuration,
+    language: "de" | "en",
+  ): Promise<AnalyticsExecutionPersistenceRecord> {
     try {
       let {
         catalog,
@@ -135,7 +363,7 @@ export class AnalyticsExecutionService {
           );
         } catch (error) {
           if (error instanceof ProjectKnowledgeModelBuildInProgressError) {
-            return this.markKnowledgeModelNotReady(execution);
+            return this.requeueWhileKnowledgeModelBuildRuns(execution);
           }
           throw error;
         }
@@ -147,7 +375,7 @@ export class AnalyticsExecutionService {
       }
 
       if (projectKnowledgeModelStatus === "building") {
-        return this.markKnowledgeModelNotReady(execution);
+        return this.requeueWhileKnowledgeModelBuildRuns(execution);
       }
 
       const curationWithUsage =
@@ -155,7 +383,7 @@ export class AnalyticsExecutionService {
           ? await this.pythonAnalyticsCurationClient.curate(
               catalog,
               projectContext,
-              "de",
+              language,
             )
           : { ...EMPTY_CATALOG_CURATION, llmUsage: null };
       const deterministicAnalyses =
@@ -175,7 +403,12 @@ export class AnalyticsExecutionService {
         );
       const widgetCopyResponse =
         widgetCopyCandidates.length > 0
-          ? await this.tryCurateWidgetCopy(widgetCopyCandidates, projectContext)
+          ? await this.tryCurateWidgetCopy(
+              widgetCopyCandidates,
+              projectContext,
+              language,
+              scope.projectId,
+            )
           : { widgets: [], llmUsage: null };
       await this.projectLlmTokenLedgerService.recordUsages(
         scope.projectId,
@@ -224,14 +457,20 @@ export class AnalyticsExecutionService {
           ? "COMPLETED_WITH_WARNINGS"
           : "COMPLETED";
       return (
-        (await this.analyticsExecutionRepository.updateStatus(
+        (await this.analyticsExecutionRepository.update(
           execution.id,
-          { status: finalStatus, completedAt: new Date() },
+          {
+            status: finalStatus,
+            completedAt: new Date(),
+            leaseOwner: null,
+            leaseExpiresAt: null,
+            lastHeartbeatAt: null,
+          },
           databaseSession,
         )) ?? execution
       );
     } catch (error) {
-      await this.analyticsExecutionRepository.updateStatus(
+      await this.analyticsExecutionRepository.update(
         execution.id,
         {
           status: "FAILED",
@@ -241,6 +480,9 @@ export class AnalyticsExecutionService {
             error instanceof Error
               ? error.message
               : "Unknown error while generating analytics.",
+          leaseOwner: null,
+          leaseExpiresAt: null,
+          lastHeartbeatAt: null,
         },
         databaseSession,
       );
@@ -248,18 +490,21 @@ export class AnalyticsExecutionService {
     }
   }
 
-  private async markKnowledgeModelNotReady(
+  private async requeueWhileKnowledgeModelBuildRuns(
     execution: AnalyticsExecutionPersistenceRecord,
   ): Promise<AnalyticsExecutionPersistenceRecord> {
     return (
-      (await this.analyticsExecutionRepository.updateStatus(
+      (await this.analyticsExecutionRepository.update(
         execution.id,
         {
-          status: "FAILED",
-          completedAt: new Date(),
-          errorCode: "knowledge_model_not_ready",
-          errorMessage:
-            "The Project Knowledge Model is already being rebuilt. Try again shortly.",
+          status: "QUEUED",
+          completedAt: null,
+          errorCode: null,
+          errorMessage: null,
+          leaseOwner: null,
+          leaseExpiresAt: null,
+          lastHeartbeatAt: null,
+          nextAttemptAt: new Date(Date.now() + knowledgeModelRetryDelayMs),
         },
         databaseSession,
       )) ?? execution
@@ -269,14 +514,25 @@ export class AnalyticsExecutionService {
   private async tryCurateWidgetCopy(
     widgetCopyCandidates: AnalyticsDashboardWidgetCopyCandidate[],
     projectContext: ProjectContextForCuration,
+    language: "de" | "en",
+    projectId: string,
   ) {
     try {
       return await this.pythonAnalyticsCurationClient.curateWidgetCopy(
         widgetCopyCandidates,
         projectContext,
-        "de",
+        language,
       );
-    } catch {
+    } catch (error) {
+      // Best-effort: the dashboard still renders with the deterministic
+      // widget copy already built into `initialDashboard` if curation
+      // fails, so this doesn't fail the whole generation — but a failure
+      // here was previously silent, making a real outage in the Python
+      // curation path invisible in production logs.
+      this.logger.error(
+        { projectId, widgetCandidateCount: widgetCopyCandidates.length, error },
+        "Widget copy curation failed; falling back to uncurated widget copy.",
+      );
       return { widgets: [], llmUsage: null };
     }
   }

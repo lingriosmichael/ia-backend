@@ -1168,7 +1168,6 @@ export interface ProjectOverview {
 }
 
 export interface AuthResponse {
-  accessToken: string;
   expiresInSeconds: number;
   user: UserSummary;
   organizations: OrganizationSummary[];

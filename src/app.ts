@@ -103,7 +103,7 @@ export async function buildApp(config: BackendConfig) {
 
   await app.register(cors, {
     origin: config.CORS_ORIGIN,
-    credentials: false,
+    credentials: true,
   });
 
   await app.register(multipart, {
@@ -114,8 +114,8 @@ export async function buildApp(config: BackendConfig) {
   });
 
   // Registered with global: false so it only applies to routes that opt in
-  // via `config: { rateLimit: {...} }` — currently just /auth/login and
-  // /auth/register (see authRoutes.ts), the credential-stuffing targets.
+  // via `config: { rateLimit: {...} }` — auth plus the expensive
+  // upload/analysis/generation/export endpoints.
   await app.register(rateLimit, {
     global: false,
   });

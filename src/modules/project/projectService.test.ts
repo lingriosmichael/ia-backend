@@ -111,6 +111,7 @@ test(
       userRepository,
       processingResourceCleanupService,
       {} as unknown as OrganizationRepository,
+      { error: () => undefined } as never,
     );
 
     await assert.rejects(
@@ -229,6 +230,7 @@ test(
       userRepository,
       processingResourceCleanupService,
       {} as unknown as OrganizationRepository,
+      { error: () => undefined } as never,
     );
 
     const deletedProject = await projectService.delete("user-1", "project-1", {
@@ -344,6 +346,7 @@ test(
       userRepository,
       processingResourceCleanupService,
       {} as unknown as OrganizationRepository,
+      { error: () => undefined } as never,
     );
 
     await assert.rejects(
@@ -493,6 +496,7 @@ test(
         deleteByProjectId: async () => undefined,
       } as unknown as ProcessingResourceCleanupService,
       {} as unknown as OrganizationRepository,
+      { error: () => undefined } as never,
     );
 
     const overview = await projectService.getOverview("user-1", "project-1");

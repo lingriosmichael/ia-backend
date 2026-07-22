@@ -16,19 +16,6 @@ import {
 import type { ProcessingJobRepository } from "../ai/execution/processingJobRepository.js";
 import type { ParsedRepresentationRepository } from "./parsedRepresentationRepository.js";
 import type { PrivacyReviewRepository } from "./privacyReviewRepository.js";
-import { PythonProcessingClient } from "./pythonProcessingClient.js";
-
-function getExternalJobId(payload: Record<string, unknown> | null) {
-  const pythonJob = payload?.pythonJob;
-  if (!pythonJob || typeof pythonJob !== "object") {
-    return null;
-  }
-
-  const externalJobId = (pythonJob as Record<string, unknown>).externalJobId;
-  return typeof externalJobId === "string" && externalJobId.length > 0
-    ? externalJobId
-    : null;
-}
 
 interface FindingRequiringDecision {
   field: string;
@@ -72,7 +59,6 @@ export class PrivacyReviewService {
   constructor(
     private readonly processingJobRepository: ProcessingJobRepository,
     private readonly authorizationService: AuthorizationService,
-    private readonly pythonProcessingClient: PythonProcessingClient,
     private readonly privacyReviewRepository: PrivacyReviewRepository,
     private readonly parsedRepresentationRepository: ParsedRepresentationRepository,
   ) {}
@@ -195,15 +181,6 @@ export class PrivacyReviewService {
       );
     }
 
-    const externalJobId = getExternalJobId(job.payload);
-    if (!externalJobId) {
-      throw new AppError(
-        "The external processing job reference is missing.",
-        409,
-        "python_processing_reference_missing",
-      );
-    }
-
     const approvedAt = new Date();
 
     // Stamp who decided each finding and when — never trust a client-supplied
@@ -269,17 +246,6 @@ export class PrivacyReviewService {
       );
     }
 
-    // Call the Python service first. If this fails (network blip, Python
-    // downtime), the review must stay "pending" so the user can simply
-    // retry — persisting "approved" first would permanently wedge the job,
-    // since there is no unapprove/reset path once review.status leaves
-    // "pending" (see the check above).
-    const pythonResponse =
-      await this.pythonProcessingClient.approvePrivacyReview(
-        externalJobId,
-        decisionsToApply,
-      );
-
     // Atomic conditional update: the earlier findByProcessingJobId check
     // above is only for a clean 404/409 error message — this is the real
     // guard against two concurrent approvals both succeeding.
@@ -300,17 +266,17 @@ export class PrivacyReviewService {
     const updatedJob = await this.processingJobRepository.update(
       processingJobId,
       {
-        status: "transforming",
+        status: "queued",
+        errorMessage: null,
+        failureCode: null,
+        leaseOwner: null,
+        leaseExpiresAt: null,
+        lastHeartbeatAt: null,
+        nextAttemptAt: null,
+        completedAt: null,
         payload: {
           ...(job.payload ?? {}),
-          pythonJob: {
-            ...((job.payload?.pythonJob as
-              Record<string, unknown> | undefined) ?? {}),
-            externalJobId: pythonResponse.externalJobId,
-            status: pythonResponse.status,
-            updatedAt: pythonResponse.updatedAt,
-            details: pythonResponse.details ?? null,
-          },
+          privacyReviewApprovedAt: approvedAt.toISOString(),
         },
       },
       databaseSession,

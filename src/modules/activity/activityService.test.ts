@@ -104,6 +104,7 @@ test("activity getById authorizes access through the project service", async () 
     {} as ProcessingJobRepository,
     {} as ProcessingResourceCleanupService,
     {} as ProjectDerivedStateInvalidationService,
+    { error: () => undefined } as never,
   );
 
   const activity = await activityService.getById("user-1", "activity-1");
@@ -208,6 +209,7 @@ test("activity delete clears acknowledgment and invalidates project derived stat
     processingJobRepository,
     processingResourceCleanupService,
     projectDerivedStateInvalidationService,
+    { error: () => undefined } as never,
   );
 
   await activityService.delete("user-1", "activity-1");
@@ -265,6 +267,7 @@ test("activity delete does not delete stored files when transactional cleanup fa
     {
       invalidateProject: async () => undefined,
     } as unknown as ProjectDerivedStateInvalidationService,
+    { error: () => undefined } as never,
   );
 
   await assert.rejects(
@@ -311,6 +314,7 @@ test("activity delete still succeeds when best-effort stored file cleanup fails"
     {
       invalidateProject: async () => undefined,
     } as unknown as ProjectDerivedStateInvalidationService,
+    { error: () => undefined } as never,
   );
 
   const result = await activityService.delete("user-1", "activity-1");

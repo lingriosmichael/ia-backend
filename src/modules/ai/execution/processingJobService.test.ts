@@ -1,11 +1,13 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { AppError } from "../../../shared/errors/appError.js";
 import type { AuthorizationService } from "../../../shared/auth/authorizationService.js";
 import type { UploadMetadataRepository } from "../../upload/uploadMetadataRepository.js";
 import type { EvidenceProcessingArtifactService } from "../../processing/evidenceProcessingArtifactService.js";
 import type { InterpretationArtifactService } from "../../interpretation/interpretationArtifactService.js";
-import type { PythonProcessingClient } from "../../processing/pythonProcessingClient.js";
+import type { ParsedRepresentationRepository } from "../../processing/parsedRepresentationRepository.js";
+import type { PrivacyReviewRepository } from "../../processing/privacyReviewRepository.js";
+import type { PrivacySafeRepresentationRepository } from "../../processing/privacySafeRepresentationRepository.js";
+import type { FileStorageService } from "../../upload/fileStorageService.js";
 import type { ProcessingJobPersistenceRecord } from "../persistence/aiPersistenceTypes.js";
 import type { ProcessingJobUpdateInput } from "../persistence/aiPersistenceTypes.js";
 import type { ProcessingJobRepository } from "./processingJobRepository.js";
@@ -24,11 +26,16 @@ function buildJob(
     jobType: "evidence_processing",
     status: "processing",
     payload: {
-      pythonJob: {
-        externalJobId: "python-job-1",
-      },
+      source: "backend",
     },
     errorMessage: null,
+    leaseOwner: null,
+    leaseExpiresAt: null,
+    lastHeartbeatAt: null,
+    attemptCount: 0,
+    nextAttemptAt: null,
+    failureCode: null,
+    maxAttempts: 3,
     startedAt: new Date("2026-07-16T18:00:00.000Z"),
     completedAt: null,
     createdAt: new Date("2026-07-16T18:00:00.000Z"),
@@ -40,7 +47,6 @@ function buildJob(
 function createService(overrides?: {
   processingJobRepository?: Partial<ProcessingJobRepository>;
   authorizationService?: Partial<AuthorizationService>;
-  pythonProcessingClient?: Partial<PythonProcessingClient>;
   evidenceProcessingArtifactService?: Partial<EvidenceProcessingArtifactService>;
   interpretationArtifactService?: Partial<InterpretationArtifactService>;
 }) {
@@ -51,6 +57,13 @@ function createService(overrides?: {
         status: input.status ?? "processing",
         payload: input.payload ?? null,
         errorMessage: input.errorMessage ?? null,
+        leaseOwner: input.leaseOwner ?? null,
+        leaseExpiresAt: input.leaseExpiresAt ?? null,
+        lastHeartbeatAt: input.lastHeartbeatAt ?? null,
+        attemptCount: input.attemptCount ?? 0,
+        nextAttemptAt: input.nextAttemptAt ?? null,
+        failureCode: input.failureCode ?? null,
+        maxAttempts: input.maxAttempts ?? 3,
         completedAt: input.completedAt ?? null,
       }),
     listByActivity: async () => [],
@@ -73,16 +86,6 @@ function createService(overrides?: {
     ...(overrides?.authorizationService ?? {}),
   } as unknown as AuthorizationService;
 
-  const pythonProcessingClient = {
-    getProcessingJobStatus: async () => ({
-      externalJobId: "python-job-1",
-      status: "processing",
-      updatedAt: "2026-07-16T18:00:05.000Z",
-      details: null,
-    }),
-    ...(overrides?.pythonProcessingClient ?? {}),
-  } as unknown as PythonProcessingClient;
-
   const evidenceProcessingArtifactService = {
     ingestProcessorArtifacts: async () => undefined,
     ...(overrides?.evidenceProcessingArtifactService ?? {}),
@@ -93,6 +96,20 @@ function createService(overrides?: {
     ...(overrides?.interpretationArtifactService ?? {}),
   } as unknown as InterpretationArtifactService;
 
+  const parsedRepresentationRepository = {
+    findByProcessingJobId: async () => null,
+  } as unknown as ParsedRepresentationRepository;
+
+  const privacyReviewRepository = {
+    findByProcessingJobId: async () => null,
+  } as unknown as PrivacyReviewRepository;
+
+  const privacySafeRepresentationRepository = {
+    findById: async () => null,
+  } as unknown as PrivacySafeRepresentationRepository;
+
+  const fileStorageService = {} as FileStorageService;
+
   const logger = {
     info: () => undefined,
     warn: () => undefined,
@@ -102,87 +119,41 @@ function createService(overrides?: {
     processingJobRepository,
     uploadMetadataRepository,
     authorizationService,
-    pythonProcessingClient,
     evidenceProcessingArtifactService,
     interpretationArtifactService,
+    parsedRepresentationRepository,
+    privacyReviewRepository,
+    privacySafeRepresentationRepository,
+    fileStorageService,
     logger as never,
   );
 }
 
-test("sync marks the local job failed when the external Python job is missing", async () => {
-  let updatedInput:
-    | {
-        status?: string;
-        errorMessage?: string | null;
-        completedAt?: Date | null;
-        payload?: Record<string, unknown> | null;
-      }
-    | undefined;
+test("sync returns the current backend job without external polling", async () => {
+  const service = createService();
 
+  const syncedJob = await service.sync("user-1", "job-1");
+
+  assert.equal(syncedJob.id, "job-1");
+  assert.equal(syncedJob.status, "processing");
+  assert.equal(syncedJob.errorMessage, null);
+});
+
+test("sync surfaces persisted backend failure state as-is", async () => {
   const service = createService({
     processingJobRepository: {
-      update: async (
-        _processingJobId: string,
-        input: ProcessingJobUpdateInput,
-      ) => {
-        updatedInput = input;
-        return buildJob({
-          status: input.status ?? "processing",
-          payload: input.payload ?? null,
-          errorMessage: input.errorMessage ?? null,
-          completedAt: input.completedAt ?? null,
-        });
-      },
-    },
-    pythonProcessingClient: {
-      getProcessingJobStatus: async () => {
-        throw new AppError(
-          "The Python processing service no longer has this job.",
-          404,
-          "python_processing_job_not_found",
-        );
-      },
+      findById: async () =>
+        buildJob({
+          status: "failed",
+          errorMessage: "Worker exhausted retries.",
+          failureCode: "max_attempts_exhausted",
+          completedAt: new Date("2026-07-16T18:05:00.000Z"),
+        }),
     },
   });
 
   const syncedJob = await service.sync("user-1", "job-1");
 
   assert.equal(syncedJob.status, "failed");
-  assert.match(
-    syncedJob.errorMessage ?? "",
-    /external Python processing job is no longer available/i,
-  );
-  assert.equal(updatedInput?.status, "failed");
-  assert.equal(
-    (updatedInput?.payload as Record<string, unknown> | undefined)?.sync
-      ? (
-          (updatedInput?.payload as Record<string, unknown>).sync as Record<
-            string,
-            unknown
-          >
-        ).failureCode
-      : null,
-    "python_processing_job_not_found",
-  );
-});
-
-test("sync still surfaces ordinary Python status polling failures", async () => {
-  const service = createService({
-    pythonProcessingClient: {
-      getProcessingJobStatus: async () => {
-        throw new AppError(
-          "The Python processing service did not return a job status.",
-          502,
-          "python_processing_status_unavailable",
-        );
-      },
-    },
-  });
-
-  await assert.rejects(
-    service.sync("user-1", "job-1"),
-    (error: unknown) =>
-      error instanceof AppError &&
-      error.code === "python_processing_status_unavailable",
-  );
+  assert.equal(syncedJob.errorMessage, "Worker exhausted retries.");
 });

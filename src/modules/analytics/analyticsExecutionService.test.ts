@@ -10,6 +10,7 @@ import type { AnalyticsExecutionPersistenceRecord } from "./analyticsExecutionPe
 import type { AnalyticsResultRepository } from "./analyticsResultRepository.js";
 import type { DeterministicAnalysisRepository } from "../interpretation/deterministicAnalysisRepository.js";
 import type { ProjectLlmTokenLedgerService } from "../project/projectLlmTokenLedgerService.js";
+import type { ProjectRepository } from "../project/projectRepository.js";
 import type {
   DashboardCuration,
   EvidenceCatalog,
@@ -28,6 +29,7 @@ function createFakeExecutionRepository() {
       projectId: string;
       activityId: string | null;
       scopeType: "PROJECT" | "ACTIVITY";
+      language: "de" | "en";
       status: string;
       startedAt: Date | null;
     }) => {
@@ -37,7 +39,14 @@ function createFakeExecutionRepository() {
         projectId: input.projectId,
         activityId: input.activityId,
         scopeType: input.scopeType,
+        language: input.language,
         status: input.status,
+        leaseOwner: null,
+        leaseExpiresAt: null,
+        lastHeartbeatAt: null,
+        attemptCount: 0,
+        nextAttemptAt: null,
+        maxAttempts: 10,
         startedAt: input.startedAt,
         completedAt: null,
         errorCode: null,
@@ -48,13 +57,10 @@ function createFakeExecutionRepository() {
       executions.push(created);
       return created;
     },
-    updateStatus: async (
+    update: async (
       id: string,
-      update: {
+      update: Partial<AnalyticsExecutionPersistenceRecord> & {
         status: string;
-        completedAt?: Date | null;
-        errorCode?: string | null;
-        errorMessage?: string | null;
       },
     ) => {
       const index = executions.findIndex((execution) => execution.id === id);
@@ -68,7 +74,11 @@ function createFakeExecutionRepository() {
       executions[index] = updated;
       return updated;
     },
+    findById: async (id: string) =>
+      executions.find((execution) => execution.id === id) ?? null,
     findLatestByScope: async () => null,
+    claimNextRunnable: async () => null,
+    renewLease: async () => null,
   } as unknown as AnalyticsExecutionRepository;
 
   return { repository, executions };
@@ -137,6 +147,12 @@ function createFakeProjectLlmTokenLedgerService() {
   } as unknown as ProjectLlmTokenLedgerService;
 }
 
+function createFakeProjectRepository(project = makeProject()) {
+  return {
+    findById: async () => project,
+  } as unknown as ProjectRepository;
+}
+
 const PASSING_CURATION: DashboardCuration = {
   featuredEntryIds: ["metric-0"],
   narrative: [],
@@ -161,9 +177,15 @@ test("generateForProject with a populated catalog calls the curator and complete
   const { repository: resultRepository, results } =
     createFakeResultRepository();
   let curateCallCount = 0;
+  let requestedLanguage: "de" | "en" | null = null;
   const curationClient = {
-    curate: async () => {
+    curate: async (
+      _catalog: EvidenceCatalog,
+      _projectContext: unknown,
+      language: "de" | "en",
+    ) => {
       curateCallCount += 1;
+      requestedLanguage = language;
       return PASSING_CURATION;
     },
   } as unknown as PythonAnalyticsCurationClient;
@@ -178,11 +200,18 @@ test("generateForProject with a populated catalog calls the curator and complete
     createFakeDeterministicAnalysisRepository(),
     new AnalyticsDashboardBuilderService(),
     createFakeProjectLlmTokenLedgerService(),
+    createFakeProjectRepository(project),
+    { error: () => undefined } as never,
   );
 
-  const execution = await service.generateForProject("user-1", "project-1");
+  const execution = await service.generateForProject(
+    "user-1",
+    "project-1",
+    "en",
+  );
 
   assert.equal(curateCallCount, 1);
+  assert.equal(requestedLanguage, "en");
   assert.equal(execution.status, "COMPLETED");
   assert.equal(results.length, 1);
   assert.equal(executions[0]!.status, "COMPLETED");
@@ -240,6 +269,8 @@ test("an empty catalog completes without ever calling the curator", async () => 
     createFakeDeterministicAnalysisRepository(),
     new AnalyticsDashboardBuilderService(),
     createFakeProjectLlmTokenLedgerService(),
+    createFakeProjectRepository(project),
+    { error: () => undefined } as never,
   );
 
   const execution = await service.generateForProject("user-1", "project-1");
@@ -287,6 +318,8 @@ test("a stale Project Knowledge Model triggers a rebuild, then proceeds using th
     createFakeDeterministicAnalysisRepository(),
     new AnalyticsDashboardBuilderService(),
     createFakeProjectLlmTokenLedgerService(),
+    createFakeProjectRepository(project),
+    { error: () => undefined } as never,
   );
 
   const execution = await service.generateForProject("user-1", "project-1");
@@ -334,6 +367,8 @@ test("no Project Knowledge Model yet (never built) also triggers a rebuild inste
     createFakeDeterministicAnalysisRepository(),
     new AnalyticsDashboardBuilderService(),
     createFakeProjectLlmTokenLedgerService(),
+    createFakeProjectRepository(project),
+    { error: () => undefined } as never,
   );
 
   const execution = await service.generateForProject("user-1", "project-1");
@@ -375,14 +410,17 @@ test("a Project Knowledge Model already being built is left alone, never trigger
     createFakeDeterministicAnalysisRepository(),
     new AnalyticsDashboardBuilderService(),
     createFakeProjectLlmTokenLedgerService(),
+    createFakeProjectRepository(project),
+    { error: () => undefined } as never,
   );
 
   const execution = await service.generateForProject("user-1", "project-1");
 
   assert.equal(buildCallCount, 0);
   assert.equal(results.length, 0);
-  assert.equal(execution.status, "FAILED");
-  assert.equal(execution.errorCode, "knowledge_model_not_ready");
+  assert.equal(execution.status, "QUEUED");
+  assert.equal(execution.errorCode, null);
+  assert.equal(execution.nextAttemptAt instanceof Date, true);
 });
 
 test("a ready Project Knowledge Model never triggers a redundant rebuild", async () => {
@@ -416,6 +454,8 @@ test("a ready Project Knowledge Model never triggers a redundant rebuild", async
     createFakeDeterministicAnalysisRepository(),
     new AnalyticsDashboardBuilderService(),
     createFakeProjectLlmTokenLedgerService(),
+    createFakeProjectRepository(project),
+    { error: () => undefined } as never,
   );
 
   await service.generateForProject("user-1", "project-1");
@@ -452,6 +492,8 @@ test("a fallback curation marks the execution COMPLETED_WITH_WARNINGS, not COMPL
     createFakeDeterministicAnalysisRepository(),
     new AnalyticsDashboardBuilderService(),
     createFakeProjectLlmTokenLedgerService(),
+    createFakeProjectRepository(project),
+    { error: () => undefined } as never,
   );
 
   const execution = await service.generateForProject("user-1", "project-1");
@@ -488,6 +530,8 @@ test("a curation client failure marks the execution FAILED and rethrows", async 
     createFakeDeterministicAnalysisRepository(),
     new AnalyticsDashboardBuilderService(),
     createFakeProjectLlmTokenLedgerService(),
+    createFakeProjectRepository(project),
+    { error: () => undefined } as never,
   );
 
   await assert.rejects(
@@ -530,6 +574,8 @@ test("generateForActivity rejects an activity that does not belong to the given 
     createFakeDeterministicAnalysisRepository(),
     new AnalyticsDashboardBuilderService(),
     createFakeProjectLlmTokenLedgerService(),
+    createFakeProjectRepository(project),
+    { error: () => undefined } as never,
   );
 
   await assert.rejects(

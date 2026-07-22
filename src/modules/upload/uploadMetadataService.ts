@@ -1,3 +1,4 @@
+import type { FastifyBaseLogger } from "fastify";
 import { databaseSession } from "../../shared/database/databaseClient.js";
 import type { TransactionManager } from "../../shared/database/transactionManager.js";
 import type { ProcessingJobRepository } from "../ai/execution/processingJobRepository.js";
@@ -30,6 +31,7 @@ export class UploadMetadataService {
     private readonly processingJobRepository: ProcessingJobRepository,
     private readonly processingResourceCleanupService: ProcessingResourceCleanupService,
     private readonly projectDerivedStateInvalidationService: ProjectDerivedStateInvalidationService,
+    private readonly logger: FastifyBaseLogger,
   ) {}
 
   async listByActivity(userId: string, activityId: string) {
@@ -362,11 +364,10 @@ export class UploadMetadataService {
       try {
         await this.fileStorageService.deleteStoredFiles([record.storageKey]);
       } catch (error) {
-        console.error("Failed to delete stored upload file.", {
-          uploadMetadataId,
-          storageKey: record.storageKey,
-          error,
-        });
+        this.logger.error(
+          { uploadMetadataId, storageKey: record.storageKey, error },
+          "Failed to delete stored upload file.",
+        );
       }
     }
 

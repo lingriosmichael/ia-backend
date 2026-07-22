@@ -1,5 +1,6 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { ActivityUploadController } from "./activityUploadController.js";
+import { uploadRateLimitConfig } from "../../shared/http/rateLimitConfigs.js";
 
 export async function registerActivityUploadRoutes(
   app: FastifyInstance,
@@ -8,7 +9,10 @@ export async function registerActivityUploadRoutes(
 ) {
   app.post(
     "/activities/:activityId/evidence",
-    { preHandler: authenticate },
+    {
+      preHandler: authenticate,
+      config: uploadRateLimitConfig,
+    },
     controller.upload.bind(controller),
   );
 }

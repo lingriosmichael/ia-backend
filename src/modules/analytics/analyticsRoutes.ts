@@ -1,5 +1,9 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { AnalyticsController } from "./analyticsController.js";
+import {
+  analyticsExportRateLimitConfig,
+  analyticsGenerationRateLimitConfig,
+} from "../../shared/http/rateLimitConfigs.js";
 
 export async function registerAnalyticsRoutes(
   app: FastifyInstance,
@@ -8,7 +12,10 @@ export async function registerAnalyticsRoutes(
 ) {
   app.post(
     "/projects/:projectId/analytics/generate",
-    { preHandler: authenticate },
+    {
+      preHandler: authenticate,
+      config: analyticsGenerationRateLimitConfig,
+    },
     controller.generateForProject.bind(controller),
   );
 
@@ -38,13 +45,19 @@ export async function registerAnalyticsRoutes(
 
   app.post(
     "/projects/:projectId/analytics/export",
-    { preHandler: authenticate },
+    {
+      preHandler: authenticate,
+      config: analyticsExportRateLimitConfig,
+    },
     controller.downloadProjectDashboardExport.bind(controller),
   );
 
   app.post(
     "/projects/:projectId/activities/:activityId/analytics/generate",
-    { preHandler: authenticate },
+    {
+      preHandler: authenticate,
+      config: analyticsGenerationRateLimitConfig,
+    },
     controller.generateForActivity.bind(controller),
   );
 
@@ -74,7 +87,10 @@ export async function registerAnalyticsRoutes(
 
   app.post(
     "/projects/:projectId/activities/:activityId/analytics/export",
-    { preHandler: authenticate },
+    {
+      preHandler: authenticate,
+      config: analyticsExportRateLimitConfig,
+    },
     controller.downloadActivityDashboardExport.bind(controller),
   );
 }

@@ -213,7 +213,7 @@ export class AnalyticsQueryService {
       return execution;
     }
 
-    const healed = await this.analyticsExecutionRepository.updateStatus(
+    const healed = await this.analyticsExecutionRepository.update(
       execution.id,
       {
         status: "FAILED",
@@ -221,6 +221,9 @@ export class AnalyticsQueryService {
         errorCode: "analytics_generation_interrupted",
         errorMessage:
           "This run never completed (likely interrupted by a server restart). Marked failed so it can be retried.",
+        leaseOwner: null,
+        leaseExpiresAt: null,
+        lastHeartbeatAt: null,
       },
       databaseSession,
     );
@@ -275,7 +278,7 @@ export class AnalyticsQueryService {
     );
 
     if (model && model.status !== "ready") {
-      const updated = await this.analyticsExecutionRepository.updateStatus(
+      const updated = await this.analyticsExecutionRepository.update(
         execution.id,
         { status: "STALE" },
         databaseSession,
@@ -324,7 +327,7 @@ export class AnalyticsQueryService {
       };
     }
 
-    const updated = await this.analyticsExecutionRepository.updateStatus(
+    const updated = await this.analyticsExecutionRepository.update(
       execution.id,
       { status: "STALE" },
       databaseSession,

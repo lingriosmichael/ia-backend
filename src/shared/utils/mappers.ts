@@ -911,7 +911,6 @@ export function mapInterpretationResult(record: {
 }
 
 export function mapAuthResponse(params: {
-  accessToken: string;
   expiresInSeconds: number;
   user: {
     id: string;
@@ -933,7 +932,6 @@ export function mapAuthResponse(params: {
   }>;
 }): AuthResponse {
   return {
-    accessToken: params.accessToken,
     expiresInSeconds: params.expiresInSeconds,
     user: mapUser(params.user),
     organizations: params.organizations.map(mapOrganizationMembership),

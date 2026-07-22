@@ -39,6 +39,13 @@ function toPlainProcessingJob(
         ? (document.payload as Record<string, unknown>)
         : null,
     errorMessage: document.errorMessage ?? null,
+    leaseOwner: document.leaseOwner ?? null,
+    leaseExpiresAt: document.leaseExpiresAt ?? null,
+    lastHeartbeatAt: document.lastHeartbeatAt ?? null,
+    attemptCount: document.attemptCount,
+    nextAttemptAt: document.nextAttemptAt ?? null,
+    failureCode: document.failureCode ?? null,
+    maxAttempts: document.maxAttempts,
     startedAt: document.startedAt ?? null,
     completedAt: document.completedAt ?? null,
     createdAt: document.createdAt,
@@ -58,6 +65,13 @@ export class MongoProcessingJobRepository implements ProcessingJobRepository {
             _id: createDocumentId(),
             ...input,
             status: "queued",
+            leaseOwner: null,
+            leaseExpiresAt: null,
+            lastHeartbeatAt: null,
+            attemptCount: 0,
+            nextAttemptAt: null,
+            failureCode: null,
+            maxAttempts: 3,
           },
         ],
         getMongoSessionOptions(session),
@@ -300,6 +314,152 @@ export class MongoProcessingJobRepository implements ProcessingJobRepository {
     return record;
   }
 
+  async claimNextRunnable(
+    input: {
+      workerId: string;
+      supportedJobTypes: ProcessingJobPersistenceRecord["jobType"][];
+      leaseExpiresAt: Date;
+      now: Date;
+      claimedStatus: ProcessingJobPersistenceRecord["status"];
+    },
+    session: DatabaseSession,
+  ): Promise<ProcessingJobPersistenceRecord | null> {
+    await applyMongoSession(
+      ProcessingJobMongoModel.updateMany(
+        {
+          jobType: { $in: input.supportedJobTypes },
+          $expr: { $gte: ["$attemptCount", "$maxAttempts"] },
+          $and: [
+            {
+              $or: [
+                { nextAttemptAt: null },
+                { nextAttemptAt: { $lte: input.now } },
+              ],
+            },
+            {
+              $or: [
+                {
+                  status: "queued",
+                  $or: [
+                    { leaseOwner: null },
+                    { leaseExpiresAt: null },
+                    { leaseExpiresAt: { $lt: input.now } },
+                  ],
+                },
+                {
+                  status: { $in: ["processing", "transforming"] },
+                  leaseExpiresAt: { $lt: input.now },
+                },
+              ],
+            },
+          ],
+        },
+        {
+          $set: {
+            status: "failed",
+            errorMessage:
+              "Processing stopped after the worker lease expired too many times.",
+            failureCode: "max_attempts_exhausted",
+            leaseOwner: null,
+            leaseExpiresAt: null,
+            lastHeartbeatAt: null,
+            nextAttemptAt: null,
+            completedAt: input.now,
+          },
+        },
+      ),
+      session,
+    ).exec();
+
+    const document = await applyMongoSession(
+      ProcessingJobMongoModel.findOneAndUpdate(
+        {
+          jobType: { $in: input.supportedJobTypes },
+          $expr: { $lt: ["$attemptCount", "$maxAttempts"] },
+          $and: [
+            {
+              $or: [
+                { nextAttemptAt: null },
+                { nextAttemptAt: { $lte: input.now } },
+              ],
+            },
+            {
+              $or: [
+                {
+                  status: "queued",
+                  $or: [
+                    { leaseOwner: null },
+                    { leaseExpiresAt: null },
+                    { leaseExpiresAt: { $lt: input.now } },
+                  ],
+                },
+                {
+                  status: { $in: ["processing", "transforming"] },
+                  leaseExpiresAt: { $lt: input.now },
+                },
+              ],
+            },
+          ],
+        },
+        {
+          $set: {
+            status: input.claimedStatus,
+            leaseOwner: input.workerId,
+            leaseExpiresAt: input.leaseExpiresAt,
+            lastHeartbeatAt: input.now,
+            errorMessage: null,
+            failureCode: null,
+            nextAttemptAt: null,
+            startedAt: input.now,
+            completedAt: null,
+          },
+          $inc: {
+            attemptCount: 1,
+          },
+        },
+        {
+          returnDocument: "after",
+          sort: { createdAt: 1 },
+        },
+      ),
+      session,
+    ).exec();
+
+    return toPlainProcessingJob(document);
+  }
+
+  async renewLease(
+    input: {
+      processingJobId: string;
+      workerId: string;
+      leaseExpiresAt: Date;
+      heartbeatAt: Date;
+    },
+    session: DatabaseSession,
+  ): Promise<ProcessingJobPersistenceRecord | null> {
+    const document = await applyMongoSession(
+      ProcessingJobMongoModel.findOneAndUpdate(
+        {
+          _id: input.processingJobId,
+          leaseOwner: input.workerId,
+          status: { $in: ["processing", "transforming"] },
+        },
+        {
+          $set: {
+            leaseExpiresAt: input.leaseExpiresAt,
+            lastHeartbeatAt: input.heartbeatAt,
+          },
+        },
+        {
+          returnDocument: "after",
+        },
+      ),
+      session,
+    ).exec();
+
+    return toPlainProcessingJob(document);
+  }
+
   async cancelIfActive(
     processingJobId: string,
     completedAt: Date,
@@ -315,6 +475,9 @@ export class MongoProcessingJobRepository implements ProcessingJobRepository {
           $set: {
             status: "cancelled",
             completedAt,
+            leaseOwner: null,
+            leaseExpiresAt: null,
+            lastHeartbeatAt: null,
           },
         },
         { returnDocument: "after" },

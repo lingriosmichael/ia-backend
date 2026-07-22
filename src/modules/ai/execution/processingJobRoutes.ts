@@ -31,6 +31,21 @@ export async function registerProcessingJobRoutes(
     controller.cancel.bind(controller),
   );
   app.post(
+    "/internal/processing-jobs/claim",
+    { preHandler: requireInternalServiceSecret },
+    controller.claimInternally.bind(controller),
+  );
+  app.post(
+    "/internal/processing-jobs/:processingJobId/heartbeat",
+    { preHandler: requireInternalServiceSecret },
+    controller.heartbeatInternally.bind(controller),
+  );
+  app.get(
+    "/internal/processing-jobs/:processingJobId/source-file",
+    { preHandler: requireInternalServiceSecret },
+    controller.getSourceFileInternally.bind(controller),
+  );
+  app.post(
     "/internal/processing-jobs/:processingJobId/complete",
     { preHandler: requireInternalServiceSecret },
     controller.completeExternally.bind(controller),

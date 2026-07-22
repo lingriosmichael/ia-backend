@@ -3,63 +3,64 @@ import test from "node:test";
 import { AppError } from "../../shared/errors/appError.js";
 import type { AuthorizationService } from "../../shared/auth/authorizationService.js";
 import type { ProcessingJobRepository } from "../ai/execution/processingJobRepository.js";
+import type { ProcessingJobPersistenceRecord } from "../ai/persistence/aiPersistenceTypes.js";
+import type { ProcessingJobUpdateInput } from "../ai/persistence/aiPersistenceTypes.js";
 import type { ParsedRepresentationRepository } from "./parsedRepresentationRepository.js";
 import type { PrivacyReviewApproveInput } from "./privacyReviewPersistence.js";
 import type { PrivacyReviewRepository } from "./privacyReviewRepository.js";
 import { PrivacyReviewService } from "./privacyReviewService.js";
-import type { PythonProcessingClient } from "./pythonProcessingClient.js";
+
+function buildJob(
+  overrides?: Partial<ProcessingJobPersistenceRecord>,
+): ProcessingJobPersistenceRecord {
+  return {
+    id: "job-1",
+    organizationId: "org-1",
+    projectId: "project-1",
+    activityId: "activity-1",
+    uploadMetadataId: "upload-1",
+    jobType: "evidence_processing",
+    status: "awaiting_privacy_review",
+    triggeredById: "user-1",
+    payload: null,
+    errorMessage: null,
+    leaseOwner: null,
+    leaseExpiresAt: null,
+    lastHeartbeatAt: null,
+    attemptCount: 1,
+    nextAttemptAt: null,
+    failureCode: null,
+    maxAttempts: 3,
+    createdAt: new Date("2026-07-21T09:00:00.000Z"),
+    updatedAt: new Date("2026-07-21T09:00:00.000Z"),
+    startedAt: new Date("2026-07-21T08:55:00.000Z"),
+    completedAt: null,
+    ...overrides,
+  };
+}
 
 function createService(overrides?: {
   processingJobRepository?: Partial<ProcessingJobRepository>;
   authorizationService?: Partial<AuthorizationService>;
-  pythonProcessingClient?: Partial<PythonProcessingClient>;
   privacyReviewRepository?: Partial<PrivacyReviewRepository>;
   parsedRepresentationRepository?: Partial<ParsedRepresentationRepository>;
 }) {
   const processingJobRepository = {
-    findById: async () => ({
-      id: "job-1",
-      organizationId: "org-1",
-      projectId: "project-1",
-      activityId: "activity-1",
-      uploadMetadataId: "upload-1",
-      jobType: "evidence_processing",
-      status: "awaiting_privacy_review",
-      triggeredById: "user-1",
-      payload: {
-        pythonJob: {
-          externalJobId: "python-job-1",
-        },
-      },
-      errorMessage: null,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-      startedAt: null,
-      completedAt: null,
-    }),
-    update: async () => ({
-      id: "job-1",
-      organizationId: "org-1",
-      projectId: "project-1",
-      activityId: "activity-1",
-      uploadMetadataId: "upload-1",
-      jobType: "evidence_processing",
-      status: "transforming",
-      triggeredById: "user-1",
-      payload: {
-        pythonJob: {
-          externalJobId: "python-job-1",
-          status: "completed",
-          updatedAt: new Date().toISOString(),
-          details: null,
-        },
-      },
-      errorMessage: null,
-      createdAt: new Date(),
-      updatedAt: new Date(),
-      startedAt: null,
-      completedAt: null,
-    }),
+    findById: async () => buildJob(),
+    update: async (_processingJobId: string, input: ProcessingJobUpdateInput) =>
+      buildJob({
+        status: input.status ?? "awaiting_privacy_review",
+        payload: input.payload ?? null,
+        errorMessage: input.errorMessage ?? null,
+        leaseOwner: input.leaseOwner ?? null,
+        leaseExpiresAt: input.leaseExpiresAt ?? null,
+        lastHeartbeatAt: input.lastHeartbeatAt ?? null,
+        attemptCount: input.attemptCount ?? 1,
+        nextAttemptAt: input.nextAttemptAt ?? null,
+        failureCode: input.failureCode ?? null,
+        maxAttempts: input.maxAttempts ?? 3,
+        completedAt: input.completedAt ?? null,
+      }),
     ...(overrides?.processingJobRepository ?? {}),
   } as unknown as ProcessingJobRepository;
 
@@ -67,17 +68,6 @@ function createService(overrides?: {
     canEditProject: async () => undefined,
     ...(overrides?.authorizationService ?? {}),
   } as unknown as AuthorizationService;
-
-  const pythonProcessingClient = {
-    approvePrivacyReview: async () => ({
-      externalJobId: "python-job-1",
-      status: "completed",
-      updatedAt: new Date().toISOString(),
-      errorMessage: null,
-      details: null,
-    }),
-    ...(overrides?.pythonProcessingClient ?? {}),
-  } as unknown as PythonProcessingClient;
 
   const privacyReviewRepository = {
     findByProcessingJobId: async () => ({
@@ -142,7 +132,6 @@ function createService(overrides?: {
   return new PrivacyReviewService(
     processingJobRepository,
     authorizationService,
-    pythonProcessingClient,
     privacyReviewRepository,
     parsedRepresentationRepository,
   );
@@ -246,7 +235,7 @@ test("privacy review approval requires acknowledgement when keeping a legacy fin
 });
 
 test("privacy review approval accepts the recommended action without a reason", async () => {
-  let forwardedDecision:
+  let approvedDecision:
     | {
         field: string;
         entityType: string;
@@ -255,18 +244,55 @@ test("privacy review approval accepts the recommended action without a reason", 
         keepUnchangedAcknowledged?: boolean;
       }
     | undefined;
+  let updatedJobInput:
+    Parameters<ProcessingJobRepository["update"]>[1] | undefined;
 
   const service = createService({
-    pythonProcessingClient: {
-      approvePrivacyReview: async (_externalJobId, decisions) => {
-        forwardedDecision = decisions.fieldDecisions?.[0];
+    privacyReviewRepository: {
+      approveIfPending: async (_processingJobId, input) => {
+        approvedDecision = input.decisions.fieldDecisions?.[0];
         return {
-          externalJobId: "python-job-1",
-          status: "completed",
-          updatedAt: new Date().toISOString(),
-          errorMessage: null,
-          details: null,
+          id: "review-1",
+          organizationId: "org-1",
+          projectId: "project-1",
+          activityId: "activity-1",
+          uploadMetadataId: "upload-1",
+          processingJobId: "job-1",
+          status: "approved",
+          findings: {
+            summary: [
+              {
+                field: "email",
+                entityType: "EMAIL_ADDRESS",
+                recommendedAction: "tokenize",
+                requiresDecision: true,
+              },
+            ],
+          },
+          decisions: input.decisions,
+          approvedById: input.approvedById,
+          approvedAt: input.approvedAt,
+          createdAt: new Date(),
+          updatedAt: new Date(),
         };
+      },
+    },
+    processingJobRepository: {
+      update: async (_processingJobId, input) => {
+        updatedJobInput = input;
+        return buildJob({
+          status: input.status ?? "awaiting_privacy_review",
+          payload: input.payload ?? null,
+          errorMessage: input.errorMessage ?? null,
+          leaseOwner: input.leaseOwner ?? null,
+          leaseExpiresAt: input.leaseExpiresAt ?? null,
+          lastHeartbeatAt: input.lastHeartbeatAt ?? null,
+          attemptCount: input.attemptCount ?? 1,
+          nextAttemptAt: input.nextAttemptAt ?? null,
+          failureCode: input.failureCode ?? null,
+          maxAttempts: input.maxAttempts ?? 3,
+          completedAt: input.completedAt ?? null,
+        });
       },
     },
   });
@@ -281,13 +307,18 @@ test("privacy review approval accepts the recommended action without a reason", 
     ],
   });
 
-  assert.equal(forwardedDecision?.decision, "tokenize");
-  assert.equal(forwardedDecision?.reason, undefined);
-  assert.equal(forwardedDecision?.keepUnchangedAcknowledged, undefined);
+  assert.equal(approvedDecision?.decision, "tokenize");
+  assert.equal(approvedDecision?.reason, undefined);
+  assert.equal(approvedDecision?.keepUnchangedAcknowledged, undefined);
+  assert.equal(updatedJobInput?.status, "queued");
+  assert.equal(updatedJobInput?.failureCode, null);
+  assert.equal(updatedJobInput?.leaseOwner, null);
+  assert.equal(updatedJobInput?.leaseExpiresAt, null);
+  assert.equal(updatedJobInput?.lastHeartbeatAt, null);
 });
 
 test("privacy review approval accepts keep when the acknowledgement is checked", async () => {
-  let forwardedDecision:
+  let approvedDecision:
     | {
         field: string;
         entityType: string;
@@ -297,15 +328,32 @@ test("privacy review approval accepts keep when the acknowledgement is checked",
     | undefined;
 
   const service = createService({
-    pythonProcessingClient: {
-      approvePrivacyReview: async (_externalJobId, decisions) => {
-        forwardedDecision = decisions.fieldDecisions?.[0];
+    privacyReviewRepository: {
+      approveIfPending: async (_processingJobId, input) => {
+        approvedDecision = input.decisions.fieldDecisions?.[0];
         return {
-          externalJobId: "python-job-1",
-          status: "completed",
-          updatedAt: new Date().toISOString(),
-          errorMessage: null,
-          details: null,
+          id: "review-1",
+          organizationId: "org-1",
+          projectId: "project-1",
+          activityId: "activity-1",
+          uploadMetadataId: "upload-1",
+          processingJobId: "job-1",
+          status: "approved",
+          findings: {
+            summary: [
+              {
+                field: "email",
+                entityType: "EMAIL_ADDRESS",
+                recommendedAction: "tokenize",
+                requiresDecision: true,
+              },
+            ],
+          },
+          decisions: input.decisions,
+          approvedById: input.approvedById,
+          approvedAt: input.approvedAt,
+          createdAt: new Date(),
+          updatedAt: new Date(),
         };
       },
     },
@@ -322,6 +370,6 @@ test("privacy review approval accepts keep when the acknowledgement is checked",
     ],
   });
 
-  assert.equal(forwardedDecision?.decision, "keep");
-  assert.equal(forwardedDecision?.keepUnchangedAcknowledged, true);
+  assert.equal(approvedDecision?.decision, "keep");
+  assert.equal(approvedDecision?.keepUnchangedAcknowledged, true);
 });
