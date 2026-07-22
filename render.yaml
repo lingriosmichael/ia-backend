@@ -2,6 +2,8 @@ services:
   - type: web
     name: impact-atlas-backend
     runtime: node
+    region: frankfurt
+    plan: starter
     buildCommand: npm ci && npm run build
     startCommand: npm run start
     healthCheckPath: /health
@@ -10,11 +12,10 @@ services:
     # across replicas. Do not add a `scaling:` block or raise numInstances
     # without first switching FILE_STORAGE_DRIVER to s3.
     numInstances: 1
-    maxShutdownDelaySeconds: 120
     disk:
       name: uploads
       mountPath: /opt/render/project/src/uploads
-      sizeGB: 10
+      sizeGB: 1
     envVars:
       - key: NODE_ENV
         value: production
@@ -77,6 +78,8 @@ services:
   - type: worker
     name: impact-atlas-analytics-worker
     runtime: node
+    region: frankfurt
+    plan: starter
     buildCommand: npm ci && npm run build
     startCommand: npm run start:analytics-worker
     numInstances: 1
