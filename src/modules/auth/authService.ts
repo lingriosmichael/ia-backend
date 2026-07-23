@@ -1,3 +1,4 @@
+import type { FastifyBaseLogger } from "fastify";
 import type { BackendConfig } from "../../shared/config/env.js";
 import { databaseSession } from "../../shared/database/databaseClient.js";
 import type { TransactionManager } from "../../shared/database/transactionManager.js";
@@ -40,6 +41,7 @@ export class AuthService {
     private readonly userRepository: UserRepository,
     private readonly organizationRepository: OrganizationRepository,
     private readonly transactionManager: TransactionManager,
+    private readonly logger: FastifyBaseLogger,
   ) {}
 
   async register(input: { fullName: string; email: string; password: string }) {
@@ -94,6 +96,7 @@ export class AuthService {
       user.id,
       databaseSession,
     );
+    this.logger.info({ email, userId: user.id }, "Login succeeded.");
     return this.createAuthResult(user, memberships);
   }
 

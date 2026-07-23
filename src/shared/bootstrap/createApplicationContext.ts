@@ -146,6 +146,7 @@ export function createApplicationContext(
     userRepository,
     organizationRepository,
     transactionManager,
+    logger,
   );
   const fileStorageService = FileStorageService.fromConfig(config);
   const organizationService = new OrganizationService(

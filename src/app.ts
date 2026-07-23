@@ -55,14 +55,23 @@ export async function buildApp(config: BackendConfig) {
     },
   });
 
-  // The frontend polls job-status endpoints on a fixed interval (e.g. once a
-  // second) while a job is in flight — logging every poll at the same level
-  // as every other request buries the one line that's actually actionable.
-  // Polling requests are still handled normally; they're just excluded from
-  // this access log. Real progress is logged separately, once per actual
-  // status change, by ProcessingJobService.
-  function isPollingRoute(url: string): boolean {
-    return url.includes("/sync") || /\/jobs$/.test(url.split("?")[0] ?? "");
+  // Some routes are hit on a fixed, short interval by automated callers
+  // rather than a human action: the frontend polling job-status endpoints
+  // while a job is in flight, the Python worker polling
+  // /internal/processing-jobs/claim every couple seconds for work, and
+  // infra (Render, Docker) polling /health. Logging every one of those at
+  // the same level as every other request buries the lines that are
+  // actually actionable. These requests are still handled normally; they're
+  // just excluded from this access log. Real progress is logged separately,
+  // once per actual status change, by ProcessingJobService.
+  function isLowSignalRoute(url: string): boolean {
+    const path = url.split("?")[0] ?? "";
+    return (
+      path.includes("/sync") ||
+      /\/jobs$/.test(path) ||
+      path === "/health" ||
+      path === "/internal/processing-jobs/claim"
+    );
   }
 
   // Every request logs on arrival (before auth, so even a rejected or
@@ -72,7 +81,7 @@ export async function buildApp(config: BackendConfig) {
   // when, and with what outcome — without needing to add logging to every
   // individual route handler.
   app.addHook("onRequest", async (request) => {
-    if (isPollingRoute(request.url)) {
+    if (isLowSignalRoute(request.url)) {
       return;
     }
     request.log.info(
@@ -82,7 +91,7 @@ export async function buildApp(config: BackendConfig) {
   });
 
   app.addHook("onResponse", async (request, reply) => {
-    if (isPollingRoute(request.url) && reply.statusCode < 400) {
+    if (isLowSignalRoute(request.url) && reply.statusCode < 400) {
       return;
     }
     request.log.info(
