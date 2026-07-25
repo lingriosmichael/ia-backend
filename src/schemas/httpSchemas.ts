@@ -4,9 +4,24 @@ import {
   projectStatusValues,
 } from "../shared/contracts.js";
 import { z } from "zod";
+import { normalizeMonthValue } from "../shared/utils/monthValue.js";
 
 const jsonPayloadSchema = z.record(z.string(), z.unknown());
-const monthValueSchema = z.string().regex(/^\d{4}-\d{2}$/);
+const monthValueSchema = z
+  .string()
+  .trim()
+  .transform((value, context) => {
+    const normalizedValue = normalizeMonthValue(value);
+    if (normalizedValue) {
+      return normalizedValue;
+    }
+
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "Invalid month value. Expected YYYY-MM or MM/YYYY.",
+    });
+    return z.NEVER;
+  });
 const dateValueSchema = z.string().datetime({ offset: true }).optional();
 const dateOnlyValueSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
 const stringArraySchema = z
