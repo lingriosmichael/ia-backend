@@ -8,7 +8,6 @@ const knowledgeSourceInstanceSchema = new Schema(
     uploadMetadataId: { type: String, required: true },
     interpretationResultId: { type: String, required: true },
     activityId: { type: String, required: true },
-    activityType: { type: String, default: null },
     sourceReference: { type: String, required: true },
     addedAt: { type: Date, required: true },
     computedValue: { type: Schema.Types.Mixed, default: null },

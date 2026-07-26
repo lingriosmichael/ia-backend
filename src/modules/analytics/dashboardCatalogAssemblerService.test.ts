@@ -127,7 +127,6 @@ test("activity scope excludes indicators and themes belonging to a different act
             uploadMetadataId: "upload-3",
             interpretationResultId: "result-3",
             activityId: "activity-2",
-            activityType: "mentoring",
             sourceReference: "Different activity theme",
             addedAt: new Date().toISOString(),
           },

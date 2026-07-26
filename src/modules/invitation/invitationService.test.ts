@@ -37,7 +37,7 @@ test("invitation creation sends an email with the frontend acceptance URL", asyn
   const organizationRepository = {
     findById: async () => ({
       id: "organization-1",
-      name: "Impact Atlas Foundation",
+      name: "brindl Foundation",
     }),
     findMembership: async () => null,
   } as unknown as OrganizationRepository;
@@ -76,7 +76,7 @@ test("invitation creation sends an email with the frontend acceptance URL", asyn
   assert.deepEqual(sentEmails, [
     {
       toEmail: "pm@example.org",
-      organizationName: "Impact Atlas Foundation",
+      organizationName: "brindl Foundation",
       acceptUrl: "http://localhost:8080/invitations/token-123/accept",
       acceptanceMode: "create_account",
     },
@@ -122,7 +122,7 @@ test("invitation creation revokes the invitation and fails when email delivery f
   const organizationRepository = {
     findById: async () => ({
       id: "organization-1",
-      name: "Impact Atlas Foundation",
+      name: "brindl Foundation",
     }),
     findMembership: async () => null,
   } as unknown as OrganizationRepository;
@@ -195,7 +195,7 @@ test("invitation resend sends the existing acceptance link again", async () => {
   const organizationRepository = {
     findById: async () => ({
       id: "organization-1",
-      name: "Impact Atlas Foundation",
+      name: "brindl Foundation",
     }),
   } as unknown as OrganizationRepository;
 
@@ -230,7 +230,7 @@ test("invitation resend sends the existing acceptance link again", async () => {
   assert.deepEqual(sentEmails, [
     {
       toEmail: "pm@example.org",
-      organizationName: "Impact Atlas Foundation",
+      organizationName: "brindl Foundation",
       acceptUrl: "http://localhost:8080/invitations/token-123/accept",
       acceptanceMode: "create_account",
     },

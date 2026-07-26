@@ -207,6 +207,8 @@ export function mapProject(
     fundingProgram: string | null;
     fundingOrganization: string | null;
     targetGroups: string[];
+    overarchingTargetGroup: string | null;
+    intendedChanges: string[];
     areaOfOperation: string | null;
     partnerships: string | null;
     sdgs: string[];
@@ -235,6 +237,8 @@ export function mapProject(
     fundingProgram: project.fundingProgram,
     fundingOrganization: project.fundingOrganization,
     targetGroups: project.targetGroups,
+    overarchingTargetGroup: project.overarchingTargetGroup,
+    intendedChanges: project.intendedChanges,
     areaOfOperation: project.areaOfOperation,
     partnerships: project.partnerships,
     sdgs: project.sdgs,
@@ -260,6 +264,8 @@ export function mapProjectSummary(
     fundingProgram: string | null;
     fundingOrganization: string | null;
     targetGroups: string[];
+    overarchingTargetGroup: string | null;
+    intendedChanges: string[];
     areaOfOperation: string | null;
     partnerships: string | null;
     sdgs: string[];
@@ -288,6 +294,8 @@ export function mapProjectSummary(
     fundingProgram: project.fundingProgram,
     fundingOrganization: project.fundingOrganization,
     targetGroups: project.targetGroups,
+    overarchingTargetGroup: project.overarchingTargetGroup,
+    intendedChanges: project.intendedChanges,
     areaOfOperation: project.areaOfOperation,
     partnerships: project.partnerships,
     sdgs: project.sdgs,
@@ -307,14 +315,12 @@ export function mapActivity(
     projectOwnerId: string;
     name: string;
     description: string | null;
-    activityType: string | null;
-    owner: string | null;
     startDate: Date | null;
     endDate: Date | null;
-    objectives: string | null;
-    successIndicators: string | null;
     targetAudience: string | null;
-    additionalContext: string | null;
+    objectives: string | null;
+    output: string | null;
+    outcome: string | null;
     status: ActivityStatus | keyof typeof activityStatusMap;
     interpretationAcknowledgedAt: Date | null;
     interpretationAcknowledgedById: string | null;
@@ -332,14 +338,12 @@ export function mapActivity(
     projectId: activity.projectId,
     name: activity.name,
     description: activity.description,
-    activityType: activity.activityType,
-    owner: activity.owner,
     startDate: activity.startDate ? toIso(activity.startDate) : null,
     endDate: activity.endDate ? toIso(activity.endDate) : null,
-    objectives: activity.objectives,
-    successIndicators: activity.successIndicators,
     targetAudience: activity.targetAudience,
-    additionalContext: activity.additionalContext,
+    objectives: activity.objectives,
+    output: activity.output,
+    outcome: activity.outcome,
     status: normalizeActivityStatus(activity.status),
     permissions: mapActivityPermissions(activity.projectOwnerId, currentUserId),
     interpretationAcknowledgedAt: activity.interpretationAcknowledgedAt
@@ -363,14 +367,12 @@ export function mapWorkspaceActivity(
     projectOwnerId: string;
     name: string;
     description: string | null;
-    activityType: string | null;
-    owner: string | null;
     startDate: Date | null;
     endDate: Date | null;
-    objectives: string | null;
-    successIndicators: string | null;
     targetAudience: string | null;
-    additionalContext: string | null;
+    objectives: string | null;
+    output: string | null;
+    outcome: string | null;
     status: ActivityStatus | keyof typeof activityStatusMap;
     interpretationAcknowledgedAt: Date | null;
     interpretationAcknowledgedById: string | null;
@@ -417,6 +419,8 @@ export function mapWorkspace(record: {
     fundingProgram: string | null;
     fundingOrganization: string | null;
     targetGroups: string[];
+    overarchingTargetGroup: string | null;
+    intendedChanges: string[];
     areaOfOperation: string | null;
     partnerships: string | null;
     sdgs: string[];
@@ -437,14 +441,12 @@ export function mapWorkspace(record: {
       projectOwnerId: string;
       name: string;
       description: string | null;
-      activityType: string | null;
-      owner: string | null;
       startDate: Date | null;
       endDate: Date | null;
-      objectives: string | null;
-      successIndicators: string | null;
       targetAudience: string | null;
-      additionalContext: string | null;
+      objectives: string | null;
+      output: string | null;
+      outcome: string | null;
       status: ActivityStatus | keyof typeof activityStatusMap;
       interpretationAcknowledgedAt: Date | null;
       interpretationAcknowledgedById: string | null;
@@ -485,6 +487,8 @@ export function mapWorkspace(record: {
       fundingProgram: project.fundingProgram,
       fundingOrganization: project.fundingOrganization,
       targetGroups: project.targetGroups,
+      overarchingTargetGroup: project.overarchingTargetGroup,
+      intendedChanges: project.intendedChanges,
       areaOfOperation: project.areaOfOperation,
       partnerships: project.partnerships,
       sdgs: project.sdgs,

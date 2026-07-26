@@ -2,7 +2,7 @@ export class HealthController {
   async getHealth() {
     return {
       status: "ok",
-      service: "impact-atlas-backend",
+      service: "brindl-backend",
       timestamp: new Date().toISOString(),
     };
   }

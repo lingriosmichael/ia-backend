@@ -129,20 +129,14 @@ export const createProjectSchema = z.object({
   name: z.string().trim().min(2).max(120),
   startMonth: monthValueSchema,
   endMonth: monthValueSchema,
-  fundingProgram: z.string().trim().min(2).max(200),
-  fundingOrganization: z.string().trim().min(2).max(200),
+  fundingProgram: z.string().trim().max(200).optional(),
+  fundingOrganization: z.string().trim().max(200).optional(),
   targetGroups: z.array(z.string().trim().min(1).max(120)).min(1).max(20),
-  areaOfOperation: z.string().trim().min(2).max(2000),
+  overarchingTargetGroup: z.string().trim().min(2).max(200),
+  intendedChanges: z.array(z.string().trim().min(1).max(200)).min(1).max(3),
+  areaOfOperation: z.string().trim().max(2000).optional(),
   partnerships: z.string().trim().max(2000).optional(),
   sdgs: stringArraySchema,
-  impactModel: z.object({
-    inputs: z.string().trim().min(2).max(2000),
-    activities: z.string().trim().min(2).max(2000),
-    outputs: z.string().trim().min(2).max(2000),
-    impact: z.string().trim().min(2).max(2000),
-    outcomes: z.string().trim().min(2).max(2000),
-  }),
-  successIndicators: z.string().trim().min(2).max(2000),
 });
 
 export const updateProjectSchema = z.object({
@@ -152,6 +146,12 @@ export const updateProjectSchema = z.object({
   fundingProgram: z.string().trim().max(200).nullable().optional(),
   fundingOrganization: z.string().trim().max(200).nullable().optional(),
   targetGroups: z.array(z.string().trim().min(1).max(120)).max(20).optional(),
+  overarchingTargetGroup: z.string().trim().min(2).max(200).optional(),
+  intendedChanges: z
+    .array(z.string().trim().min(1).max(200))
+    .min(1)
+    .max(3)
+    .optional(),
   areaOfOperation: z.string().trim().max(2000).nullable().optional(),
   partnerships: z.string().trim().max(2000).nullable().optional(),
   sdgs: z.array(z.string().trim().min(1).max(120)).max(20).optional(),
@@ -201,28 +201,24 @@ export const analyticsDashboardExportRequestSchema =
 export const createActivitySchema = z.object({
   name: z.string().trim().min(2).max(120),
   description: z.string().trim().max(2000).optional(),
-  activityType: z.string().trim().max(120).optional(),
-  owner: z.string().trim().max(120).optional(),
   startDate: dateValueSchema,
   endDate: dateValueSchema,
-  objectives: z.string().trim().max(2000).optional(),
-  successIndicators: z.string().trim().max(2000).optional(),
   targetAudience: z.string().trim().max(2000).optional(),
-  additionalContext: z.string().trim().max(2000).optional(),
+  objectives: z.string().trim().max(2000).optional(),
+  output: z.string().trim().max(2000).optional(),
+  outcome: z.string().trim().max(2000).optional(),
   status: z.enum(activityStatusValues).optional(),
 });
 
 export const updateActivitySchema = z.object({
   name: z.string().trim().min(2).max(120).optional(),
   description: z.string().trim().max(2000).nullable().optional(),
-  activityType: z.string().trim().max(120).nullable().optional(),
-  owner: z.string().trim().max(120).nullable().optional(),
   startDate: z.string().datetime({ offset: true }).nullable().optional(),
   endDate: z.string().datetime({ offset: true }).nullable().optional(),
-  objectives: z.string().trim().max(2000).nullable().optional(),
-  successIndicators: z.string().trim().max(2000).nullable().optional(),
   targetAudience: z.string().trim().max(2000).nullable().optional(),
-  additionalContext: z.string().trim().max(2000).nullable().optional(),
+  objectives: z.string().trim().max(2000).nullable().optional(),
+  output: z.string().trim().max(2000).nullable().optional(),
+  outcome: z.string().trim().max(2000).nullable().optional(),
   status: z.enum(activityStatusValues).optional(),
 });
 

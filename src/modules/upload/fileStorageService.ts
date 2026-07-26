@@ -1,9 +1,10 @@
-import { createHash, createHmac } from "node:crypto";
+import { createHash, createHmac, randomUUID } from "node:crypto";
 import { createReadStream, createWriteStream } from "node:fs";
 import {
   copyFile,
   mkdir,
   mkdtemp,
+  open,
   readFile,
   rename,
   rm,
@@ -37,6 +38,8 @@ const supportedLogoMimeTypes = new Set([
   "image/webp",
 ]);
 const emptyPayloadSha256 = createHash("sha256").update("").digest("hex");
+const genericBrowserUploadMimeTypes = new Set(["", "application/octet-stream"]);
+const maxUploadFileNameLength = 255;
 
 interface StoredFileWriteResult {
   originalFileName: string;
@@ -90,6 +93,112 @@ function sanitizeFileName(fileName: string) {
   return fileName.replace(/[^a-zA-Z0-9._-]/g, "-");
 }
 
+function containsUnsupportedFileNameCharacters(fileName: string) {
+  for (const character of fileName) {
+    const charCode = character.charCodeAt(0);
+    if ((charCode >= 0 && charCode <= 31) || charCode === 127) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+function encodeRfc5987Value(value: string) {
+  return encodeURIComponent(value).replace(
+    /['()*]/g,
+    (character) => `%${character.charCodeAt(0).toString(16).toUpperCase()}`,
+  );
+}
+
+function replaceGermanCharacter(character: string) {
+  switch (character) {
+    case "Ä":
+      return "Ae";
+    case "Ö":
+      return "Oe";
+    case "Ü":
+      return "Ue";
+    case "ä":
+      return "ae";
+    case "ö":
+      return "oe";
+    case "ü":
+      return "ue";
+    case "ß":
+      return "ss";
+    default:
+      return character;
+  }
+}
+
+function buildAsciiFileNameFallback(originalFileName: string) {
+  const transliterated = [...originalFileName]
+    .map((character) => replaceGermanCharacter(character))
+    .join("")
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "");
+  const asciiOnly = transliterated
+    .replace(/[^\x20-\x7E]/g, "_")
+    .replace(/[^A-Za-z0-9._ -]/g, "_")
+    .replace(/\s+/g, " ")
+    .trim();
+  const fallback = asciiOnly || `download${path.extname(originalFileName)}`;
+
+  return fallback.replace(/["\\]/g, "_");
+}
+
+function buildDownloadContentDisposition(
+  disposition: "inline" | "attachment",
+  originalFileName: string,
+) {
+  const asciiFallback = buildAsciiFileNameFallback(originalFileName);
+  return `${disposition}; filename="${asciiFallback}"; filename*=UTF-8''${encodeRfc5987Value(originalFileName)}`;
+}
+
+function normalizeOriginalFileName(
+  originalFileName: string | undefined,
+  defaultFileName: string,
+) {
+  const normalizedFileName = (originalFileName || defaultFileName)
+    .normalize("NFC")
+    .trim();
+
+  if (
+    normalizedFileName.length === 0 ||
+    normalizedFileName === "." ||
+    normalizedFileName === ".."
+  ) {
+    throw new AppError(
+      "Uploaded file name is invalid.",
+      400,
+      "invalid_file_name",
+    );
+  }
+
+  if (normalizedFileName.length > maxUploadFileNameLength) {
+    throw new AppError(
+      `Uploaded file name is too long. Maximum length is ${maxUploadFileNameLength} characters.`,
+      400,
+      "file_name_too_long",
+    );
+  }
+
+  if (
+    normalizedFileName.includes("/") ||
+    normalizedFileName.includes("\\") ||
+    containsUnsupportedFileNameCharacters(normalizedFileName)
+  ) {
+    throw new AppError(
+      "Uploaded file name contains unsupported characters.",
+      400,
+      "invalid_file_name",
+    );
+  }
+
+  return normalizedFileName;
+}
+
 function normalizeStorageKeySegment(segment: string) {
   return segment
     .trim()
@@ -120,16 +229,113 @@ function normalizeStorageKey(storageKey: string) {
 
 function buildStorageKey(
   directorySegments: string[],
-  originalFileName: string,
+  extension: string,
 ): string {
   const normalizedDirectorySegments = directorySegments
     .map(normalizeStorageKeySegment)
     .filter(Boolean);
-  const storedFileName = `${Date.now()}-${sanitizeFileName(originalFileName)}`;
+  const storedFileName = `${randomUUID()}${extension.toLowerCase()}`;
 
   return normalizeStorageKey(
     path.posix.join(...normalizedDirectorySegments, storedFileName),
   );
+}
+
+async function readFilePrefix(filePath: string, byteCount: number) {
+  const fileHandle = await open(filePath, "r");
+
+  try {
+    const buffer = Buffer.alloc(byteCount);
+    const { bytesRead } = await fileHandle.read(buffer, 0, byteCount, 0);
+    return buffer.subarray(0, bytesRead);
+  } finally {
+    await fileHandle.close();
+  }
+}
+
+function hasZipSignature(buffer: Buffer) {
+  return (
+    buffer.length >= 4 &&
+    buffer[0] === 0x50 &&
+    buffer[1] === 0x4b &&
+    (buffer[2] === 0x03 || buffer[2] === 0x05 || buffer[2] === 0x07) &&
+    (buffer[3] === 0x04 || buffer[3] === 0x06 || buffer[3] === 0x08)
+  );
+}
+
+function hasOleCompoundDocumentSignature(buffer: Buffer) {
+  return (
+    buffer.length >= 8 &&
+    buffer[0] === 0xd0 &&
+    buffer[1] === 0xcf &&
+    buffer[2] === 0x11 &&
+    buffer[3] === 0xe0 &&
+    buffer[4] === 0xa1 &&
+    buffer[5] === 0xb1 &&
+    buffer[6] === 0x1a &&
+    buffer[7] === 0xe1
+  );
+}
+
+function hasPdfSignature(buffer: Buffer) {
+  return buffer.subarray(0, 5).toString("ascii") === "%PDF-";
+}
+
+function hasLikelyTextSignature(buffer: Buffer) {
+  const prefix =
+    buffer.length >= 3 &&
+    buffer[0] === 0xef &&
+    buffer[1] === 0xbb &&
+    buffer[2] === 0xbf
+      ? buffer.subarray(3)
+      : buffer;
+
+  if (prefix.length === 0) {
+    return false;
+  }
+
+  for (const byte of prefix) {
+    if (byte === 0x00) {
+      return false;
+    }
+
+    if (byte < 0x20 && byte !== 0x09 && byte !== 0x0a && byte !== 0x0d) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+async function validateSpooledFileContents(
+  extension: string,
+  tempFilePath: string,
+) {
+  const prefix = await readFilePrefix(tempFilePath, 4096);
+
+  const contentsMatch = (() => {
+    switch (extension) {
+      case ".pdf":
+        return hasPdfSignature(prefix);
+      case ".xls":
+        return hasOleCompoundDocumentSignature(prefix);
+      case ".xlsx":
+      case ".docx":
+        return hasZipSignature(prefix);
+      case ".csv":
+        return hasLikelyTextSignature(prefix);
+      default:
+        return true;
+    }
+  })();
+
+  if (!contentsMatch) {
+    throw new AppError(
+      "Uploaded file contents do not match the selected file type.",
+      400,
+      "invalid_file_contents",
+    );
+  }
 }
 
 function sha256Hex(input: Buffer | string) {
@@ -517,7 +723,7 @@ export class FileStorageService {
     this.uploadSpoolDirectory =
       config.driver === "local"
         ? path.resolve(config.uploadDir, ".upload-spool")
-        : path.resolve(tmpdir(), "impact-atlas-upload-spool");
+        : path.resolve(tmpdir(), "brindl-upload-spool");
   }
 
   static fromConfig(config: BackendConfig) {
@@ -546,7 +752,11 @@ export class FileStorageService {
       file,
       defaultFileName: "upload",
       isSupportedType: (extension, mimeType) =>
-        Boolean(supportedDatasetMimeTypesByExtension[extension]?.has(mimeType)),
+        Boolean(supportedDatasetMimeTypesByExtension[extension]) &&
+        (genericBrowserUploadMimeTypes.has(mimeType) ||
+          Boolean(
+            supportedDatasetMimeTypesByExtension[extension]?.has(mimeType),
+          )),
       unsupportedTypeMessage:
         "Only CSV, Excel, PDF, and DOCX files are supported.",
       unsupportedTypeCode: "unsupported_file_type",
@@ -636,10 +846,14 @@ export class FileStorageService {
     unsupportedTypeMessage: string;
     unsupportedTypeCode: string;
   }): Promise<StoredFileWriteResult> {
-    const originalFileName = file.filename || defaultFileName;
+    const originalFileName = normalizeOriginalFileName(
+      file.filename,
+      defaultFileName,
+    );
     const extension = path.extname(originalFileName).toLowerCase();
+    const normalizedMimeType = (file.mimetype || "").trim().toLowerCase();
 
-    if (!isSupportedType(extension, file.mimetype || "")) {
+    if (!isSupportedType(extension, normalizedMimeType)) {
       throw new AppError(unsupportedTypeMessage, 400, unsupportedTypeCode);
     }
 
@@ -653,19 +867,21 @@ export class FileStorageService {
       throw new AppError("Uploaded file is empty.", 400, "empty_file");
     }
 
-    const storageKey = buildStorageKey(directorySegments, originalFileName);
+    await validateSpooledFileContents(extension, spooledFile.tempFilePath);
+
+    const storageKey = buildStorageKey(directorySegments, extension);
 
     try {
       const writeResult = await this.backend.writeFile({
         storageKey,
         sourceFilePath: spooledFile.tempFilePath,
-        contentType: file.mimetype || null,
+        contentType: normalizedMimeType || null,
         sizeBytes: spooledFile.sizeBytes,
       });
 
       return {
         originalFileName,
-        contentType: file.mimetype || null,
+        contentType: normalizedMimeType || null,
         sizeBytes: spooledFile.sizeBytes,
         storageKey,
         absolutePath: writeResult.absolutePath,
@@ -680,12 +896,13 @@ export class FileStorageService {
     originalFileName: string,
   ) {
     await mkdir(this.uploadSpoolDirectory, { recursive: true });
+    const extension = path.extname(originalFileName).toLowerCase();
     const tempDirectory = await mkdtemp(
       path.join(this.uploadSpoolDirectory, "upload-"),
     );
     const tempFilePath = path.join(
       tempDirectory,
-      sanitizeFileName(originalFileName),
+      `${randomUUID()}${extension}`,
     );
     let sizeBytes = 0;
 
@@ -712,3 +929,9 @@ export class FileStorageService {
     };
   }
 }
+
+export {
+  buildDownloadContentDisposition,
+  maxUploadFileNameLength,
+  normalizeOriginalFileName,
+};

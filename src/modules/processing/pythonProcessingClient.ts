@@ -28,7 +28,8 @@ interface ApprovePrivacyReviewResponse {
 
 interface StartDatasetInterpretationActivityGoals {
   objectives: string | null;
-  successIndicators: string | null;
+  output: string | null;
+  outcome: string | null;
 }
 
 interface StartDatasetInterpretationProjectImpactModel {
@@ -68,7 +69,8 @@ interface AiKnowledgeSummaryInsightInput {
 
 interface AiKnowledgeSummaryActivityGoalsInput {
   objectives: string | null;
-  successIndicators: string | null;
+  output: string | null;
+  outcome: string | null;
 }
 
 interface AiKnowledgeSummaryProjectGoalsInput {
@@ -397,7 +399,8 @@ interface MixedSynthesisQualitativeFinding {
     | "project_outcome"
     | "project_impact"
     | "activity_objective"
-    | "activity_success_indicator"
+    | "activity_output"
+    | "activity_outcome"
     | "unanchored";
   relationToEvidence:
     "reinforces" | "contradicts" | "complicates" | "context_only";

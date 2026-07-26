@@ -13,6 +13,8 @@ const projectSchema = new Schema(
     fundingProgram: { type: String, default: null },
     fundingOrganization: { type: String, default: null },
     targetGroups: { type: [String], default: [] },
+    overarchingTargetGroup: { type: String, default: null },
+    intendedChanges: { type: [String], default: [] },
     areaOfOperation: { type: String, default: null },
     partnerships: { type: String, default: null },
     sdgs: { type: [String], default: [] },

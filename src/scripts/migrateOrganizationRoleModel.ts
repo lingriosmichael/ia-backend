@@ -58,17 +58,6 @@ async function run() {
       $unset: ["createdById"],
     },
   ]);
-
-  await database.collection("activities").updateMany(
-    {
-      additionalContext: { $exists: false },
-    },
-    {
-      $set: {
-        additionalContext: null,
-      },
-    },
-  );
 }
 
 run()

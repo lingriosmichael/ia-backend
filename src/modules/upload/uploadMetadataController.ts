@@ -3,6 +3,7 @@ import { requireAuthenticatedUser } from "../../shared/auth/requireAuthenticated
 import { successResponse } from "../../shared/http/apiResponse.js";
 import { idParamSchema } from "../../schemas/httpSchemas.js";
 import { EvidenceProcessingService } from "../processing/evidenceProcessingService.js";
+import { buildDownloadContentDisposition } from "./fileStorageService.js";
 import { UploadMetadataService } from "./uploadMetadataService.js";
 
 export class UploadMetadataController {
@@ -35,7 +36,7 @@ export class UploadMetadataController {
       .type(file.contentType)
       .header(
         "content-disposition",
-        `inline; filename="${encodeURIComponent(file.originalFileName)}"`,
+        buildDownloadContentDisposition("inline", file.originalFileName),
       )
       .send(file.buffer);
   }

@@ -6,6 +6,11 @@ import {
   mapProjectSummary,
   mapWorkspaceActivity,
 } from "../../shared/utils/mappers.js";
+import {
+  trimNullableText,
+  trimRequiredText,
+  trimStringArray,
+} from "../../shared/utils/text.js";
 import { AuthorizationService } from "../../shared/auth/authorizationService.js";
 import type { ProjectRepository } from "./projectRepository.js";
 import { FileStorageService } from "../upload/fileStorageService.js";
@@ -34,26 +39,6 @@ function mapProjectStatus(status: "planning" | "active" | "completed") {
 
 function toIso(value: Date) {
   return value.toISOString();
-}
-
-function trimNullableText(value: string | null | undefined) {
-  if (value === undefined) {
-    return undefined;
-  }
-
-  if (value === null) {
-    return null;
-  }
-
-  return value.trim() || null;
-}
-
-function trimRequiredText(value: string) {
-  return value.trim();
-}
-
-function trimStringArray(values: string[] | undefined) {
-  return values?.map((value) => value.trim()).filter(Boolean);
 }
 
 export class ProjectService {
@@ -110,20 +95,14 @@ export class ProjectService {
       name: string;
       startMonth: string;
       endMonth: string;
-      fundingProgram: string;
-      fundingOrganization: string;
+      fundingProgram?: string;
+      fundingOrganization?: string;
       targetGroups: string[];
-      areaOfOperation: string;
+      overarchingTargetGroup: string;
+      intendedChanges: string[];
+      areaOfOperation?: string;
       partnerships?: string;
       sdgs?: string[];
-      impactModel: {
-        inputs: string;
-        activities: string;
-        outputs: string;
-        impact: string;
-        outcomes: string;
-      };
-      successIndicators: string;
     },
   ) {
     await this.authorizationService.canCreateProject(userId, organizationId);
@@ -135,20 +114,25 @@ export class ProjectService {
         name: trimRequiredText(input.name),
         startMonth: input.startMonth,
         endMonth: input.endMonth,
-        fundingProgram: trimRequiredText(input.fundingProgram),
-        fundingOrganization: trimRequiredText(input.fundingOrganization),
+        fundingProgram: trimNullableText(input.fundingProgram) ?? null,
+        fundingOrganization:
+          trimNullableText(input.fundingOrganization) ?? null,
         targetGroups: trimStringArray(input.targetGroups) ?? [],
-        areaOfOperation: trimRequiredText(input.areaOfOperation),
+        overarchingTargetGroup: trimRequiredText(input.overarchingTargetGroup),
+        intendedChanges: trimStringArray(input.intendedChanges) ?? [],
+        areaOfOperation: trimNullableText(input.areaOfOperation) ?? null,
         partnerships: input.partnerships?.trim() ?? null,
         sdgs: input.sdgs ?? [],
+        // Impact model and success indicators are no longer collected at
+        // creation time — they'll be filled in later via the Bericht page.
         impactModel: {
-          inputs: trimRequiredText(input.impactModel.inputs),
-          activities: trimRequiredText(input.impactModel.activities),
-          outputs: trimRequiredText(input.impactModel.outputs),
-          impact: trimRequiredText(input.impactModel.impact),
-          outcomes: trimRequiredText(input.impactModel.outcomes),
+          inputs: null,
+          activities: null,
+          outputs: null,
+          impact: null,
+          outcomes: null,
         },
-        successIndicators: trimRequiredText(input.successIndicators),
+        successIndicators: null,
       },
       databaseSession,
     );
@@ -172,6 +156,8 @@ export class ProjectService {
       fundingProgram?: string | null;
       fundingOrganization?: string | null;
       targetGroups?: string[];
+      overarchingTargetGroup?: string;
+      intendedChanges?: string[];
       areaOfOperation?: string | null;
       partnerships?: string | null;
       sdgs?: string[];
@@ -198,6 +184,8 @@ export class ProjectService {
         fundingProgram: trimNullableText(input.fundingProgram),
         fundingOrganization: trimNullableText(input.fundingOrganization),
         targetGroups: trimStringArray(input.targetGroups),
+        overarchingTargetGroup: input.overarchingTargetGroup?.trim(),
+        intendedChanges: trimStringArray(input.intendedChanges),
         areaOfOperation: trimNullableText(input.areaOfOperation),
         partnerships: trimNullableText(input.partnerships),
         sdgs: input.sdgs,

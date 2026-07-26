@@ -25,6 +25,8 @@ export interface ProjectPersistenceRecord {
   fundingProgram: string | null;
   fundingOrganization: string | null;
   targetGroups: string[];
+  overarchingTargetGroup: string | null;
+  intendedChanges: string[];
   areaOfOperation: string | null;
   partnerships: string | null;
   sdgs: string[];
@@ -42,20 +44,16 @@ export interface ProjectCreateInput {
   name: string;
   startMonth: string;
   endMonth: string;
-  fundingProgram: string;
-  fundingOrganization: string;
+  fundingProgram: string | null;
+  fundingOrganization: string | null;
   targetGroups: string[];
-  areaOfOperation: string;
+  overarchingTargetGroup: string;
+  intendedChanges: string[];
+  areaOfOperation: string | null;
   partnerships: string | null;
   sdgs: string[];
-  impactModel: {
-    inputs: string;
-    activities: string;
-    outputs: string;
-    impact: string;
-    outcomes: string;
-  };
-  successIndicators: string;
+  impactModel: ProjectImpactModelPersistence;
+  successIndicators: string | null;
   status?: ProjectStatus;
 }
 
@@ -66,6 +64,8 @@ export interface ProjectUpdateInput {
   fundingProgram?: string | null;
   fundingOrganization?: string | null;
   targetGroups?: string[];
+  overarchingTargetGroup?: string;
+  intendedChanges?: string[];
   areaOfOperation?: string | null;
   partnerships?: string | null;
   sdgs?: string[];

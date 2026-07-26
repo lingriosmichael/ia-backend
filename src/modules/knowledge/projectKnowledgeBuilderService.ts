@@ -150,11 +150,8 @@ export class ProjectKnowledgeBuilderService {
     const acknowledgedActivities = activities.filter(
       (activity) => activity.interpretationAcknowledgedAt !== null,
     );
-    const activityTypeById = new Map(
-      acknowledgedActivities.map((activity) => [
-        activity.id,
-        activity.activityType,
-      ]),
+    const acknowledgedActivityIds = new Set(
+      acknowledgedActivities.map((activity) => activity.id),
     );
 
     const uploads = await this.uploadMetadataRepository.listByActivityIds(
@@ -168,7 +165,7 @@ export class ProjectKnowledgeBuilderService {
       );
 
     const candidates = interpretationResults.flatMap((result) =>
-      this.normalize(result, activityTypeById),
+      this.normalize(result, acknowledgedActivityIds),
     );
 
     const existingEntities =
@@ -242,14 +239,13 @@ export class ProjectKnowledgeBuilderService {
    * into candidate KnowledgeEntity shapes. No matching decisions here. */
   private normalize(
     result: InterpretationResultPersistenceRecord,
-    activityTypeById: Map<string, string | null>,
+    acknowledgedActivityIds: Set<string>,
   ): EntityCandidate[] {
-    if (!result.activityId || !activityTypeById.has(result.activityId)) {
+    if (!result.activityId || !acknowledgedActivityIds.has(result.activityId)) {
       // Not on an acknowledged activity (or no activity at all) — the
       // Knowledge Builder only ever reads verified data.
       return [];
     }
-    const activityType = activityTypeById.get(result.activityId) ?? null;
 
     const candidates: EntityCandidate[] = [];
 
@@ -267,7 +263,6 @@ export class ProjectKnowledgeBuilderService {
           uploadMetadataId: result.uploadMetadataId,
           interpretationResultId: result.id,
           activityId: result.activityId,
-          activityType,
           sourceReference: indicator.name,
           addedAt: new Date().toISOString(),
           // Only carried through when grounding actually passed — a
@@ -302,7 +297,6 @@ export class ProjectKnowledgeBuilderService {
           uploadMetadataId: result.uploadMetadataId,
           interpretationResultId: result.id,
           activityId: result.activityId,
-          activityType,
           sourceReference: finding.summary,
           addedAt: new Date().toISOString(),
           qualitativeContext: {
@@ -523,11 +517,6 @@ export class ProjectKnowledgeBuilderService {
    * missed one; that judgment call (are these actually the same
    * concept?) is deferred to an explicit, human-confirmed cross-activity
    * linking step, not made automatically here based on text similarity.
-   *
-   * (`activityType` compatibility was tried first and found
-   * insufficient: two distinct activities sharing a broad type like
-   * "mentoring" still have their own distinct goals, and a shared
-   * `activityType` said nothing about whether they should merge.)
    */
   private hasCompatibleActivity(
     entity: KnowledgeEntityPersistenceRecord,

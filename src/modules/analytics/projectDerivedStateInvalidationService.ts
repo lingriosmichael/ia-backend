@@ -5,7 +5,7 @@ import type { AnalyticsExecutionRepository } from "./analyticsExecutionRepositor
 import type { AnalyticsResultRepository } from "./analyticsResultRepository.js";
 
 /**
- * Derived state in Impact Atlas is intentionally persisted, not rebuilt on
+ * Derived state in brindl is intentionally persisted, not rebuilt on
  * every read. When upstream verified evidence changes or disappears, these
  * projections must be invalidated explicitly so stale dashboards never
  * outlive the evidence they were built from.

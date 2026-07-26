@@ -19,9 +19,13 @@ function captureErrorHandler() {
   registerErrorHandler(fakeApp);
   return (error: unknown) => {
     const loggedErrors: unknown[] = [];
+    const loggedWarnings: unknown[] = [];
     const sent: { statusCode: number; body: unknown }[] = [];
     const request = {
-      log: { error: (...args: unknown[]) => loggedErrors.push(args) },
+      log: {
+        error: (...args: unknown[]) => loggedErrors.push(args),
+        warn: (...args: unknown[]) => loggedWarnings.push(args),
+      },
     } as unknown as FastifyRequest;
     const reply = {
       code: (statusCode: number) => ({
@@ -33,13 +37,13 @@ function captureErrorHandler() {
     } as unknown as FastifyReply;
 
     handler(error, request, reply);
-    return { loggedErrors, sent };
+    return { loggedErrors, loggedWarnings, sent };
   };
 }
 
 test("errorHandler logs a 5xx AppError server-side (e.g. the Python service being unreachable)", () => {
   const invoke = captureErrorHandler();
-  const { loggedErrors, sent } = invoke(
+  const { loggedErrors, loggedWarnings, sent } = invoke(
     new AppError(
       "Python service unavailable.",
       502,
@@ -48,15 +52,17 @@ test("errorHandler logs a 5xx AppError server-side (e.g. the Python service bein
   );
 
   assert.equal(loggedErrors.length, 1);
+  assert.equal(loggedWarnings.length, 0);
   assert.equal(sent[0]?.statusCode, 502);
 });
 
-test("errorHandler does not log a 4xx AppError (expected control flow, not a bug)", () => {
+test("errorHandler logs a 4xx AppError as a warning and still returns the client error", () => {
   const invoke = captureErrorHandler();
-  const { loggedErrors, sent } = invoke(
+  const { loggedErrors, loggedWarnings, sent } = invoke(
     new AppError("Not found.", 404, "not_found"),
   );
 
   assert.equal(loggedErrors.length, 0);
+  assert.equal(loggedWarnings.length, 1);
   assert.equal(sent[0]?.statusCode, 404);
 });

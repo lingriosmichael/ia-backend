@@ -1,6 +1,6 @@
-# Impact Atlas Backend
+# brindl Backend
 
-This service is the backend API for Impact Atlas. It is a TypeScript application built with Fastify, Mongoose, and MongoDB. It powers authentication, organizations, projects, activities, uploads, and the core grant-management workflows.
+This service is the backend API for brindl. It is a TypeScript application built with Fastify, Mongoose, and MongoDB. It powers authentication, organizations, projects, activities, uploads, and the core grant-management workflows.
 
 ## What this service does
 
@@ -232,7 +232,7 @@ For production, set:
 FILE_STORAGE_DRIVER=s3
 S3_ENDPOINT=https://your-object-storage-endpoint
 S3_REGION=eu-central-1
-S3_BUCKET=impact-atlas-production
+S3_BUCKET=brindl-production
 S3_ACCESS_KEY_ID=replace-me
 S3_SECRET_ACCESS_KEY=replace-me
 S3_KEY_PREFIX=backend-assets
@@ -251,7 +251,7 @@ To verify shared object storage locally, update `ia_backend/.env` to:
 FILE_STORAGE_DRIVER=s3
 S3_ENDPOINT=http://minio:9000
 S3_REGION=us-east-1
-S3_BUCKET=impact-atlas-local
+S3_BUCKET=brindl-local
 S3_ACCESS_KEY_ID=minioadmin
 S3_SECRET_ACCESS_KEY=minioadmin
 S3_KEY_PREFIX=backend-assets
@@ -336,7 +336,7 @@ Invitation emails now support MailerSend's Email API. To send real invitation em
 EMAIL_PROVIDER=mailersend
 WEBAPP_URL=http://localhost:8080
 EMAIL_FROM=hello@your-domain.com
-EMAIL_FROM_NAME=Impact Atlas
+EMAIL_FROM_NAME=brindl
 MAILERSEND_API_TOKEN=your-mailersend-api-token
 ```
 

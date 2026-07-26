@@ -35,6 +35,8 @@ function toProjectRecord(
     fundingProgram: document.fundingProgram ?? null,
     fundingOrganization: document.fundingOrganization ?? null,
     targetGroups: document.targetGroups ?? [],
+    overarchingTargetGroup: document.overarchingTargetGroup ?? null,
+    intendedChanges: document.intendedChanges ?? [],
     areaOfOperation: document.areaOfOperation ?? null,
     partnerships: document.partnerships ?? null,
     sdgs: document.sdgs,

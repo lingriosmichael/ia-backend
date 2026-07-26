@@ -386,7 +386,8 @@ export class InterpretationService {
     acknowledgedActivityCount?: number;
     activityGoals?: {
       objectives: string | null;
-      successIndicators: string | null;
+      output: string | null;
+      outcome: string | null;
     } | null;
     projectGoals?: {
       projectGoal: string | null;
@@ -479,7 +480,8 @@ export class InterpretationService {
       id: string;
       name: string;
       objectives: string | null;
-      successIndicators: string | null;
+      output: string | null;
+      outcome: string | null;
     };
     project: {
       id: string;
@@ -528,7 +530,8 @@ export class InterpretationService {
       language: input.language,
       activityGoals: {
         objectives: input.activity.objectives,
-        successIndicators: input.activity.successIndicators,
+        output: input.activity.output,
+        outcome: input.activity.outcome,
       },
       projectGoals: {
         projectGoal: input.project.projectGoal,
@@ -666,7 +669,8 @@ export class InterpretationService {
           activityGoals: activity
             ? {
                 objectives: activity.objectives,
-                successIndicators: activity.successIndicators,
+                output: activity.output,
+                outcome: activity.outcome,
               }
             : null,
           projectGoals: {

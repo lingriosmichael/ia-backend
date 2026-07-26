@@ -24,7 +24,8 @@ function createDependencies(options: {
     projectId: string;
     name: string;
     objectives?: string | null;
-    successIndicators?: string | null;
+    output?: string | null;
+    outcome?: string | null;
     interpretationAcknowledgedAt: Date | null;
   }>;
   uploads?: Array<{
@@ -52,7 +53,8 @@ function createDependencies(options: {
         | "project_goal"
         | "project_success_indicator"
         | "activity_objective"
-        | "activity_success_indicator"
+        | "activity_output"
+        | "activity_outcome"
         | "unanchored";
       relationToEvidence:
         "reinforces" | "contradicts" | "complicates" | "context_only";
@@ -126,7 +128,8 @@ function createDependencies(options: {
       projectId: "project-1",
       name: "Activity",
       objectives: "prepare mentors",
-      successIndicators: "strong attendance",
+      output: "Two orientation sessions run",
+      outcome: "strong attendance",
       interpretationAcknowledgedAt: NOW,
     },
   ];

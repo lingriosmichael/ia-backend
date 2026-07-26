@@ -617,7 +617,8 @@ function mapQualitativeFindings(
       return anchorType === "project_outcome" ||
         anchorType === "project_impact" ||
         anchorType === "activity_objective" ||
-        anchorType === "activity_success_indicator"
+        anchorType === "activity_output" ||
+        anchorType === "activity_outcome"
         ? anchorType
         : "unanchored";
     })(),

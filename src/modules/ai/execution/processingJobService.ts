@@ -44,7 +44,8 @@ interface ProcessorStatusPayload {
 
 interface ActivityGoalsContext {
   objectives: string | null;
-  successIndicators: string | null;
+  output: string | null;
+  outcome: string | null;
 }
 
 interface ProjectImpactModelContext {
@@ -115,7 +116,8 @@ function readActivityGoalsFromPayload(
 
   return {
     objectives: readNullableString(activityGoals.objectives),
-    successIndicators: readNullableString(activityGoals.successIndicators),
+    output: readNullableString(activityGoals.output),
+    outcome: readNullableString(activityGoals.outcome),
   };
 }
 

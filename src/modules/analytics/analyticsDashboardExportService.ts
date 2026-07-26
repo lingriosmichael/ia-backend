@@ -67,7 +67,7 @@ export function renderAnalyticsDashboardExportDocumentText(
   document: AnalyticsDashboardExportDocument,
 ) {
   return [
-    "Impact Atlas dashboard export",
+    "brindl dashboard export",
     `Scope: ${document.scopeType}`,
     `Project: ${document.projectId}`,
     document.activityId ? `Activity: ${document.activityId}` : null,
@@ -176,7 +176,7 @@ export class AnalyticsDashboardExportService {
       visibleWidgets: layout.visibleWidgets,
     });
     const fileBaseName = [
-      "impact-atlas-dashboard",
+      "brindl-dashboard",
       analytics.result.projectId,
       analytics.result.activityId ?? analytics.result.scopeType.toLowerCase(),
     ].join("-");

@@ -126,6 +126,8 @@ export interface ProjectSummary {
   fundingProgram: string | null;
   fundingOrganization: string | null;
   targetGroups: string[];
+  overarchingTargetGroup: string | null;
+  intendedChanges: string[];
   areaOfOperation: string | null;
   partnerships: string | null;
   sdgs: string[];
@@ -142,14 +144,12 @@ export interface ActivitySummary {
   projectId: string;
   name: string;
   description: string | null;
-  activityType: string | null;
-  owner: string | null;
   startDate: string | null;
   endDate: string | null;
-  objectives: string | null;
-  successIndicators: string | null;
   targetAudience: string | null;
-  additionalContext: string | null;
+  objectives: string | null;
+  output: string | null;
+  outcome: string | null;
   status: ActivityStatus;
   permissions: ActivityPermissions;
   interpretationAcknowledgedAt: string | null;
@@ -596,7 +596,8 @@ export const interpretationQualitativeOutcomeAnchorTypeValues = [
   "project_outcome",
   "project_impact",
   "activity_objective",
-  "activity_success_indicator",
+  "activity_output",
+  "activity_outcome",
   "unanchored",
 ] as const;
 export type InterpretationQualitativeOutcomeAnchorType =
@@ -1212,20 +1213,14 @@ export interface CreateProjectRequest {
   name: string;
   startMonth: string;
   endMonth: string;
-  fundingProgram: string;
-  fundingOrganization: string;
+  fundingProgram?: string;
+  fundingOrganization?: string;
   targetGroups: string[];
-  areaOfOperation: string;
+  overarchingTargetGroup: string;
+  intendedChanges: string[];
+  areaOfOperation?: string;
   partnerships?: string;
   sdgs?: string[];
-  impactModel: {
-    inputs: string;
-    activities: string;
-    outputs: string;
-    impact: string;
-    outcomes: string;
-  };
-  successIndicators: string;
 }
 
 export interface UpdateProjectRequest {
@@ -1235,6 +1230,8 @@ export interface UpdateProjectRequest {
   fundingProgram?: string | null;
   fundingOrganization?: string | null;
   targetGroups?: string[];
+  overarchingTargetGroup?: string;
+  intendedChanges?: string[];
   areaOfOperation?: string | null;
   partnerships?: string | null;
   sdgs?: string[];
@@ -1251,28 +1248,24 @@ export interface UpdateProjectRequest {
 export interface CreateActivityRequest {
   name: string;
   description?: string;
-  activityType?: string;
-  owner?: string;
   startDate?: string;
   endDate?: string;
-  objectives?: string;
-  successIndicators?: string;
   targetAudience?: string;
-  additionalContext?: string;
+  objectives?: string;
+  output?: string;
+  outcome?: string;
   status?: ActivityStatus;
 }
 
 export interface UpdateActivityRequest {
   name?: string;
   description?: string | null;
-  activityType?: string | null;
-  owner?: string | null;
   startDate?: string | null;
   endDate?: string | null;
-  objectives?: string | null;
-  successIndicators?: string | null;
   targetAudience?: string | null;
-  additionalContext?: string | null;
+  objectives?: string | null;
+  output?: string | null;
+  outcome?: string | null;
   status?: ActivityStatus;
 }
 
@@ -1393,7 +1386,6 @@ export interface KnowledgeSourceInstance {
   uploadMetadataId: string;
   interpretationResultId: string;
   activityId: string;
-  activityType: string | null;
   sourceReference: string;
   addedAt: string;
   computedValue?: KnowledgeSourceInstanceComputedValue | null;

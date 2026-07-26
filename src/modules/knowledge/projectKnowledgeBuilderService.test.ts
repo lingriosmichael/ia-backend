@@ -17,9 +17,7 @@ import {
 } from "./knowledgeBuilderTestFixtures.js";
 
 test("Tier 2 exact name+description match merges across two files within the same activity", async () => {
-  const activities = [
-    makeActivity({ id: "activity-1", activityType: "mentoring" }),
-  ];
+  const activities = [makeActivity({ id: "activity-1" })];
   const uploads = [
     makeUpload({ id: "upload-1", activityId: "activity-1" }),
     makeUpload({ id: "upload-2", activityId: "activity-1" }),
@@ -84,7 +82,7 @@ test("Tier 2 exact name+description match merges across two files within the sam
   assert.equal(indicatorEntities[0]?.sourceInstances.length, 2);
 });
 
-test("Tier 2 match never merges across two different activities, even with identical name/description and the same activityType", async () => {
+test("Tier 2 match never merges across two different activities, even with identical name/description", async () => {
   // This is the exact case a false merge would be wrong for: two
   // deliberately distinct activities in the same mentoring program,
   // each tracking their own "completion rate" for their own purposes.
@@ -94,12 +92,10 @@ test("Tier 2 match never merges across two different activities, even with ident
   const activities = [
     makeActivity({
       id: "activity-1",
-      activityType: "mentoring",
       name: "Mentor:innengewinnung, Auswahl und Schulung",
     }),
     makeActivity({
       id: "activity-2",
-      activityType: "mentoring",
       name: "Mentor:innenschulung",
     }),
   ];
@@ -154,9 +150,7 @@ test("Tier 2 match never merges across two different activities, even with ident
 });
 
 test("rebuilding with unchanged input is idempotent for sourceInstances", async () => {
-  const activities = [
-    makeActivity({ id: "activity-1", activityType: "mentoring" }),
-  ];
+  const activities = [makeActivity({ id: "activity-1" })];
   const uploads = [makeUpload({ id: "upload-1", activityId: "activity-1" })];
   const interpretationResults = [
     makeInterpretationResult({
@@ -203,9 +197,7 @@ test("theme and indicator entities both merge when labels differ only by case/sp
   // Both results are on the same activity (two of its own files) — Tier 2
   // merging only ever happens within one activity, so this is the
   // realistic scenario for exercising normalization + merge together.
-  const activities = [
-    makeActivity({ id: "activity-1", activityType: "mentoring" }),
-  ];
+  const activities = [makeActivity({ id: "activity-1" })];
   const uploads = [
     makeUpload({ id: "upload-1", activityId: "activity-1" }),
     makeUpload({ id: "upload-2", activityId: "activity-1" }),
@@ -310,9 +302,7 @@ test("theme and indicator entities both merge when labels differ only by case/sp
 });
 
 test("pruneStaleSourceInstances removes only the stale sourceReference", async () => {
-  const activities = [
-    makeActivity({ id: "activity-1", activityType: "mentoring" }),
-  ];
+  const activities = [makeActivity({ id: "activity-1" })];
   const uploads = [makeUpload({ id: "upload-1", activityId: "activity-1" })];
   const existingEntities: KnowledgeEntityPersistenceRecord[] = [
     {
@@ -327,7 +317,6 @@ test("pruneStaleSourceInstances removes only the stale sourceReference", async (
           uploadMetadataId: "upload-1",
           interpretationResultId: "result-1",
           activityId: "activity-1",
-          activityType: "mentoring",
           sourceReference: "Indicator A",
           addedAt: NOW.toISOString(),
         },
@@ -335,7 +324,6 @@ test("pruneStaleSourceInstances removes only the stale sourceReference", async (
           uploadMetadataId: "upload-1",
           interpretationResultId: "result-1",
           activityId: "activity-1",
-          activityType: "mentoring",
           sourceReference: "Indicator B",
           addedAt: NOW.toISOString(),
         },
@@ -389,9 +377,7 @@ test("pruneStaleSourceInstances removes only the stale sourceReference", async (
 });
 
 test("an entity emptied of all source instances is deleted, not left as an orphan", async () => {
-  const activities = [
-    makeActivity({ id: "activity-1", activityType: "mentoring" }),
-  ];
+  const activities = [makeActivity({ id: "activity-1" })];
   const uploads = [makeUpload({ id: "upload-1", activityId: "activity-1" })];
   const keptIndicator = {
     id: "indicator-1",
@@ -458,9 +444,7 @@ test("an entity emptied of all source instances is deleted, not left as an orpha
 });
 
 test("deleting an activity's only evidence cascade-deletes the orphaned entities", async () => {
-  const activities = [
-    makeActivity({ id: "activity-1", activityType: "mentoring" }),
-  ];
+  const activities = [makeActivity({ id: "activity-1" })];
   const uploads = [makeUpload({ id: "upload-1", activityId: "activity-1" })];
   const firstBuildResults = [
     makeInterpretationResult({

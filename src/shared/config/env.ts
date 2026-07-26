@@ -52,10 +52,10 @@ const envSchema = z
       .pipe(z.enum(["true", "false"]).optional())
       .transform((value) => value !== "false"),
     MONGODB_URI: z.string().min(1).default("mongodb://127.0.0.1:27017"),
-    MONGODB_DB_NAME: z.string().min(1).default("impact_atlas_backend"),
+    MONGODB_DB_NAME: z.string().min(1).default("brindl_backend"),
     EMAIL_PROVIDER: z.enum(["disabled", "mailersend"]).default("disabled"),
     EMAIL_FROM: z.string().email().default("noreply@example.org"),
-    EMAIL_FROM_NAME: z.string().min(1).default("Impact Atlas"),
+    EMAIL_FROM_NAME: z.string().min(1).default("brindl"),
     EMAIL_REPLY_TO: z.string().email().optional(),
     EMAIL_REPLY_TO_NAME: z.string().min(1).optional(),
     MAILERSEND_API_BASE_URL: z

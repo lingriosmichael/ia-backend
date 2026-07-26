@@ -19,7 +19,7 @@ export class MailerSendEmailService implements EmailService {
   async sendOrganizationInvitation(
     input: OrganizationInvitationEmailInput,
   ): Promise<void> {
-    const subject = `Invitation to join ${input.organizationName} on Impact Atlas`;
+    const subject = `Invitation to join ${input.organizationName} on brindl`;
     const inviteAction =
       input.acceptanceMode === "sign_in"
         ? "Sign in with your invited email address to accept the invitation."
@@ -56,14 +56,14 @@ export class MailerSendEmailService implements EmailService {
           ],
           subject,
           text: [
-            `You've been invited to join ${input.organizationName} on Impact Atlas.`,
+            `You've been invited to join ${input.organizationName} on brindl.`,
             "",
             inviteAction,
             "",
             `Accept invitation: ${input.acceptUrl}`,
           ].join("\n"),
           html: [
-            `<p>You've been invited to join <strong>${escapedOrganizationName}</strong> on Impact Atlas.</p>`,
+            `<p>You've been invited to join <strong>${escapedOrganizationName}</strong> on brindl.</p>`,
             `<p>${escapeHtml(inviteAction)}</p>`,
             `<p><a href="${escapedAcceptUrl}">Accept invitation</a></p>`,
           ].join(""),

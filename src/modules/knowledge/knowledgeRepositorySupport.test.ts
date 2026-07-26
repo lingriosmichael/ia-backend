@@ -10,7 +10,6 @@ test("knowledge source instance mapping preserves computed and qualitative conte
     uploadMetadataId: "upload-1",
     interpretationResultId: "result-1",
     activityId: "activity-1",
-    activityType: "mentoring",
     sourceReference: "Attendance improved",
     addedAt: "2026-01-01T00:00:00.000Z",
     computedValue: {

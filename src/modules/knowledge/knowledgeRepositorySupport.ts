@@ -7,7 +7,6 @@ type SourceInstanceDocumentShape = {
   uploadMetadataId: string;
   interpretationResultId: string;
   activityId: string;
-  activityType?: string | null;
   sourceReference: string;
   addedAt: Date;
   computedValue?: KnowledgeSourceInstance["computedValue"];
@@ -21,7 +20,6 @@ export function toKnowledgeSourceInstanceRecord(
     uploadMetadataId: instance.uploadMetadataId,
     interpretationResultId: instance.interpretationResultId,
     activityId: instance.activityId,
-    activityType: instance.activityType ?? null,
     sourceReference: instance.sourceReference,
     addedAt: instance.addedAt.toISOString(),
     computedValue: instance.computedValue ?? null,

@@ -19,13 +19,12 @@ test("activity getById authorizes access through the project service", async () 
       projectId: "project-1",
       name: "Activity One",
       description: null,
-      activityType: null,
-      owner: null,
       startDate: null,
       endDate: null,
-      objectives: null,
-      successIndicators: null,
       targetAudience: null,
+      objectives: null,
+      output: null,
+      outcome: null,
       status: "active",
       createdAt: new Date("2026-01-01T00:00:00.000Z"),
       updatedAt: new Date("2026-01-02T00:00:00.000Z"),
@@ -77,14 +76,12 @@ test("activity getById authorizes access through the project service", async () 
           projectId: "project-1",
           name: "Activity One",
           description: null,
-          activityType: null,
-          owner: null,
           startDate: null,
           endDate: null,
-          objectives: null,
-          successIndicators: null,
           targetAudience: null,
-          additionalContext: null,
+          objectives: null,
+          output: null,
+          outcome: null,
           status: "active",
           createdAt: new Date("2026-01-01T00:00:00.000Z"),
           updatedAt: new Date("2026-01-02T00:00:00.000Z"),
@@ -113,6 +110,221 @@ test("activity getById authorizes access through the project service", async () 
   assert.equal(authorizedProjectId, "project-1");
 });
 
+test("activity create trims text fields and collapses whitespace-only optional text to null", async () => {
+  const captured: { input: Record<string, unknown> | null } = { input: null };
+
+  const activityRepository = {
+    create: async (input: Record<string, unknown>) => {
+      captured.input = input;
+      return {
+        id: "activity-1",
+        projectId: "project-1",
+        name: input.name,
+        description: input.description,
+        startDate: null,
+        endDate: null,
+        targetAudience: input.targetAudience,
+        objectives: input.objectives,
+        output: input.output,
+        outcome: input.outcome,
+        status: "active",
+        interpretationAcknowledgedAt: null,
+        interpretationAcknowledgedById: null,
+        createdAt: new Date("2026-01-01T00:00:00.000Z"),
+        updatedAt: new Date("2026-01-01T00:00:00.000Z"),
+      };
+    },
+  } as unknown as ActivityRepository;
+
+  const authorizationService = {
+    canEditProject: async () => undefined,
+  } as unknown as AuthorizationService;
+
+  const activityService = new ActivityService(
+    activityRepository,
+    authorizationService,
+    {} as UploadMetadataRepository,
+    new FileStorageService("/tmp"),
+    {
+      runInTransaction: async (operation) => operation(null),
+    } as TransactionManager,
+    {} as ProcessingJobRepository,
+    {} as ProcessingResourceCleanupService,
+    {} as ProjectDerivedStateInvalidationService,
+    { error: () => undefined } as never,
+  );
+
+  await activityService.create("user-1", "project-1", {
+    name: "  My Activity  ",
+    output: "   ",
+    outcome: "  Real outcome text  ",
+  });
+
+  assert.equal(captured.input?.name, "My Activity");
+  assert.equal(captured.input?.output, null);
+  assert.equal(captured.input?.outcome, "Real outcome text");
+});
+
+test("activity update invalidates AI knowledge state when output/outcome actually change", async () => {
+  const calls: string[] = [];
+  const captured: { input: Record<string, unknown> | null } = { input: null };
+
+  const activityRepository = {
+    findById: async () => ({
+      id: "activity-1",
+      projectId: "project-1",
+      name: "Activity One",
+      description: null,
+      startDate: null,
+      endDate: null,
+      targetAudience: null,
+      objectives: null,
+      output: "old output",
+      outcome: "old outcome",
+      status: "active",
+      interpretationAcknowledgedAt: new Date("2026-01-03T00:00:00.000Z"),
+      interpretationAcknowledgedById: "user-1",
+      createdAt: new Date("2026-01-01T00:00:00.000Z"),
+      updatedAt: new Date("2026-01-02T00:00:00.000Z"),
+    }),
+    update: async (_activityId: string, input: Record<string, unknown>) => {
+      captured.input = input;
+      return {
+        id: "activity-1",
+        projectId: "project-1",
+        name: "Activity One",
+        description: null,
+        startDate: null,
+        endDate: null,
+        targetAudience: null,
+        objectives: null,
+        output: "new output",
+        outcome: "old outcome",
+        status: "active",
+        interpretationAcknowledgedAt: null,
+        interpretationAcknowledgedById: null,
+        createdAt: new Date("2026-01-01T00:00:00.000Z"),
+        updatedAt: new Date("2026-01-04T00:00:00.000Z"),
+      };
+    },
+  } as unknown as ActivityRepository;
+
+  const authorizationService = {
+    canEditActivity: async () => ({
+      project: { id: "project-1", ownerId: "user-1" },
+    }),
+  } as unknown as AuthorizationService;
+
+  const projectDerivedStateInvalidationService = {
+    invalidateProject: async (projectId: string) => {
+      calls.push(`invalidate:${projectId}`);
+    },
+  } as unknown as ProjectDerivedStateInvalidationService;
+
+  const activityService = new ActivityService(
+    activityRepository,
+    authorizationService,
+    {} as UploadMetadataRepository,
+    new FileStorageService("/tmp"),
+    {
+      runInTransaction: async (operation) => operation(null),
+    } as TransactionManager,
+    {} as ProcessingJobRepository,
+    {} as ProcessingResourceCleanupService,
+    projectDerivedStateInvalidationService,
+    { error: () => undefined } as never,
+  );
+
+  await activityService.update("user-1", "activity-1", {
+    output: "new output",
+  });
+
+  assert.equal(captured.input?.interpretationAcknowledgedAt, null);
+  assert.equal(captured.input?.interpretationAcknowledgedById, null);
+  assert.equal(captured.input?.aiKnowledgeSnapshot, null);
+  assert.deepEqual(calls, ["invalidate:project-1"]);
+});
+
+test("activity update does not invalidate AI knowledge state when the only change is whitespace padding", async () => {
+  const calls: string[] = [];
+  const captured: { input: Record<string, unknown> | null } = { input: null };
+
+  const activityRepository = {
+    findById: async () => ({
+      id: "activity-1",
+      projectId: "project-1",
+      name: "Activity One",
+      description: null,
+      startDate: null,
+      endDate: null,
+      targetAudience: null,
+      objectives: null,
+      output: "Same output",
+      outcome: null,
+      status: "active",
+      interpretationAcknowledgedAt: new Date("2026-01-03T00:00:00.000Z"),
+      interpretationAcknowledgedById: "user-1",
+      createdAt: new Date("2026-01-01T00:00:00.000Z"),
+      updatedAt: new Date("2026-01-02T00:00:00.000Z"),
+    }),
+    update: async (_activityId: string, input: Record<string, unknown>) => {
+      captured.input = input;
+      return {
+        id: "activity-1",
+        projectId: "project-1",
+        name: "Activity One",
+        description: null,
+        startDate: null,
+        endDate: null,
+        targetAudience: null,
+        objectives: null,
+        output: "Same output",
+        outcome: null,
+        status: "active",
+        interpretationAcknowledgedAt: new Date("2026-01-03T00:00:00.000Z"),
+        interpretationAcknowledgedById: "user-1",
+        createdAt: new Date("2026-01-01T00:00:00.000Z"),
+        updatedAt: new Date("2026-01-02T00:00:00.000Z"),
+      };
+    },
+  } as unknown as ActivityRepository;
+
+  const authorizationService = {
+    canEditActivity: async () => ({
+      project: { id: "project-1", ownerId: "user-1" },
+    }),
+  } as unknown as AuthorizationService;
+
+  const projectDerivedStateInvalidationService = {
+    invalidateProject: async (projectId: string) => {
+      calls.push(`invalidate:${projectId}`);
+    },
+  } as unknown as ProjectDerivedStateInvalidationService;
+
+  const activityService = new ActivityService(
+    activityRepository,
+    authorizationService,
+    {} as UploadMetadataRepository,
+    new FileStorageService("/tmp"),
+    {
+      runInTransaction: async (operation) => operation(null),
+    } as TransactionManager,
+    {} as ProcessingJobRepository,
+    {} as ProcessingResourceCleanupService,
+    projectDerivedStateInvalidationService,
+    { error: () => undefined } as never,
+  );
+
+  await activityService.update("user-1", "activity-1", {
+    output: "  Same output  ",
+  });
+
+  assert.equal(captured.input?.interpretationAcknowledgedAt, undefined);
+  assert.equal(captured.input?.interpretationAcknowledgedById, undefined);
+  assert.equal(captured.input?.aiKnowledgeSnapshot, undefined);
+  assert.deepEqual(calls, []);
+});
+
 test("activity delete clears acknowledgment and invalidates project derived state before deleting records", async () => {
   const calls: string[] = [];
 
@@ -138,14 +350,12 @@ test("activity delete clears acknowledgment and invalidates project derived stat
       projectId: "project-1",
       name: "Activity One",
       description: null,
-      activityType: null,
-      owner: null,
       startDate: null,
       endDate: null,
-      objectives: null,
-      successIndicators: null,
       targetAudience: null,
-      additionalContext: null,
+      objectives: null,
+      output: null,
+      outcome: null,
       status: "active",
       interpretationAcknowledgedAt: new Date("2026-01-03T00:00:00.000Z"),
       interpretationAcknowledgedById: "user-1",

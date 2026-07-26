@@ -83,7 +83,6 @@ export function makeIndicatorEntity(
         uploadMetadataId: "upload-1",
         interpretationResultId: "result-1",
         activityId: "activity-1",
-        activityType: "mentoring",
         sourceReference: "Attendance rate",
         addedAt: NOW.toISOString(),
       },
@@ -109,7 +108,6 @@ export function makeThemeEntity(
         uploadMetadataId: "upload-2",
         interpretationResultId: "result-2",
         activityId: "activity-1",
-        activityType: "mentoring",
         sourceReference: "Mentors reporting insufficient support",
         addedAt: NOW.toISOString(),
         qualitativeContext: {

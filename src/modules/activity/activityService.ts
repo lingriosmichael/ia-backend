@@ -10,6 +10,7 @@ import { FileStorageService } from "../upload/fileStorageService.js";
 import { ProcessingResourceCleanupService } from "../processing/processingResourceCleanupService.js";
 import type { UploadMetadataRepository } from "../upload/uploadMetadataRepository.js";
 import { mapActivity } from "../../shared/utils/mappers.js";
+import { trimNullableText, trimRequiredText } from "../../shared/utils/text.js";
 import type { ActivityRepository } from "./activityRepository.js";
 
 export class ActivityService {
@@ -51,14 +52,12 @@ export class ActivityService {
     input: {
       name: string;
       description?: string;
-      activityType?: string;
-      owner?: string;
       startDate?: string;
       endDate?: string;
-      objectives?: string;
-      successIndicators?: string;
       targetAudience?: string;
-      additionalContext?: string;
+      objectives?: string;
+      output?: string;
+      outcome?: string;
       status?: "active" | "completed";
     },
   ) {
@@ -68,16 +67,14 @@ export class ActivityService {
       {
         projectId,
         createdById: userId,
-        name: input.name.trim(),
-        description: input.description?.trim() ?? null,
-        activityType: input.activityType?.trim() ?? null,
-        owner: input.owner?.trim() ?? null,
+        name: trimRequiredText(input.name),
+        description: trimNullableText(input.description) ?? null,
         startDate: input.startDate ? new Date(input.startDate) : null,
         endDate: input.endDate ? new Date(input.endDate) : null,
-        objectives: input.objectives?.trim() ?? null,
-        successIndicators: input.successIndicators?.trim() ?? null,
-        targetAudience: input.targetAudience?.trim() ?? null,
-        additionalContext: input.additionalContext?.trim() ?? null,
+        targetAudience: trimNullableText(input.targetAudience) ?? null,
+        objectives: trimNullableText(input.objectives) ?? null,
+        output: trimNullableText(input.output) ?? null,
+        outcome: trimNullableText(input.outcome) ?? null,
         status: input.status,
       },
       databaseSession,
@@ -98,14 +95,12 @@ export class ActivityService {
     input: {
       name?: string;
       description?: string | null;
-      activityType?: string | null;
-      owner?: string | null;
       startDate?: string | null;
       endDate?: string | null;
-      objectives?: string | null;
-      successIndicators?: string | null;
       targetAudience?: string | null;
-      additionalContext?: string | null;
+      objectives?: string | null;
+      output?: string | null;
+      outcome?: string | null;
       status?: "active" | "completed";
     },
   ) {
@@ -123,34 +118,34 @@ export class ActivityService {
       activityId,
     );
     const nextName =
-      input.name === undefined ? activity.name : input.name.trim();
+      input.name === undefined ? activity.name : trimRequiredText(input.name);
     const nextDescription =
       input.description === undefined
         ? activity.description
-        : (input.description?.trim() ?? null);
-    const nextObjectives =
-      input.objectives === undefined
-        ? activity.objectives
-        : (input.objectives?.trim() ?? null);
-    const nextSuccessIndicators =
-      input.successIndicators === undefined
-        ? activity.successIndicators
-        : (input.successIndicators?.trim() ?? null);
+        : (trimNullableText(input.description) ?? null);
     const nextTargetAudience =
       input.targetAudience === undefined
         ? activity.targetAudience
-        : (input.targetAudience?.trim() ?? null);
-    const nextAdditionalContext =
-      input.additionalContext === undefined
-        ? activity.additionalContext
-        : (input.additionalContext?.trim() ?? null);
+        : (trimNullableText(input.targetAudience) ?? null);
+    const nextObjectives =
+      input.objectives === undefined
+        ? activity.objectives
+        : (trimNullableText(input.objectives) ?? null);
+    const nextOutput =
+      input.output === undefined
+        ? activity.output
+        : (trimNullableText(input.output) ?? null);
+    const nextOutcome =
+      input.outcome === undefined
+        ? activity.outcome
+        : (trimNullableText(input.outcome) ?? null);
     const shouldClearAiKnowledgeState =
       nextName !== activity.name ||
       nextDescription !== activity.description ||
-      nextObjectives !== activity.objectives ||
-      nextSuccessIndicators !== activity.successIndicators ||
       nextTargetAudience !== activity.targetAudience ||
-      nextAdditionalContext !== activity.additionalContext;
+      nextObjectives !== activity.objectives ||
+      nextOutput !== activity.output ||
+      nextOutcome !== activity.outcome;
     const shouldInvalidateDerivedState = Boolean(
       shouldClearAiKnowledgeState &&
       (activity.interpretationAcknowledgedAt ||
@@ -160,17 +155,9 @@ export class ActivityService {
     const updatedActivity = await this.activityRepository.update(
       activityId,
       {
-        name: input.name?.trim(),
-        description:
-          input.description === undefined
-            ? undefined
-            : (input.description?.trim() ?? null),
-        activityType:
-          input.activityType === undefined
-            ? undefined
-            : (input.activityType?.trim() ?? null),
-        owner:
-          input.owner === undefined ? undefined : (input.owner?.trim() ?? null),
+        name:
+          input.name === undefined ? undefined : trimRequiredText(input.name),
+        description: trimNullableText(input.description),
         startDate:
           input.startDate === undefined
             ? undefined
@@ -183,22 +170,10 @@ export class ActivityService {
             : input.endDate
               ? new Date(input.endDate)
               : null,
-        objectives:
-          input.objectives === undefined
-            ? undefined
-            : (input.objectives?.trim() ?? null),
-        successIndicators:
-          input.successIndicators === undefined
-            ? undefined
-            : (input.successIndicators?.trim() ?? null),
-        targetAudience:
-          input.targetAudience === undefined
-            ? undefined
-            : (input.targetAudience?.trim() ?? null),
-        additionalContext:
-          input.additionalContext === undefined
-            ? undefined
-            : (input.additionalContext?.trim() ?? null),
+        targetAudience: trimNullableText(input.targetAudience),
+        objectives: trimNullableText(input.objectives),
+        output: trimNullableText(input.output),
+        outcome: trimNullableText(input.outcome),
         status: input.status,
         interpretationAcknowledgedAt: shouldClearAiKnowledgeState
           ? null

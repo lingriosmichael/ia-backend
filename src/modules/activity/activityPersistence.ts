@@ -24,14 +24,12 @@ export interface ActivityPersistenceRecord {
   projectId: string;
   name: string;
   description: string | null;
-  activityType: string | null;
-  owner: string | null;
   startDate: Date | null;
   endDate: Date | null;
-  objectives: string | null;
-  successIndicators: string | null;
   targetAudience: string | null;
-  additionalContext: string | null;
+  objectives: string | null;
+  output: string | null;
+  outcome: string | null;
   status: ActivityStatus;
   interpretationAcknowledgedAt: Date | null;
   interpretationAcknowledgedById: string | null;
@@ -45,28 +43,24 @@ export interface ActivityCreateInput {
   createdById: string;
   name: string;
   description: string | null;
-  activityType: string | null;
-  owner: string | null;
   startDate: Date | null;
   endDate: Date | null;
-  objectives: string | null;
-  successIndicators: string | null;
   targetAudience: string | null;
-  additionalContext: string | null;
+  objectives: string | null;
+  output: string | null;
+  outcome: string | null;
   status?: ActivityStatus;
 }
 
 export interface ActivityUpdateInput {
   name?: string;
   description?: string | null;
-  activityType?: string | null;
-  owner?: string | null;
   startDate?: Date | null;
   endDate?: Date | null;
-  objectives?: string | null;
-  successIndicators?: string | null;
   targetAudience?: string | null;
-  additionalContext?: string | null;
+  objectives?: string | null;
+  output?: string | null;
+  outcome?: string | null;
   status?: ActivityStatus;
   interpretationAcknowledgedAt?: Date | null;
   interpretationAcknowledgedById?: string | null;

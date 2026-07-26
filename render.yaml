@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: impact-atlas-backend
+    name: brindl-backend
     runtime: node
     region: frankfurt
     plan: starter
@@ -43,7 +43,7 @@ services:
       - key: MONGODB_URI
         sync: false
       - key: MONGODB_DB_NAME
-        value: impact_atlas_backend
+        value: brindl_backend
       - key: PYTHON_SERVICE_URL
         sync: false
       - key: PYTHON_SERVICE_SHARED_SECRET
@@ -63,7 +63,7 @@ services:
       - key: EMAIL_FROM
         sync: false
       - key: EMAIL_FROM_NAME
-        value: Impact Atlas
+        value: brindl
       - key: EMAIL_REPLY_TO
         sync: false
       - key: EMAIL_REPLY_TO_NAME
@@ -76,7 +76,7 @@ services:
         value: mock-structured-v1
 
   - type: worker
-    name: impact-atlas-analytics-worker
+    name: brindl-analytics-worker
     runtime: node
     region: frankfurt
     plan: starter
@@ -92,7 +92,7 @@ services:
       - key: MONGODB_URI
         sync: false
       - key: MONGODB_DB_NAME
-        value: impact_atlas_backend
+        value: brindl_backend
       - key: PYTHON_SERVICE_URL
         sync: false
       - key: PYTHON_SERVICE_SHARED_SECRET

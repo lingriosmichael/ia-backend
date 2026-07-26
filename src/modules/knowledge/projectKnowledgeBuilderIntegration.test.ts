@@ -48,32 +48,26 @@ const activities: ActivityPersistenceRecord[] = [
   makeActivity({
     id: "act-recruitment",
     name: "Mentor:innengewinnung, Auswahl und Schulung",
-    activityType: "mentoring",
   }),
   makeActivity({
     id: "act-training",
     name: "Mentor:innenschulung",
-    activityType: "mentoring",
   }),
   makeActivity({
     id: "act-matching",
     name: "Mentee Matching & Onboarding",
-    activityType: "matching",
   }),
   makeActivity({
     id: "act-sessions",
     name: "Mentoring Sessions & Attendance",
-    activityType: "mentoring_sessions",
   }),
   makeActivity({
     id: "act-outcomes",
     name: "Program Outcomes Assessment",
-    activityType: "outcomes",
   }),
   makeActivity({
     id: "act-alumni",
     name: "Alumni Network & Follow-up",
-    activityType: "alumni",
     // Not yet reviewed/acknowledged — everything under this activity must
     // be fully invisible to the Knowledge Builder, no matter how closely
     // its data resembles an already-verified activity's.
@@ -247,7 +241,7 @@ const interpretationResults: InterpretationResultPersistenceRecord[] = [
 
   // --- Training: a separate activity that happens to track the exact
   // same wording as recruitment's completion rate — must NOT merge with
-  // it, despite identical label, description, and activityType.
+  // it, despite identical label and description.
   makeInterpretationResult({
     id: "result-training",
     activityId: "act-training",
