@@ -45,9 +45,12 @@ services:
       - key: MONGODB_DB_NAME
         value: brindl_backend
       - key: PYTHON_SERVICE_URL
-        sync: false
+        fromService:
+          type: pserv
+          name: brindl-python-api
+          property: hostport
       - key: PYTHON_SERVICE_SHARED_SECRET
-        sync: false
+        generateValue: true
       - key: PYTHON_SERVICE_TIMEOUT_MS
         value: "30000"
       - key: PYTHON_ANALYTICS_TIMEOUT_MS
@@ -88,15 +91,24 @@ services:
       - key: NODE_ENV
         value: production
       - key: JWT_SECRET
-        sync: false
+        fromService:
+          type: web
+          name: brindl-backend
+          envVarKey: JWT_SECRET
       - key: MONGODB_URI
         sync: false
       - key: MONGODB_DB_NAME
         value: brindl_backend
       - key: PYTHON_SERVICE_URL
-        sync: false
+        fromService:
+          type: pserv
+          name: brindl-python-api
+          property: hostport
       - key: PYTHON_SERVICE_SHARED_SECRET
-        sync: false
+        fromService:
+          type: web
+          name: brindl-backend
+          envVarKey: PYTHON_SERVICE_SHARED_SECRET
       - key: PYTHON_ANALYTICS_TIMEOUT_MS
         value: "120000"
       - key: FILE_STORAGE_DRIVER
