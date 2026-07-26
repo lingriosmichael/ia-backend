@@ -142,7 +142,7 @@ export class MongoKnowledgeEntityRepository implements KnowledgeEntityRepository
             sourceInstances: toKnowledgeSourceInstanceDocument(sourceInstance),
           },
         },
-        { new: true },
+        { returnDocument: "after" },
       ),
       session,
     ).exec();
@@ -172,7 +172,7 @@ export class MongoKnowledgeEntityRepository implements KnowledgeEntityRepository
             },
           },
         },
-        { new: true },
+        { returnDocument: "after" },
       ),
       session,
     ).exec();
@@ -250,7 +250,7 @@ export class MongoKnowledgeEntityRepository implements KnowledgeEntityRepository
             },
           },
         },
-        { new: true },
+        { returnDocument: "after" },
       ),
       session,
     ).exec();
@@ -288,7 +288,7 @@ export class MongoKnowledgeEntityRepository implements KnowledgeEntityRepository
             },
           },
         },
-        { new: true },
+        { returnDocument: "after" },
       ),
       session,
     ).exec();

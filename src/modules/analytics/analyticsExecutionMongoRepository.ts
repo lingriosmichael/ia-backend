@@ -130,7 +130,7 @@ export class MongoAnalyticsExecutionRepository implements AnalyticsExecutionRepo
             ? { errorMessage: update.errorMessage }
             : {}),
         },
-        { new: true },
+        { returnDocument: "after" },
       ),
       session,
     ).exec();
@@ -260,7 +260,7 @@ export class MongoAnalyticsExecutionRepository implements AnalyticsExecutionRepo
           sort: {
             createdAt: 1,
           },
-          new: true,
+          returnDocument: "after",
         },
       ),
       session,
@@ -291,7 +291,7 @@ export class MongoAnalyticsExecutionRepository implements AnalyticsExecutionRepo
             lastHeartbeatAt: input.heartbeatAt,
           },
         },
-        { new: true },
+        { returnDocument: "after" },
       ),
       session,
     ).exec();

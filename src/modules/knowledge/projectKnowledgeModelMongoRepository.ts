@@ -43,7 +43,7 @@ export class MongoProjectKnowledgeModelRepository implements ProjectKnowledgeMod
       ProjectKnowledgeModelMongoModel.findOneAndUpdate(
         { projectId },
         { $set: fields },
-        { new: true },
+        { returnDocument: "after" },
       ),
       session,
     ).exec();
@@ -139,7 +139,7 @@ export class MongoProjectKnowledgeModelRepository implements ProjectKnowledgeMod
       ProjectKnowledgeModelMongoModel.findOneAndUpdate(
         { projectId, status: { $ne: "building" } },
         { $set: { status: "building" } },
-        { new: true },
+        { returnDocument: "after" },
       ),
       session,
     ).exec();
