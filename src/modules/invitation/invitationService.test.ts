@@ -2,7 +2,6 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import type { AuthorizationService } from "../../shared/auth/authorizationService.js";
 import type { TransactionManager } from "../../shared/database/transactionManager.js";
-import { AppError } from "../../shared/errors/appError.js";
 import type { EmailService } from "../../shared/email/emailService.js";
 import type { OrganizationRepository } from "../organization/organizationRepository.js";
 import type { UserRepository } from "../user/userRepository.js";
@@ -90,7 +89,7 @@ test("invitation creation sends an email with the frontend acceptance URL", asyn
   ]);
 });
 
-test("invitation creation revokes the invitation and fails when email delivery fails", async () => {
+test("invitation creation still succeeds when email delivery fails", async () => {
   const revokedInvitationIds: string[] = [];
 
   const invitationRepository = {
@@ -161,19 +160,18 @@ test("invitation creation revokes the invitation and fails when email delivery f
     logger,
   );
 
-  await assert.rejects(
-    invitationService.create("user-1", "organization-1", {
+  const invitation = await invitationService.create(
+    "user-1",
+    "organization-1",
+    {
       email: "pm@example.org",
       role: "PROJECT_MANAGER",
-    }),
-    (error: unknown) => {
-      assert.ok(error instanceof AppError);
-      assert.equal(error.code, "invitation_delivery_failed");
-      return true;
     },
   );
 
-  assert.deepEqual(revokedInvitationIds, ["invitation-1"]);
+  assert.equal(invitation.id, "invitation-1");
+  assert.equal(invitation.status, "pending");
+  assert.deepEqual(revokedInvitationIds, []);
 });
 
 test("invitation resend sends the existing acceptance link again", async () => {

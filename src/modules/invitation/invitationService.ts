@@ -146,12 +146,6 @@ export class InvitationService {
         },
         "Failed to send organization invitation email.",
       );
-      await this.invitationRepository.revoke(invitation.id, databaseSession);
-      throw new AppError(
-        "Invitation email could not be sent. Please verify the email configuration and try again.",
-        502,
-        "invitation_delivery_failed",
-      );
     }
 
     return {
