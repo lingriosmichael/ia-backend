@@ -9,6 +9,12 @@ import type { UserRepository } from "../user/userRepository.js";
 import type { InvitationRepository } from "./invitationRepository.js";
 import { InvitationService } from "./invitationService.js";
 
+const logger = {
+  info: () => undefined,
+  warn: () => undefined,
+  error: () => undefined,
+} as unknown as import("fastify").FastifyBaseLogger;
+
 test("invitation creation sends an email with the frontend acceptance URL", async () => {
   const sentEmails: Array<{
     toEmail: string;
@@ -66,6 +72,7 @@ test("invitation creation sends an email with the frontend acceptance URL", asyn
     transactionManager,
     emailService,
     "http://localhost:8080/",
+    logger,
   );
 
   await invitationService.create("user-1", "organization-1", {
@@ -151,6 +158,7 @@ test("invitation creation revokes the invitation and fails when email delivery f
     transactionManager,
     emailService,
     "http://localhost:8080",
+    logger,
   );
 
   await assert.rejects(
@@ -223,6 +231,7 @@ test("invitation resend sends the existing acceptance link again", async () => {
     transactionManager,
     emailService,
     "http://localhost:8080/",
+    logger,
   );
 
   await invitationService.resend("user-1", "organization-1", "invitation-1");

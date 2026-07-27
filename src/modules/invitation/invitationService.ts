@@ -1,4 +1,5 @@
 import { randomBytes } from "node:crypto";
+import type { FastifyBaseLogger } from "fastify";
 import { databaseSession } from "../../shared/database/databaseClient.js";
 import type { TransactionManager } from "../../shared/database/transactionManager.js";
 import { isMongoDuplicateKeyError } from "../../shared/database/mongoErrors.js";
@@ -20,6 +21,7 @@ export class InvitationService {
     private readonly transactionManager: TransactionManager,
     private readonly emailService: EmailService,
     private readonly webappUrl: string,
+    private readonly logger: FastifyBaseLogger,
   ) {}
 
   async listForOrganization(userId: string, organizationId: string) {
@@ -133,7 +135,17 @@ export class InvitationService {
         acceptUrl: this.buildInvitationAcceptUrl(invitation.token),
         acceptanceMode,
       });
-    } catch {
+    } catch (error) {
+      this.logger.error(
+        {
+          organizationId,
+          invitationId: invitation.id,
+          toEmail: email,
+          acceptanceMode,
+          err: error,
+        },
+        "Failed to send organization invitation email.",
+      );
       await this.invitationRepository.revoke(invitation.id, databaseSession);
       throw new AppError(
         "Invitation email could not be sent. Please verify the email configuration and try again.",
@@ -218,7 +230,17 @@ export class InvitationService {
         acceptUrl: this.buildInvitationAcceptUrl(invitation.token),
         acceptanceMode: existingUser ? "sign_in" : "create_account",
       });
-    } catch {
+    } catch (error) {
+      this.logger.error(
+        {
+          organizationId,
+          invitationId: invitation.id,
+          toEmail: invitation.email,
+          acceptanceMode: existingUser ? "sign_in" : "create_account",
+          err: error,
+        },
+        "Failed to resend organization invitation email.",
+      );
       throw new AppError(
         "Invitation email could not be sent. Please verify the email configuration and try again.",
         502,

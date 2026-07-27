@@ -337,6 +337,7 @@ export function createApplicationContext(
     transactionManager,
     emailService,
     config.WEBAPP_URL,
+    logger,
   );
 
   return {
