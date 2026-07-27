@@ -41,6 +41,23 @@ function toIso(value: Date) {
   return value.toISOString();
 }
 
+function resolveOverarchingTargetGroup(input: {
+  overarchingTargetGroup?: string | null;
+  targetGroups?: string[];
+}) {
+  const explicitValue = trimNullableText(input.overarchingTargetGroup);
+  if (explicitValue) {
+    return explicitValue;
+  }
+
+  const normalizedTargetGroups = trimStringArray(input.targetGroups) ?? [];
+  if (normalizedTargetGroups.length === 0) {
+    return null;
+  }
+
+  return normalizedTargetGroups.join(", ");
+}
+
 export class ProjectService {
   constructor(
     private readonly projectRepository: ProjectRepository,
@@ -98,7 +115,7 @@ export class ProjectService {
       fundingProgram?: string;
       fundingOrganization?: string;
       targetGroups: string[];
-      overarchingTargetGroup: string;
+      overarchingTargetGroup?: string;
       intendedChanges: string[];
       areaOfOperation?: string;
       partnerships?: string;
@@ -106,6 +123,8 @@ export class ProjectService {
     },
   ) {
     await this.authorizationService.canCreateProject(userId, organizationId);
+
+    const targetGroups = trimStringArray(input.targetGroups) ?? [];
 
     const project = await this.projectRepository.create(
       {
@@ -117,8 +136,12 @@ export class ProjectService {
         fundingProgram: trimNullableText(input.fundingProgram) ?? null,
         fundingOrganization:
           trimNullableText(input.fundingOrganization) ?? null,
-        targetGroups: trimStringArray(input.targetGroups) ?? [],
-        overarchingTargetGroup: trimRequiredText(input.overarchingTargetGroup),
+        targetGroups,
+        overarchingTargetGroup:
+          resolveOverarchingTargetGroup({
+            overarchingTargetGroup: input.overarchingTargetGroup,
+            targetGroups,
+          }) ?? "",
         intendedChanges: trimStringArray(input.intendedChanges) ?? [],
         areaOfOperation: trimNullableText(input.areaOfOperation) ?? null,
         partnerships: input.partnerships?.trim() ?? null,
@@ -174,6 +197,15 @@ export class ProjectService {
   ) {
     await this.authorizationService.canEditProject(userId, projectId);
 
+    const targetGroups = trimStringArray(input.targetGroups);
+    const overarchingTargetGroup =
+      input.overarchingTargetGroup !== undefined || targetGroups !== undefined
+        ? (resolveOverarchingTargetGroup({
+            overarchingTargetGroup: input.overarchingTargetGroup,
+            targetGroups,
+          }) ?? undefined)
+        : undefined;
+
     const updatedProject = await this.projectRepository.update(
       projectId,
       {
@@ -183,8 +215,8 @@ export class ProjectService {
         endMonth: input.endMonth === undefined ? undefined : input.endMonth,
         fundingProgram: trimNullableText(input.fundingProgram),
         fundingOrganization: trimNullableText(input.fundingOrganization),
-        targetGroups: trimStringArray(input.targetGroups),
-        overarchingTargetGroup: input.overarchingTargetGroup?.trim(),
+        targetGroups,
+        overarchingTargetGroup,
         intendedChanges: trimStringArray(input.intendedChanges),
         areaOfOperation: trimNullableText(input.areaOfOperation),
         partnerships: trimNullableText(input.partnerships),

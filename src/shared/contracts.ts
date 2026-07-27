@@ -1216,7 +1216,7 @@ export interface CreateProjectRequest {
   fundingProgram?: string;
   fundingOrganization?: string;
   targetGroups: string[];
-  overarchingTargetGroup: string;
+  overarchingTargetGroup?: string;
   intendedChanges: string[];
   areaOfOperation?: string;
   partnerships?: string;

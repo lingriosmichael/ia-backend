@@ -132,7 +132,7 @@ export const createProjectSchema = z.object({
   fundingProgram: z.string().trim().max(200).optional(),
   fundingOrganization: z.string().trim().max(200).optional(),
   targetGroups: z.array(z.string().trim().min(1).max(120)).min(1).max(20),
-  overarchingTargetGroup: z.string().trim().min(2).max(200),
+  overarchingTargetGroup: z.string().trim().min(2).max(200).optional(),
   intendedChanges: z.array(z.string().trim().min(1).max(200)).min(1).max(3),
   areaOfOperation: z.string().trim().max(2000).optional(),
   partnerships: z.string().trim().max(2000).optional(),
