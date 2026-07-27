@@ -331,6 +331,7 @@ function createDependencies(options: {
 
   const logger = {
     info: () => {},
+    warn: () => {},
     error: () => {},
   } as unknown as import("fastify").FastifyBaseLogger;
 

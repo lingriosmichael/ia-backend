@@ -874,6 +874,16 @@ export class InterpretationService {
         };
       });
 
+      this.logger.warn(
+        {
+          activityId,
+          uploadCount: uploads.length,
+          activeUploadCount: activeUploadIds.size,
+          uploadStates,
+        },
+        "Activity interpretation blocked because no evidence is ready for AI interpretation.",
+      );
+
       throw new AppError(
         "No evidence in this activity is ready for AI interpretation yet.",
         409,
