@@ -13,6 +13,8 @@ import type { ProjectLlmTokenLedgerService } from "../project/projectLlmTokenLed
 import type { DatasetPreparationService } from "./datasetPreparationService.js";
 import type { DeterministicAnalysisService } from "./deterministicAnalysisService.js";
 import type { QuantitativeInterpretationSynthesisService } from "./quantitativeInterpretationSynthesisService.js";
+import type { ProcessingJobPersistenceRecord } from "../ai/persistence/aiPersistenceTypes.js";
+import type { ProcessingJobCreateInput } from "../ai/persistence/aiPersistenceTypes.js";
 
 const NOW = new Date("2026-01-01T00:00:00.000Z");
 
@@ -33,7 +35,14 @@ function createDependencies(options: {
     organizationId: string;
     projectId: string;
     activityId: string;
+    originalFileName?: string;
   }>;
+  privacySafeRepresentations?: Array<{
+    id: string;
+    uploadMetadataId: string;
+    payload: Record<string, unknown>;
+  }>;
+  processingJobs?: ProcessingJobPersistenceRecord[];
   results?: Array<{
     id: string;
     uploadMetadataId: string;
@@ -139,8 +148,23 @@ function createDependencies(options: {
       organizationId: "org-1",
       projectId: "project-1",
       activityId: "activity-1",
+      originalFileName: "upload-1.csv",
     },
   ];
+  const privacySafeRepresentations = options.privacySafeRepresentations ?? [
+    {
+      id: "psr-1",
+      uploadMetadataId: "upload-1",
+      payload: {
+        metadata: {
+          interpretationDataType: "tabular_structured",
+          evidenceModality: "structured_quantitative",
+        },
+      },
+    },
+  ];
+  const processingJobs = [...(options.processingJobs ?? [])];
+  const createdJobs: ProcessingJobPersistenceRecord[] = [];
   const results = options.results ?? [
     {
       id: "result-1",
@@ -157,21 +181,19 @@ function createDependencies(options: {
   const uploadMetadataRepository = {
     listByActivityIds: async (activityIds: string[]) =>
       uploads.filter((upload) => activityIds.includes(upload.activityId)),
+    findById: async (uploadMetadataId: string) =>
+      uploads.find((upload) => upload.id === uploadMetadataId) ?? null,
   } as unknown as UploadMetadataRepository;
 
   const privacySafeRepresentationRepository = {
-    findLatestByUploadMetadataIds: async () => [
-      {
-        id: "psr-1",
-        uploadMetadataId: "upload-1",
-        payload: {
-          metadata: {
-            interpretationDataType: "tabular_structured",
-            evidenceModality: "structured_quantitative",
-          },
-        },
-      },
-    ],
+    findLatestByUploadMetadataIds: async (uploadMetadataIds: string[]) =>
+      privacySafeRepresentations.filter((representation) =>
+        uploadMetadataIds.includes(representation.uploadMetadataId),
+      ),
+    findLatestByUploadMetadataId: async (uploadMetadataId: string) =>
+      privacySafeRepresentations.find(
+        (representation) => representation.uploadMetadataId === uploadMetadataId,
+      ) ?? null,
   } as unknown as PrivacySafeRepresentationRepository;
 
   const interpretationResultRepository = {
@@ -189,12 +211,77 @@ function createDependencies(options: {
   } as unknown as InterpretationResultRepository;
 
   const processingJobRepository = {
-    listByActivity: async () => [],
+    listByActivity: async () => processingJobs,
+    findActiveByUploadMetadataId: async (uploadMetadataId: string) => {
+      const latestJob = processingJobs
+        .filter((job) => job.uploadMetadataId === uploadMetadataId)
+        .sort((left, right) => {
+          return right.createdAt.getTime() - left.createdAt.getTime();
+        })[0];
+
+      if (
+        !latestJob ||
+        ["completed", "failed", "cancelled"].includes(latestJob.status)
+      ) {
+        return null;
+      }
+
+      return latestJob;
+    },
+    create: async (input: ProcessingJobCreateInput) => {
+      const createdJob: ProcessingJobPersistenceRecord = {
+        id: `job-${createdJobs.length + 1}`,
+        organizationId: input.organizationId,
+        projectId: input.projectId,
+        activityId: input.activityId,
+        uploadMetadataId: input.uploadMetadataId,
+        triggeredById: input.triggeredById,
+        jobType: input.jobType,
+        status: "queued",
+        payload: input.payload ?? null,
+        errorMessage: null,
+        leaseOwner: null,
+        leaseExpiresAt: null,
+        lastHeartbeatAt: null,
+        attemptCount: 0,
+        nextAttemptAt: null,
+        failureCode: null,
+        maxAttempts: 3,
+        startedAt: null,
+        completedAt: null,
+        createdAt: NOW,
+        updatedAt: NOW,
+      };
+      createdJobs.push(createdJob);
+      return createdJob;
+    },
+    update: async (
+      processingJobId: string,
+      input: Partial<ProcessingJobPersistenceRecord>,
+    ) => {
+      const job =
+        createdJobs.find((createdJob) => createdJob.id === processingJobId) ??
+        processingJobs.find((existingJob) => existingJob.id === processingJobId);
+
+      assert.ok(job);
+
+      return {
+        ...job,
+        ...input,
+        payload:
+          input.payload === undefined
+            ? job.payload
+            : (input.payload as Record<string, unknown> | null),
+        updatedAt: NOW,
+      };
+    },
   } as unknown as ProcessingJobRepository;
 
   const activityRepository = {
     listByProject: async (projectId: string) =>
       activities.filter((activity) => activity.projectId === projectId),
+    findById: async (activityId: string) =>
+      activities.find((activity) => activity.id === activityId) ?? null,
     update: async (
       activityId: string,
       input: {
@@ -219,6 +306,9 @@ function createDependencies(options: {
 
   const authorizationService = {
     canViewProject: async () => ({
+      project,
+    }),
+    canEditProject: async () => ({
       project,
     }),
     canViewActivity: async () => ({
@@ -385,6 +475,7 @@ function createDependencies(options: {
     quantitativeInterpretationSynthesisService,
     projectKnowledgeBuilderService,
     projectLlmTokenLedgerService,
+    createdJobs,
   };
 }
 
@@ -448,6 +539,95 @@ test("a rebuild failure never prevents the acknowledgment from succeeding", asyn
   const activity = await service.acknowledgeReview("user-1", "activity-1");
 
   assert.equal(activity.id, "activity-1");
+});
+
+test("activity interpretation starts from the latest completed evidence job even if an older job is still marked active", async () => {
+  const deps = createDependencies({
+    buildForProject: async () => ({}),
+    uploads: [
+      {
+        id: "upload-1",
+        organizationId: "org-1",
+        projectId: "project-1",
+        activityId: "activity-1",
+        originalFileName: "mentor_export.csv",
+      },
+    ],
+    processingJobs: [
+      {
+        id: "job-old-active",
+        organizationId: "org-1",
+        projectId: "project-1",
+        activityId: "activity-1",
+        uploadMetadataId: "upload-1",
+        triggeredById: "user-1",
+        jobType: "evidence_processing",
+        status: "awaiting_privacy_review",
+        payload: null,
+        errorMessage: null,
+        leaseOwner: null,
+        leaseExpiresAt: null,
+        lastHeartbeatAt: null,
+        attemptCount: 0,
+        nextAttemptAt: null,
+        failureCode: null,
+        maxAttempts: 3,
+        startedAt: null,
+        completedAt: null,
+        createdAt: new Date("2026-01-01T00:00:00.000Z"),
+        updatedAt: new Date("2026-01-01T00:00:00.000Z"),
+      },
+      {
+        id: "job-new-completed",
+        organizationId: "org-1",
+        projectId: "project-1",
+        activityId: "activity-1",
+        uploadMetadataId: "upload-1",
+        triggeredById: "user-1",
+        jobType: "evidence_processing",
+        status: "completed",
+        payload: null,
+        errorMessage: null,
+        leaseOwner: null,
+        leaseExpiresAt: null,
+        lastHeartbeatAt: null,
+        attemptCount: 0,
+        nextAttemptAt: null,
+        failureCode: null,
+        maxAttempts: 3,
+        startedAt: null,
+        completedAt: new Date("2026-01-02T00:00:00.000Z"),
+        createdAt: new Date("2026-01-02T00:00:00.000Z"),
+        updatedAt: new Date("2026-01-02T00:00:00.000Z"),
+      },
+    ],
+  });
+
+  const service = new InterpretationService(
+    deps.uploadMetadataRepository,
+    deps.privacySafeRepresentationRepository,
+    deps.interpretationResultRepository,
+    deps.processingJobRepository,
+    deps.activityRepository,
+    deps.authorizationService,
+    deps.pythonProcessingClient,
+    deps.logger,
+    deps.datasetPreparationService,
+    deps.deterministicAnalysisService,
+    deps.quantitativeInterpretationSynthesisService,
+    deps.projectKnowledgeBuilderService,
+    deps.projectLlmTokenLedgerService,
+  );
+
+  const response = await service.startActivityInterpretation(
+    "user-1",
+    "activity-1",
+    "de",
+  );
+
+  assert.equal(response.startedCount, 1);
+  assert.equal(deps.createdJobs.length, 1);
+  assert.equal(deps.createdJobs[0]?.jobType, "dataset_interpretation");
 });
 
 test("activity AI knowledge includes goal indicators and deterministic distribution signals", async () => {

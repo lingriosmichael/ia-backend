@@ -18,6 +18,7 @@ import type {
 } from "../../shared/contracts.js";
 import type { ActivityRepository } from "../activity/activityRepository.js";
 import type { ProcessingJobRepository } from "../ai/execution/processingJobRepository.js";
+import type { ProcessingJobPersistenceRecord } from "../ai/persistence/aiPersistenceTypes.js";
 import type { PrivacySafeRepresentationRepository } from "../processing/privacySafeRepresentationRepository.js";
 import { PythonProcessingClient } from "../processing/pythonProcessingClient.js";
 import type { UploadMetadataRepository } from "../upload/uploadMetadataRepository.js";
@@ -123,6 +124,39 @@ function formatNullableCategoryValue(
   }
 
   return language === "de" ? "unbekannt" : "unknown";
+}
+
+function getProcessingJobCreatedTimestamp(
+  job: Pick<ProcessingJobPersistenceRecord, "createdAt">,
+) {
+  const createdAt = job.createdAt instanceof Date ? job.createdAt : null;
+  return createdAt ? createdAt.getTime() : 0;
+}
+
+function getLatestJobByUploadMetadataId(
+  jobs: ProcessingJobPersistenceRecord[],
+) {
+  const latestJobByUploadId = new Map<string, ProcessingJobPersistenceRecord>();
+
+  for (const job of jobs
+    .filter(
+      (
+        job,
+      ): job is ProcessingJobPersistenceRecord & { uploadMetadataId: string } =>
+        typeof job.uploadMetadataId === "string",
+    )
+    .sort((left, right) => {
+      return (
+        getProcessingJobCreatedTimestamp(right) -
+        getProcessingJobCreatedTimestamp(left)
+      );
+    })) {
+    if (!latestJobByUploadId.has(job.uploadMetadataId)) {
+      latestJobByUploadId.set(job.uploadMetadataId, job);
+    }
+  }
+
+  return latestJobByUploadId;
 }
 
 function buildDistributionSignalDrafts(
@@ -778,16 +812,16 @@ export class InterpretationService {
         representation,
       ]),
     );
+    const latestJobByUploadId = getLatestJobByUploadMetadataId(jobs);
     const activeUploadIds = new Set(
-      jobs
+      [...latestJobByUploadId.values()]
         .filter(
           (job) =>
-            job.uploadMetadataId !== null &&
             job.status !== "completed" &&
             job.status !== "failed" &&
             job.status !== "cancelled",
         )
-        .map((job) => job.uploadMetadataId as string),
+        .map((job) => job.uploadMetadataId),
     );
 
     const eligibleUploads = uploads.filter((upload) => {
@@ -809,10 +843,42 @@ export class InterpretationService {
     });
 
     if (eligibleUploads.length === 0) {
+      const uploadStates = uploads.map((upload) => {
+        const latestJob = latestJobByUploadId.get(upload.id) ?? null;
+        const privacySafeRepresentation =
+          privacySafeRepresentationByUploadId.get(upload.id) ?? null;
+        const evidenceModality = privacySafeRepresentation
+          ? classifyEvidenceModalityFromPayload(privacySafeRepresentation.payload)
+          : null;
+
+        let reason:
+          | "active_job"
+          | "privacy_safe_representation_missing"
+          | "unsupported_modality";
+
+        if (activeUploadIds.has(upload.id)) {
+          reason = "active_job";
+        } else if (!privacySafeRepresentation) {
+          reason = "privacy_safe_representation_missing";
+        } else {
+          reason = "unsupported_modality";
+        }
+
+        return {
+          uploadMetadataId: upload.id,
+          originalFileName: upload.originalFileName,
+          reason,
+          latestJobStatus: latestJob?.status ?? null,
+          latestJobType: latestJob?.jobType ?? null,
+          evidenceModality,
+        };
+      });
+
       throw new AppError(
         "No evidence in this activity is ready for AI interpretation yet.",
         409,
         "activity_interpretation_not_ready",
+        { uploadStates },
       );
     }
 
