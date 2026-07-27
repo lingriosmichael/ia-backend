@@ -802,6 +802,11 @@ export class InterpretationService {
         uploads.map((upload) => upload.id),
         databaseSession,
       );
+    const latestResults =
+      await this.interpretationResultRepository.findLatestByUploadMetadataIds(
+        uploads.map((upload) => upload.id),
+        databaseSession,
+      );
     const jobs = await this.processingJobRepository.listByActivity(
       activityId,
       databaseSession,
@@ -813,6 +818,9 @@ export class InterpretationService {
       ]),
     );
     const latestJobByUploadId = getLatestJobByUploadMetadataId(jobs);
+    const latestResultByUploadId = new Map(
+      latestResults.map((result) => [result.uploadMetadataId, result]),
+    );
     const activeUploadIds = new Set(
       [...latestJobByUploadId.values()]
         .filter(
@@ -826,6 +834,9 @@ export class InterpretationService {
 
     const eligibleUploads = uploads.filter((upload) => {
       if (activeUploadIds.has(upload.id)) {
+        return false;
+      }
+      if (latestResultByUploadId.has(upload.id)) {
         return false;
       }
 
@@ -853,11 +864,14 @@ export class InterpretationService {
 
         let reason:
           | "active_job"
+          | "already_interpreted"
           | "privacy_safe_representation_missing"
           | "unsupported_modality";
 
         if (activeUploadIds.has(upload.id)) {
           reason = "active_job";
+        } else if (latestResultByUploadId.has(upload.id)) {
+          reason = "already_interpreted";
         } else if (!privacySafeRepresentation) {
           reason = "privacy_safe_representation_missing";
         } else {
@@ -926,6 +940,14 @@ export class InterpretationService {
   ): Promise<ActivityAiKnowledgeRecord> {
     const { activity, project } =
       await this.authorizationService.canEditActivity(userId, activityId);
+
+    if (activity.aiKnowledgeSnapshot) {
+      throw new AppError(
+        "AI knowledge is already available for this activity. Upload new evidence before generating it again.",
+        409,
+        "activity_ai_knowledge_already_generated",
+      );
+    }
 
     const uploads = await this.uploadMetadataRepository.listByActivityIds(
       [activityId],

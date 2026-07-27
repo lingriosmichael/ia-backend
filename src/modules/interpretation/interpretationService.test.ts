@@ -29,6 +29,9 @@ function createDependencies(options: {
     output?: string | null;
     outcome?: string | null;
     interpretationAcknowledgedAt: Date | null;
+    aiKnowledgeSnapshot?: {
+      generatedAt: Date;
+    } | null;
   }>;
   uploads?: Array<{
     id: string;
@@ -140,6 +143,7 @@ function createDependencies(options: {
       output: "Two orientation sessions run",
       outcome: "strong attendance",
       interpretationAcknowledgedAt: NOW,
+      aiKnowledgeSnapshot: null,
     },
   ];
   const uploads = options.uploads ?? [
@@ -545,6 +549,7 @@ test("a rebuild failure never prevents the acknowledgment from succeeding", asyn
 test("activity interpretation starts from the latest completed evidence job even if an older job is still marked active", async () => {
   const deps = createDependencies({
     buildForProject: async () => ({}),
+    results: [],
     uploads: [
       {
         id: "upload-1",
@@ -631,9 +636,53 @@ test("activity interpretation starts from the latest completed evidence job even
   assert.equal(deps.createdJobs[0]?.jobType, "dataset_interpretation");
 });
 
+test("activity interpretation blocks reruns when every upload already has a latest interpretation result", async () => {
+  const deps = createDependencies({
+    buildForProject: async () => ({}),
+  });
+
+  const service = new InterpretationService(
+    deps.uploadMetadataRepository,
+    deps.privacySafeRepresentationRepository,
+    deps.interpretationResultRepository,
+    deps.processingJobRepository,
+    deps.activityRepository,
+    deps.authorizationService,
+    deps.pythonProcessingClient,
+    deps.logger,
+    deps.datasetPreparationService,
+    deps.deterministicAnalysisService,
+    deps.quantitativeInterpretationSynthesisService,
+    deps.projectKnowledgeBuilderService,
+    deps.projectLlmTokenLedgerService,
+  );
+
+  await assert.rejects(
+    service.startActivityInterpretation("user-1", "activity-1", "de"),
+    (error: unknown) => {
+      assert.ok(error instanceof Error);
+      assert.equal((error as { code?: string }).code, "activity_interpretation_not_ready");
+      return true;
+    },
+  );
+  assert.equal(deps.createdJobs.length, 0);
+});
+
 test("activity AI knowledge includes goal indicators and deterministic distribution signals", async () => {
   const deps = createDependencies({
     buildForProject: async () => ({}),
+    activities: [
+      {
+        id: "activity-1",
+        projectId: "project-1",
+        name: "Activity",
+        objectives: "prepare mentors",
+        output: "Two orientation sessions run",
+        outcome: "strong attendance",
+        interpretationAcknowledgedAt: null,
+        aiKnowledgeSnapshot: null,
+      },
+    ],
     results: [
       {
         id: "result-1",
@@ -736,5 +785,53 @@ test("activity AI knowledge includes goal indicators and deterministic distribut
         isGoalRelevant: false,
       },
     ],
+  );
+});
+
+test("activity AI knowledge generation is blocked once an activity snapshot already exists", async () => {
+  const deps = createDependencies({
+    buildForProject: async () => ({}),
+    activities: [
+      {
+        id: "activity-1",
+        projectId: "project-1",
+        name: "Activity",
+        objectives: "prepare mentors",
+        output: "Two orientation sessions run",
+        outcome: "strong attendance",
+        interpretationAcknowledgedAt: NOW,
+        aiKnowledgeSnapshot: {
+          generatedAt: NOW,
+        },
+      },
+    ],
+  });
+
+  const service = new InterpretationService(
+    deps.uploadMetadataRepository,
+    deps.privacySafeRepresentationRepository,
+    deps.interpretationResultRepository,
+    deps.processingJobRepository,
+    deps.activityRepository,
+    deps.authorizationService,
+    deps.pythonProcessingClient,
+    deps.logger,
+    deps.datasetPreparationService,
+    deps.deterministicAnalysisService,
+    deps.quantitativeInterpretationSynthesisService,
+    deps.projectKnowledgeBuilderService,
+    deps.projectLlmTokenLedgerService,
+  );
+
+  await assert.rejects(
+    service.generateActivityAiKnowledge("user-1", "activity-1", "de"),
+    (error: unknown) => {
+      assert.ok(error instanceof Error);
+      assert.equal(
+        (error as { code?: string }).code,
+        "activity_ai_knowledge_already_generated",
+      );
+      return true;
+    },
   );
 });
