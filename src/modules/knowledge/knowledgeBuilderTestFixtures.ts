@@ -30,6 +30,7 @@ export function makeActivity(
     projectId: "project-1",
     name: "Activity",
     description: null,
+    activityType: null,
     startDate: null,
     endDate: null,
     targetAudience: null,

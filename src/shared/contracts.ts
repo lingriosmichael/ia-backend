@@ -144,6 +144,7 @@ export interface ActivitySummary {
   projectId: string;
   name: string;
   description: string | null;
+  activityType: string | null;
   startDate: string | null;
   endDate: string | null;
   targetAudience: string | null;

@@ -52,6 +52,7 @@ export class ActivityService {
     input: {
       name: string;
       description?: string;
+      activityType?: string;
       startDate?: string;
       endDate?: string;
       targetAudience?: string;
@@ -69,6 +70,7 @@ export class ActivityService {
         createdById: userId,
         name: trimRequiredText(input.name),
         description: trimNullableText(input.description) ?? null,
+        activityType: trimNullableText(input.activityType) ?? null,
         startDate: input.startDate ? new Date(input.startDate) : null,
         endDate: input.endDate ? new Date(input.endDate) : null,
         targetAudience: trimNullableText(input.targetAudience) ?? null,
@@ -95,6 +97,7 @@ export class ActivityService {
     input: {
       name?: string;
       description?: string | null;
+      activityType?: string | null;
       startDate?: string | null;
       endDate?: string | null;
       targetAudience?: string | null;
@@ -123,6 +126,10 @@ export class ActivityService {
       input.description === undefined
         ? activity.description
         : (trimNullableText(input.description) ?? null);
+    const nextActivityType =
+      input.activityType === undefined
+        ? activity.activityType
+        : (trimNullableText(input.activityType) ?? null);
     const nextTargetAudience =
       input.targetAudience === undefined
         ? activity.targetAudience
@@ -142,6 +149,7 @@ export class ActivityService {
     const shouldClearAiKnowledgeState =
       nextName !== activity.name ||
       nextDescription !== activity.description ||
+      nextActivityType !== activity.activityType ||
       nextTargetAudience !== activity.targetAudience ||
       nextObjectives !== activity.objectives ||
       nextOutput !== activity.output ||
@@ -158,6 +166,7 @@ export class ActivityService {
         name:
           input.name === undefined ? undefined : trimRequiredText(input.name),
         description: trimNullableText(input.description),
+        activityType: trimNullableText(input.activityType),
         startDate:
           input.startDate === undefined
             ? undefined

@@ -196,7 +196,8 @@ function createDependencies(options: {
       ),
     findLatestByUploadMetadataId: async (uploadMetadataId: string) =>
       privacySafeRepresentations.find(
-        (representation) => representation.uploadMetadataId === uploadMetadataId,
+        (representation) =>
+          representation.uploadMetadataId === uploadMetadataId,
       ) ?? null,
   } as unknown as PrivacySafeRepresentationRepository;
 
@@ -265,7 +266,9 @@ function createDependencies(options: {
     ) => {
       const job =
         createdJobs.find((createdJob) => createdJob.id === processingJobId) ??
-        processingJobs.find((existingJob) => existingJob.id === processingJobId);
+        processingJobs.find(
+          (existingJob) => existingJob.id === processingJobId,
+        );
 
       assert.ok(job);
 
@@ -661,7 +664,10 @@ test("activity interpretation blocks reruns when every upload already has a late
     service.startActivityInterpretation("user-1", "activity-1", "de"),
     (error: unknown) => {
       assert.ok(error instanceof Error);
-      assert.equal((error as { code?: string }).code, "activity_interpretation_not_ready");
+      assert.equal(
+        (error as { code?: string }).code,
+        "activity_interpretation_not_ready",
+      );
       return true;
     },
   );

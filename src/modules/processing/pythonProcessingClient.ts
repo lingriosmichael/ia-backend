@@ -27,6 +27,7 @@ interface ApprovePrivacyReviewResponse {
 }
 
 interface StartDatasetInterpretationActivityGoals {
+  activityType: string | null;
   objectives: string | null;
   output: string | null;
   outcome: string | null;
@@ -68,6 +69,7 @@ interface AiKnowledgeSummaryInsightInput {
 }
 
 interface AiKnowledgeSummaryActivityGoalsInput {
+  activityType: string | null;
   objectives: string | null;
   output: string | null;
   outcome: string | null;

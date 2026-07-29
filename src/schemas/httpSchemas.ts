@@ -201,6 +201,7 @@ export const analyticsDashboardExportRequestSchema =
 export const createActivitySchema = z.object({
   name: z.string().trim().min(2).max(120),
   description: z.string().trim().max(2000).optional(),
+  activityType: z.string().trim().max(120).optional(),
   startDate: dateValueSchema,
   endDate: dateValueSchema,
   targetAudience: z.string().trim().max(2000).optional(),
@@ -213,6 +214,7 @@ export const createActivitySchema = z.object({
 export const updateActivitySchema = z.object({
   name: z.string().trim().min(2).max(120).optional(),
   description: z.string().trim().max(2000).nullable().optional(),
+  activityType: z.string().trim().max(120).nullable().optional(),
   startDate: z.string().datetime({ offset: true }).nullable().optional(),
   endDate: z.string().datetime({ offset: true }).nullable().optional(),
   targetAudience: z.string().trim().max(2000).nullable().optional(),

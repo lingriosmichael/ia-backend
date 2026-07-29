@@ -315,6 +315,7 @@ export function mapActivity(
     projectOwnerId: string;
     name: string;
     description: string | null;
+    activityType: string | null;
     startDate: Date | null;
     endDate: Date | null;
     targetAudience: string | null;
@@ -338,6 +339,7 @@ export function mapActivity(
     projectId: activity.projectId,
     name: activity.name,
     description: activity.description,
+    activityType: activity.activityType,
     startDate: activity.startDate ? toIso(activity.startDate) : null,
     endDate: activity.endDate ? toIso(activity.endDate) : null,
     targetAudience: activity.targetAudience,
@@ -367,6 +369,7 @@ export function mapWorkspaceActivity(
     projectOwnerId: string;
     name: string;
     description: string | null;
+    activityType: string | null;
     startDate: Date | null;
     endDate: Date | null;
     targetAudience: string | null;
@@ -441,6 +444,7 @@ export function mapWorkspace(record: {
       projectOwnerId: string;
       name: string;
       description: string | null;
+      activityType: string | null;
       startDate: Date | null;
       endDate: Date | null;
       targetAudience: string | null;

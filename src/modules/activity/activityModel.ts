@@ -45,6 +45,7 @@ const activitySchema = new Schema(
     createdById: { type: String, required: true },
     name: { type: String, required: true, trim: true },
     description: { type: String, default: null },
+    activityType: { type: String, default: null },
     startDate: { type: Date, default: null },
     endDate: { type: Date, default: null },
     targetAudience: { type: String, default: null },

@@ -24,6 +24,7 @@ export interface ActivityPersistenceRecord {
   projectId: string;
   name: string;
   description: string | null;
+  activityType: string | null;
   startDate: Date | null;
   endDate: Date | null;
   targetAudience: string | null;
@@ -43,6 +44,7 @@ export interface ActivityCreateInput {
   createdById: string;
   name: string;
   description: string | null;
+  activityType: string | null;
   startDate: Date | null;
   endDate: Date | null;
   targetAudience: string | null;
@@ -55,6 +57,7 @@ export interface ActivityCreateInput {
 export interface ActivityUpdateInput {
   name?: string;
   description?: string | null;
+  activityType?: string | null;
   startDate?: Date | null;
   endDate?: Date | null;
   targetAudience?: string | null;

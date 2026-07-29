@@ -28,6 +28,7 @@ function toActivityRecord(
     projectId: document.projectId,
     name: document.name,
     description: document.description ?? null,
+    activityType: document.activityType ?? null,
     startDate: document.startDate ?? null,
     endDate: document.endDate ?? null,
     targetAudience: document.targetAudience ?? null,

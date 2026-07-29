@@ -43,6 +43,7 @@ interface ProcessorStatusPayload {
 }
 
 interface ActivityGoalsContext {
+  activityType: string | null;
   objectives: string | null;
   output: string | null;
   outcome: string | null;
@@ -115,6 +116,7 @@ function readActivityGoalsFromPayload(
   }
 
   return {
+    activityType: readNullableString(activityGoals.activityType),
     objectives: readNullableString(activityGoals.objectives),
     output: readNullableString(activityGoals.output),
     outcome: readNullableString(activityGoals.outcome),

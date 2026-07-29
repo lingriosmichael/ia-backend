@@ -243,6 +243,7 @@ export class QuantitativeInterpretationSynthesisService {
       language: readLanguageFromJobPayload(processingJob?.payload),
       activityGoals: activity
         ? {
+            activityType: activity.activityType,
             objectives: activity.objectives,
             output: activity.output,
             outcome: activity.outcome,

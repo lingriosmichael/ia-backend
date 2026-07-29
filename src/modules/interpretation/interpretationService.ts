@@ -419,6 +419,7 @@ export class InterpretationService {
     language: "de" | "en";
     acknowledgedActivityCount?: number;
     activityGoals?: {
+      activityType: string | null;
       objectives: string | null;
       output: string | null;
       outcome: string | null;
@@ -513,6 +514,7 @@ export class InterpretationService {
     activity: {
       id: string;
       name: string;
+      activityType: string | null;
       objectives: string | null;
       output: string | null;
       outcome: string | null;
@@ -563,6 +565,7 @@ export class InterpretationService {
       insights,
       language: input.language,
       activityGoals: {
+        activityType: input.activity.activityType,
         objectives: input.activity.objectives,
         output: input.activity.output,
         outcome: input.activity.outcome,
@@ -702,6 +705,7 @@ export class InterpretationService {
           ...(queuedJob.payload ?? {}),
           activityGoals: activity
             ? {
+                activityType: activity.activityType,
                 objectives: activity.objectives,
                 output: activity.output,
                 outcome: activity.outcome,
@@ -859,7 +863,9 @@ export class InterpretationService {
         const privacySafeRepresentation =
           privacySafeRepresentationByUploadId.get(upload.id) ?? null;
         const evidenceModality = privacySafeRepresentation
-          ? classifyEvidenceModalityFromPayload(privacySafeRepresentation.payload)
+          ? classifyEvidenceModalityFromPayload(
+              privacySafeRepresentation.payload,
+            )
           : null;
 
         let reason:
