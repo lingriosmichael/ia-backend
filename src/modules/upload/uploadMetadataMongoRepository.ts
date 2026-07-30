@@ -28,6 +28,10 @@ function toUploadMetadataRecord(
     organizationId: document.organizationId,
     projectId: document.projectId,
     activityId: document.activityId ?? null,
+    sourceWorkbookUploadMetadataId:
+      document.sourceWorkbookUploadMetadataId ?? null,
+    derivedSheetName: document.derivedSheetName ?? null,
+    derivedSheetIndex: document.derivedSheetIndex ?? null,
     uploadedById: document.uploadedById,
     logicalEvidenceId: document.logicalEvidenceId ?? document._id.toString(),
     versionNumber: document.versionNumber ?? 1,
@@ -55,6 +59,10 @@ export class MongoUploadMetadataRepository implements UploadMetadataRepository {
         {
           _id: uploadMetadataId,
           ...input,
+          sourceWorkbookUploadMetadataId:
+            input.sourceWorkbookUploadMetadataId ?? null,
+          derivedSheetName: input.derivedSheetName ?? null,
+          derivedSheetIndex: input.derivedSheetIndex ?? null,
           logicalEvidenceId: input.logicalEvidenceId ?? uploadMetadataId,
           versionNumber: input.versionNumber ?? 1,
           replacesUploadMetadataId: input.replacesUploadMetadataId ?? null,
@@ -122,6 +130,43 @@ export class MongoUploadMetadataRepository implements UploadMetadataRepository {
       session,
     ).exec();
     return toUploadMetadataRecord(document);
+  }
+
+  async findDerivedBySourceWorkbookAndSheetIndex(
+    sourceWorkbookUploadMetadataId: string,
+    derivedSheetIndex: number,
+    session: DatabaseSession,
+  ): Promise<UploadMetadataPersistenceRecord | null> {
+    const document = await applyMongoSession(
+      UploadMetadataMongoModel.findOne({
+        sourceWorkbookUploadMetadataId,
+        derivedSheetIndex,
+      }),
+      session,
+    ).exec();
+
+    return toUploadMetadataRecord(document);
+  }
+
+  async listDerivedBySourceWorkbook(
+    sourceWorkbookUploadMetadataId: string,
+    session: DatabaseSession,
+  ): Promise<UploadMetadataPersistenceRecord[]> {
+    const documents = await applyMongoSession(
+      UploadMetadataMongoModel.find({
+        sourceWorkbookUploadMetadataId,
+      }).sort({
+        derivedSheetIndex: 1,
+        createdAt: 1,
+      }),
+      session,
+    ).exec();
+
+    return documents
+      .map((document) => toUploadMetadataRecord(document))
+      .filter((record): record is UploadMetadataPersistenceRecord =>
+        Boolean(record),
+      );
   }
 
   async listRecentByProject(

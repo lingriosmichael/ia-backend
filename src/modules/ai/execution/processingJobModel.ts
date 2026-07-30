@@ -13,6 +13,7 @@ const processingJobSchema = new Schema(
     jobType: {
       type: String,
       enum: [
+        "workbook_split",
         "evidence_processing",
         "dataset_interpretation",
         "dataset_review",

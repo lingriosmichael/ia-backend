@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import type { MultipartFile } from "@fastify/multipart";
 import type { AuthorizationService } from "../../../shared/auth/authorizationService.js";
+import { AppError } from "../../../shared/errors/appError.js";
 import type { UploadMetadataRepository } from "../../upload/uploadMetadataRepository.js";
 import type { EvidenceProcessingArtifactService } from "../../processing/evidenceProcessingArtifactService.js";
 import type { InterpretationArtifactService } from "../../interpretation/interpretationArtifactService.js";
@@ -8,6 +10,7 @@ import type { ParsedRepresentationRepository } from "../../processing/parsedRepr
 import type { PrivacyReviewRepository } from "../../processing/privacyReviewRepository.js";
 import type { PrivacySafeRepresentationRepository } from "../../processing/privacySafeRepresentationRepository.js";
 import type { FileStorageService } from "../../upload/fileStorageService.js";
+import type { UploadMetadataService } from "../../upload/uploadMetadataService.js";
 import type { ProcessingJobPersistenceRecord } from "../persistence/aiPersistenceTypes.js";
 import type { ProcessingJobUpdateInput } from "../persistence/aiPersistenceTypes.js";
 import type { ProcessingJobRepository } from "./processingJobRepository.js";
@@ -49,6 +52,8 @@ function createService(overrides?: {
   authorizationService?: Partial<AuthorizationService>;
   evidenceProcessingArtifactService?: Partial<EvidenceProcessingArtifactService>;
   interpretationArtifactService?: Partial<InterpretationArtifactService>;
+  uploadMetadataService?: Partial<UploadMetadataService>;
+  fileStorageService?: Partial<FileStorageService>;
 }) {
   const processingJobRepository = {
     findById: async () => buildJob(),
@@ -80,6 +85,38 @@ function createService(overrides?: {
   } as unknown as ProcessingJobRepository;
 
   const uploadMetadataRepository = {} as UploadMetadataRepository;
+  const uploadMetadataService = {
+    createDerivedWorkbookSheetUpload: async () => ({
+      upload: {
+        id: "derived-upload-1",
+        organizationId: "org-1",
+        projectId: "project-1",
+        activityId: "activity-1",
+        sourceWorkbookUploadMetadataId: "upload-1",
+        derivedSheetName: "Sheet 1",
+        derivedSheetIndex: 0,
+        logicalEvidenceId: "logical-1",
+        versionNumber: 1,
+        replacesUploadMetadataId: null,
+        supersededAt: null,
+        originalFileName: "Sheet 1.csv",
+        contentType: "text/csv",
+        sizeBytes: 128,
+        storageKey: "activity-1/sheet-1.csv",
+        originalFileDeletedAt: null,
+        status: "uploaded",
+        uploadedById: "user-1",
+        uploadedByName: "User One",
+        createdAt: "2026-07-30T10:00:00.000Z",
+        updatedAt: "2026-07-30T10:00:00.000Z",
+      },
+      created: true,
+    }),
+    cleanupDerivedWorkbookSheetUploads: async () => ({
+      deletedCount: 0,
+    }),
+    ...(overrides?.uploadMetadataService ?? {}),
+  } as unknown as UploadMetadataService;
 
   const authorizationService = {
     canViewProject: async () => undefined,
@@ -108,7 +145,16 @@ function createService(overrides?: {
     findById: async () => null,
   } as unknown as PrivacySafeRepresentationRepository;
 
-  const fileStorageService = {} as FileStorageService;
+  const fileStorageService = {
+    storeActivityUpload: async () => ({
+      originalFileName: "sheet-1.csv",
+      contentType: "text/csv",
+      sizeBytes: 128,
+      storageKey: "activity-1/sheet-1.csv",
+    }),
+    deleteStoredFiles: async () => undefined,
+    ...(overrides?.fileStorageService ?? {}),
+  } as unknown as FileStorageService;
 
   const logger = {
     info: () => undefined,
@@ -118,6 +164,7 @@ function createService(overrides?: {
   return new ProcessingJobService(
     processingJobRepository,
     uploadMetadataRepository,
+    uploadMetadataService,
     authorizationService,
     evidenceProcessingArtifactService,
     interpretationArtifactService,
@@ -156,4 +203,179 @@ test("sync surfaces persisted backend failure state as-is", async () => {
 
   assert.equal(syncedJob.status, "failed");
   assert.equal(syncedJob.errorMessage, "Worker exhausted retries.");
+});
+
+test("createDerivedWorkbookSheetUpload rejects a workbook split job that is no longer active", async () => {
+  const service = createService({
+    processingJobRepository: {
+      findById: async () =>
+        buildJob({
+          jobType: "workbook_split",
+          status: "cancelled",
+        }),
+    },
+  });
+
+  await assert.rejects(
+    service.createDerivedWorkbookSheetUpload("job-1", {} as MultipartFile, {
+      sheetName: "Sheet 1",
+      sheetIndex: 0,
+    }),
+    (error: unknown) =>
+      error instanceof AppError &&
+      error.code === "workbook_split_job_not_active",
+  );
+});
+
+test("createDerivedWorkbookSheetUpload forwards uploads for an active workbook split job", async () => {
+  let capturedInput:
+    | Parameters<UploadMetadataService["createDerivedWorkbookSheetUpload"]>[0]
+    | undefined;
+
+  const service = createService({
+    processingJobRepository: {
+      findById: async () =>
+        buildJob({
+          jobType: "workbook_split",
+          status: "processing",
+        }),
+    },
+    uploadMetadataService: {
+      createDerivedWorkbookSheetUpload: async (input) => {
+        capturedInput = input;
+        return {
+          upload: {
+            id: "derived-upload-1",
+            organizationId: "org-1",
+            projectId: "project-1",
+            activityId: "activity-1",
+            sourceWorkbookUploadMetadataId: "upload-1",
+            derivedSheetName: "Sheet 1",
+            derivedSheetIndex: 0,
+            logicalEvidenceId: "logical-1",
+            versionNumber: 1,
+            replacesUploadMetadataId: null,
+            supersededAt: null,
+            originalFileName: "Sheet 1.csv",
+            contentType: "text/csv",
+            sizeBytes: 256,
+            storageKey: "activity-1/sheet-1.csv",
+            originalFileDeletedAt: null,
+            status: "uploaded",
+            uploadedById: "user-1",
+            uploadedByName: "User One",
+            createdAt: "2026-07-30T10:00:00.000Z",
+            updatedAt: "2026-07-30T10:00:00.000Z",
+          },
+          created: true,
+        };
+      },
+    },
+    fileStorageService: {
+      storeActivityUpload: async () => ({
+        originalFileName: "Sheet 1.csv",
+        contentType: "text/csv",
+        sizeBytes: 256,
+        storageKey: "activity-1/sheet-1.csv",
+      }),
+    },
+  });
+
+  await service.createDerivedWorkbookSheetUpload("job-1", {} as MultipartFile, {
+    sheetName: "Sheet 1",
+    sheetIndex: 0,
+  });
+
+  assert.deepEqual(capturedInput, {
+    sourceWorkbookUploadMetadataId: "upload-1",
+    triggeredById: "user-1",
+    originalFileName: "Sheet 1.csv",
+    contentType: "text/csv",
+    sizeBytes: 256,
+    storageKey: "activity-1/sheet-1.csv",
+    derivedSheetName: "Sheet 1",
+    derivedSheetIndex: 0,
+  });
+});
+
+test("createDerivedWorkbookSheetUpload deletes the stored sheet if the workbook split job becomes inactive before insert", async () => {
+  let findByIdCallCount = 0;
+  let deletedStorageKeys: string[] = [];
+
+  const service = createService({
+    processingJobRepository: {
+      findById: async () => {
+        findByIdCallCount += 1;
+
+        if (findByIdCallCount === 1) {
+          return buildJob({
+            jobType: "workbook_split",
+            status: "processing",
+          });
+        }
+
+        return buildJob({
+          jobType: "workbook_split",
+          status: "cancelled",
+        });
+      },
+    },
+    uploadMetadataService: {
+      createDerivedWorkbookSheetUpload: async () => {
+        throw new Error(
+          "createDerivedWorkbookSheetUpload should not be called",
+        );
+      },
+    },
+    fileStorageService: {
+      storeActivityUpload: async () => ({
+        originalFileName: "Sheet 1.csv",
+        contentType: "text/csv",
+        sizeBytes: 256,
+        storageKey: "activity-1/sheet-1.csv",
+      }),
+      deleteStoredFiles: async (storageKeys) => {
+        deletedStorageKeys = storageKeys;
+      },
+    },
+  });
+
+  await assert.rejects(
+    service.createDerivedWorkbookSheetUpload("job-1", {} as MultipartFile, {
+      sheetName: "Sheet 1",
+      sheetIndex: 0,
+    }),
+    (error: unknown) =>
+      error instanceof AppError &&
+      error.code === "workbook_split_job_not_active",
+  );
+
+  assert.deepEqual(deletedStorageKeys, ["activity-1/sheet-1.csv"]);
+});
+
+test("rollbackDerivedWorkbookSheetUploads cleans up derived uploads for a workbook split job", async () => {
+  let cleanedSourceWorkbookUploadMetadataId: string | undefined;
+
+  const service = createService({
+    processingJobRepository: {
+      findById: async () =>
+        buildJob({
+          jobType: "workbook_split",
+          uploadMetadataId: "source-upload-1",
+        }),
+    },
+    uploadMetadataService: {
+      cleanupDerivedWorkbookSheetUploads: async (
+        sourceWorkbookUploadMetadataId,
+      ) => {
+        cleanedSourceWorkbookUploadMetadataId = sourceWorkbookUploadMetadataId;
+        return { deletedCount: 2 };
+      },
+    },
+  });
+
+  const result = await service.rollbackDerivedWorkbookSheetUploads("job-1");
+
+  assert.equal(cleanedSourceWorkbookUploadMetadataId, "source-upload-1");
+  assert.equal(result.deletedCount, 2);
 });

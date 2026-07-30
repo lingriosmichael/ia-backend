@@ -3,8 +3,6 @@ import type {
   ProcessingJobType,
 } from "../../../shared/contracts.js";
 
-export type StructuredAIPayload = Record<string, unknown> | null;
-
 export interface ProcessingJobPersistenceRecord {
   id: string;
   organizationId: string;
@@ -14,7 +12,7 @@ export interface ProcessingJobPersistenceRecord {
   triggeredById: string;
   jobType: ProcessingJobType;
   status: ProcessingJobStatus;
-  payload: StructuredAIPayload;
+  payload: Record<string, unknown> | null;
   errorMessage: string | null;
   leaseOwner: string | null;
   leaseExpiresAt: Date | null;
@@ -36,12 +34,12 @@ export interface ProcessingJobCreateInput {
   uploadMetadataId: string | null;
   triggeredById: string;
   jobType: ProcessingJobType;
-  payload: StructuredAIPayload;
+  payload: Record<string, unknown> | null;
 }
 
 export interface ProcessingJobUpdateInput {
   status?: ProcessingJobStatus;
-  payload?: StructuredAIPayload;
+  payload?: Record<string, unknown> | null;
   errorMessage?: string | null;
   leaseOwner?: string | null;
   leaseExpiresAt?: Date | null;

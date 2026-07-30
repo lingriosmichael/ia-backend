@@ -5,6 +5,9 @@ export interface UploadMetadataPersistenceRecord {
   organizationId: string;
   projectId: string;
   activityId: string | null;
+  sourceWorkbookUploadMetadataId: string | null;
+  derivedSheetName: string | null;
+  derivedSheetIndex: number | null;
   uploadedById: string;
   logicalEvidenceId: string;
   versionNumber: number;
@@ -24,6 +27,9 @@ export interface UploadMetadataCreateInput {
   organizationId: string;
   projectId: string;
   activityId: string | null;
+  sourceWorkbookUploadMetadataId?: string | null;
+  derivedSheetName?: string | null;
+  derivedSheetIndex?: number | null;
   uploadedById: string;
   logicalEvidenceId?: string | null;
   versionNumber?: number | null;
@@ -38,6 +44,9 @@ export interface UploadMetadataUpdateInput {
   contentType?: string | null;
   sizeBytes?: number | null;
   storageKey?: string | null;
+  sourceWorkbookUploadMetadataId?: string | null;
+  derivedSheetName?: string | null;
+  derivedSheetIndex?: number | null;
   supersededAt?: Date | null;
   originalFileDeletedAt?: Date | null;
   status?: UploadMetadataStatus;

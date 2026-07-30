@@ -144,6 +144,8 @@ const interpretationQuestionSchema = new Schema({
     default: "interpretation",
   },
   options: { type: [String], default: null },
+  recommendedOption: { type: String, default: null },
+  recommendedConfidence: { type: Number, default: null },
   isBlocking: { type: Boolean, default: false },
   questionCode: {
     type: String,

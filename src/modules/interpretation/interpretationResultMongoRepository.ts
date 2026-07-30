@@ -111,6 +111,11 @@ function toInterpretationResultRecord(
       kind: question.kind,
       questionDomain: question.questionDomain ?? "interpretation",
       options: question.options ?? null,
+      recommendedOption: question.recommendedOption ?? null,
+      recommendedConfidence:
+        typeof question.recommendedConfidence === "number"
+          ? question.recommendedConfidence
+          : null,
       isBlocking: question.isBlocking ?? question.kind !== "free_text",
       questionCode: question.questionCode ?? null,
       targetTableName: question.targetTableName ?? null,

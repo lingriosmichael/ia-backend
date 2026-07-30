@@ -4,6 +4,7 @@ import { successResponse } from "../../../shared/http/apiResponse.js";
 import {
   idParamSchema,
   processingJobCallbackSchema,
+  workbookDerivedSheetUploadQuerySchema,
   workerClaimProcessingJobSchema,
   workerHeartbeatSchema,
 } from "../../../schemas/httpSchemas.js";
@@ -101,5 +102,32 @@ export class ProcessingJobController {
       payload,
     );
     return successResponse(job);
+  }
+
+  async uploadDerivedSheetInternally(request: FastifyRequest) {
+    const params = idParamSchema.parse(request.params);
+    const query = workbookDerivedSheetUploadQuerySchema.parse(request.query);
+    const file = await request.file();
+    const response =
+      await this.processingJobService.createDerivedWorkbookSheetUpload(
+        params.processingJobId!,
+        file,
+        {
+          sheetName: query.sheetName,
+          sheetIndex: query.sheetIndex,
+        },
+      );
+
+    return successResponse(response);
+  }
+
+  async rollbackDerivedSheetsInternally(request: FastifyRequest) {
+    const params = idParamSchema.parse(request.params);
+    const response =
+      await this.processingJobService.rollbackDerivedWorkbookSheetUploads(
+        params.processingJobId!,
+      );
+
+    return successResponse(response);
   }
 }

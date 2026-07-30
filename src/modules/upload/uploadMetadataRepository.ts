@@ -22,6 +22,15 @@ export interface UploadMetadataRepository {
     uploadMetadataId: string,
     session: DatabaseSession,
   ): Promise<UploadMetadataPersistenceRecord | null>;
+  findDerivedBySourceWorkbookAndSheetIndex(
+    sourceWorkbookUploadMetadataId: string,
+    derivedSheetIndex: number,
+    session: DatabaseSession,
+  ): Promise<UploadMetadataPersistenceRecord | null>;
+  listDerivedBySourceWorkbook(
+    sourceWorkbookUploadMetadataId: string,
+    session: DatabaseSession,
+  ): Promise<UploadMetadataPersistenceRecord[]>;
   listRecentByProject(
     projectId: string,
     limit: number,

@@ -50,4 +50,14 @@ export async function registerProcessingJobRoutes(
     { preHandler: requireInternalServiceSecret },
     controller.completeExternally.bind(controller),
   );
+  app.post(
+    "/internal/processing-jobs/:processingJobId/derived-sheet-upload",
+    { preHandler: requireInternalServiceSecret },
+    controller.uploadDerivedSheetInternally.bind(controller),
+  );
+  app.post(
+    "/internal/processing-jobs/:processingJobId/rollback-derived-sheets",
+    { preHandler: requireInternalServiceSecret },
+    controller.rollbackDerivedSheetsInternally.bind(controller),
+  );
 }

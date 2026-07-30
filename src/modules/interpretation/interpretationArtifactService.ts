@@ -642,6 +642,8 @@ function mapQuestions(value: unknown): InterpretationQuestionCreateInput[] {
     options: Array.isArray(entry.options)
       ? readStringArray(entry.options)
       : null,
+    recommendedOption: readNullableString(entry.recommendedOption),
+    recommendedConfidence: readNullableNumber(entry.recommendedConfidence),
     isBlocking: readBoolean(
       entry.isBlocking,
       readQuestionKind(entry.kind) !== "free_text",

@@ -6,6 +6,21 @@ import { mapProcessingJob } from "../../shared/utils/mappers.js";
 import type { ProcessingJobRepository } from "../ai/execution/processingJobRepository.js";
 import type { UploadMetadataRepository } from "../upload/uploadMetadataRepository.js";
 
+function isWorkbookUpload(input: {
+  originalFileName: string;
+  contentType: string | null;
+}) {
+  const lowerFileName = input.originalFileName.toLowerCase();
+  const normalizedContentType = input.contentType?.toLowerCase() ?? "";
+
+  return (
+    lowerFileName.endsWith(".xlsx") ||
+    lowerFileName.endsWith(".xls") ||
+    normalizedContentType.includes("spreadsheetml") ||
+    normalizedContentType.includes("ms-excel")
+  );
+}
+
 export class EvidenceProcessingService {
   constructor(
     private readonly processingJobRepository: ProcessingJobRepository,
@@ -72,9 +87,13 @@ export class EvidenceProcessingService {
         activityId: uploadMetadata.activityId,
         uploadMetadataId: uploadMetadata.id,
         triggeredById: userId,
-        jobType: "evidence_processing",
+        jobType: isWorkbookUpload(uploadMetadata)
+          ? "workbook_split"
+          : "evidence_processing",
         payload: {
-          source: "phase_2_evidence_processing",
+          source: isWorkbookUpload(uploadMetadata)
+            ? "phase_2_workbook_split"
+            : "phase_2_evidence_processing",
         },
       },
       databaseSession,

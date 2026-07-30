@@ -161,6 +161,19 @@ export class MongoActivityRepository implements ActivityRepository {
       );
   }
 
+  async deleteByProject(
+    projectId: string,
+    session: DatabaseSession,
+  ): Promise<number> {
+    const result = await applyMongoSession(
+      ActivityMongoModel.deleteMany({
+        projectId,
+      }),
+      session,
+    ).exec();
+    return result.deletedCount ?? 0;
+  }
+
   async deleteById(
     activityId: string,
     session: DatabaseSession,

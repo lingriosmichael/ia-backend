@@ -1,3 +1,4 @@
+import type { MultipartFile } from "@fastify/multipart";
 import type { FastifyBaseLogger } from "fastify";
 import { databaseSession } from "../../../shared/database/databaseClient.js";
 import { AppError } from "../../../shared/errors/appError.js";
@@ -15,6 +16,7 @@ import type { PrivacyReviewRepository } from "../../processing/privacyReviewRepo
 import type { PrivacySafeRepresentationRepository } from "../../processing/privacySafeRepresentationRepository.js";
 import { EvidenceProcessingArtifactService } from "../../processing/evidenceProcessingArtifactService.js";
 import { FileStorageService } from "../../upload/fileStorageService.js";
+import { UploadMetadataService } from "../../upload/uploadMetadataService.js";
 import type { UploadMetadataRepository } from "../../upload/uploadMetadataRepository.js";
 import type { ProcessingJobPersistenceRecord } from "../persistence/aiPersistenceTypes.js";
 import type { ProcessingJobRepository } from "./processingJobRepository.js";
@@ -64,6 +66,15 @@ interface ProjectGoalsContext {
 }
 
 type WorkerJobContext =
+  | {
+      kind: "workbook_split";
+      uploadMetadataId: string;
+      projectId: string;
+      activityId: string | null;
+      storageKey: string;
+      originalFileName: string;
+      contentType: string | null;
+    }
   | {
       kind: "evidence_processing_parse";
       uploadMetadataId: string;
@@ -152,6 +163,7 @@ export class ProcessingJobService {
   constructor(
     private readonly processingJobRepository: ProcessingJobRepository,
     private readonly uploadMetadataRepository: UploadMetadataRepository,
+    private readonly uploadMetadataService: UploadMetadataService,
     private readonly authorizationService: AuthorizationService,
     private readonly evidenceProcessingArtifactService: EvidenceProcessingArtifactService,
     private readonly interpretationArtifactService: InterpretationArtifactService,
@@ -334,6 +346,113 @@ export class ProcessingJobService {
     };
   }
 
+  async createDerivedWorkbookSheetUpload(
+    processingJobId: string,
+    file: MultipartFile | undefined,
+    input: {
+      sheetName: string;
+      sheetIndex: number;
+    },
+  ) {
+    if (!file) {
+      throw new AppError("A file is required.", 400, "file_required");
+    }
+
+    const job = await this.processingJobRepository.findById(
+      processingJobId,
+      databaseSession,
+    );
+
+    if (!job || job.jobType !== "workbook_split" || !job.uploadMetadataId) {
+      throw new AppError(
+        "Workbook split job not found.",
+        404,
+        "workbook_split_job_not_found",
+      );
+    }
+
+    if (!job.activityId) {
+      throw new AppError(
+        "Workbook split jobs require an activity-scoped source upload.",
+        400,
+        "workbook_split_activity_missing",
+      );
+    }
+
+    if (terminalJobStatuses.includes(job.status)) {
+      throw new AppError(
+        "Workbook split job is no longer active.",
+        409,
+        "workbook_split_job_not_active",
+      );
+    }
+
+    const storedFile = await this.fileStorageService.storeActivityUpload(
+      job.activityId,
+      file,
+    );
+
+    try {
+      const refreshedJob = await this.processingJobRepository.findById(
+        processingJobId,
+        databaseSession,
+      );
+
+      if (
+        !refreshedJob ||
+        refreshedJob.jobType !== "workbook_split" ||
+        terminalJobStatuses.includes(refreshedJob.status)
+      ) {
+        await this.deleteStoredFileQuietly(storedFile.storageKey);
+        throw new AppError(
+          "Workbook split job is no longer active.",
+          409,
+          "workbook_split_job_not_active",
+        );
+      }
+
+      const result =
+        await this.uploadMetadataService.createDerivedWorkbookSheetUpload({
+          sourceWorkbookUploadMetadataId: job.uploadMetadataId,
+          triggeredById: job.triggeredById,
+          originalFileName: storedFile.originalFileName,
+          contentType: storedFile.contentType,
+          sizeBytes: storedFile.sizeBytes,
+          storageKey: storedFile.storageKey,
+          derivedSheetName: input.sheetName,
+          derivedSheetIndex: input.sheetIndex,
+        });
+
+      if (!result.created) {
+        await this.deleteStoredFileQuietly(storedFile.storageKey);
+      }
+
+      return result;
+    } catch (error) {
+      await this.deleteStoredFileQuietly(storedFile.storageKey);
+      throw error;
+    }
+  }
+
+  async rollbackDerivedWorkbookSheetUploads(processingJobId: string) {
+    const job = await this.processingJobRepository.findById(
+      processingJobId,
+      databaseSession,
+    );
+
+    if (!job || job.jobType !== "workbook_split" || !job.uploadMetadataId) {
+      throw new AppError(
+        "Workbook split job not found.",
+        404,
+        "workbook_split_job_not_found",
+      );
+    }
+
+    return this.uploadMetadataService.cleanupDerivedWorkbookSheetUploads(
+      job.uploadMetadataId,
+    );
+  }
+
   async renewLease(processingJobId: string, workerId: string) {
     const now = new Date();
     const renewedJob = await this.processingJobRepository.renewLease(
@@ -438,6 +557,38 @@ export class ProcessingJobService {
   private async buildWorkerContext(
     job: ProcessingJobPersistenceRecord,
   ): Promise<WorkerJobContext> {
+    if (job.jobType === "workbook_split") {
+      if (!job.uploadMetadataId) {
+        throw new AppError(
+          "Processing job context is missing upload metadata.",
+          500,
+          "processing_job_context_incomplete",
+        );
+      }
+
+      const uploadMetadata = await this.uploadMetadataRepository.findById(
+        job.uploadMetadataId,
+        databaseSession,
+      );
+      if (!uploadMetadata || !uploadMetadata.storageKey) {
+        throw new AppError(
+          "Processing job source file is not available.",
+          404,
+          "processing_job_source_file_not_found",
+        );
+      }
+
+      return {
+        kind: "workbook_split",
+        uploadMetadataId: uploadMetadata.id,
+        projectId: uploadMetadata.projectId,
+        activityId: uploadMetadata.activityId,
+        storageKey: uploadMetadata.storageKey,
+        originalFileName: uploadMetadata.originalFileName,
+        contentType: uploadMetadata.contentType,
+      };
+    }
+
     if (job.jobType === "evidence_processing") {
       const review = await this.privacyReviewRepository.findByProcessingJobId(
         job.id,
@@ -545,7 +696,13 @@ export class ProcessingJobService {
   ): Promise<ProcessingJobPersistenceRecord> {
     const mappedStatus = this.mapProcessorStatus(processorStatus.status);
 
-    if (job.jobType === "evidence_processing") {
+    if (job.jobType === "workbook_split") {
+      if (mappedStatus === "completed" && job.uploadMetadataId) {
+        await this.uploadMetadataService.archiveAfterWorkbookSplit(
+          job.uploadMetadataId,
+        );
+      }
+    } else if (job.jobType === "evidence_processing") {
       await this.evidenceProcessingArtifactService.ingestProcessorArtifacts(
         job,
         processorStatus.details,
@@ -640,5 +797,16 @@ export class ProcessingJobService {
     }
 
     return status;
+  }
+
+  private async deleteStoredFileQuietly(storageKey: string) {
+    try {
+      await this.fileStorageService.deleteStoredFiles([storageKey]);
+    } catch (error) {
+      this.logger.warn(
+        { storageKey, error },
+        "Failed to delete duplicate derived workbook sheet upload.",
+      );
+    }
   }
 }

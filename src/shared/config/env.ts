@@ -35,7 +35,7 @@ const envSchema = z
     WEBAPP_URL: z.string().url().default("http://localhost:8080"),
     PYTHON_SERVICE_URL: z
       .preprocess(normalizeHttpUrl, z.string().url())
-      .default("http://localhost:8000"),
+      .default("http://127.0.0.1:8000"),
     PYTHON_SERVICE_SHARED_SECRET: z.string().min(16),
     PYTHON_SERVICE_TIMEOUT_MS: z.coerce
       .number()

@@ -27,8 +27,6 @@ export const processingJobStatusValues = [
   "cancelled",
 ] as const;
 export type ProcessingJobStatus = (typeof processingJobStatusValues)[number];
-export const aiExecutionStatusValues = processingJobStatusValues;
-export type AIExecutionStatus = ProcessingJobStatus;
 
 export const activeProcessingJobStatusValues = [
   "queued",
@@ -40,6 +38,7 @@ export type ActiveProcessingJobStatus =
   (typeof activeProcessingJobStatusValues)[number];
 
 export const processingJobTypeValues = [
+  "workbook_split",
   "evidence_processing",
   "dataset_interpretation",
   "dataset_review",
@@ -51,8 +50,6 @@ export const processingJobTypeValues = [
   "other",
 ] as const;
 export type ProcessingJobType = (typeof processingJobTypeValues)[number];
-export const aiExecutionTypeValues = processingJobTypeValues;
-export type AIExecutionType = ProcessingJobType;
 
 export interface UserSummary {
   id: string;
@@ -209,6 +206,9 @@ export interface UploadMetadataRecord {
   organizationId: string;
   projectId: string;
   activityId: string | null;
+  sourceWorkbookUploadMetadataId: string | null;
+  derivedSheetName: string | null;
+  derivedSheetIndex: number | null;
   logicalEvidenceId: string;
   versionNumber: number;
   replacesUploadMetadataId: string | null;
@@ -241,7 +241,6 @@ export interface ProcessingJobRecord {
   startedAt: string | null;
   completedAt: string | null;
 }
-export type AIExecutionRecord = ProcessingJobRecord;
 
 export interface ActivityUploadResponse {
   upload: UploadMetadataRecord;
@@ -666,6 +665,8 @@ export interface InterpretationQuestion {
   kind: InterpretationQuestionKind;
   questionDomain: InterpretationQuestionDomain;
   options: string[] | null;
+  recommendedOption: string | null;
+  recommendedConfidence: number | null;
   isBlocking: boolean;
   questionCode: InterpretationQuestionCode | null;
   targetTableName: string | null;
@@ -1175,142 +1176,8 @@ export interface AuthResponse {
   organizations: OrganizationSummary[];
 }
 
-export interface SessionResponse {
-  user: UserSummary;
-  organizations: OrganizationSummary[];
-}
-
-export interface RegisterRequest {
-  fullName: string;
-  email: string;
-  password: string;
-}
-
-export interface LoginRequest {
-  email: string;
-  password: string;
-}
-
-export interface CreateInvitationRequest {
-  email: string;
-  role: Extract<OrganizationRole, "PROJECT_MANAGER">;
-}
-
-export interface AcceptInvitationRequest {
-  fullName: string;
-  password: string;
-}
-
-export interface CreateOrganizationRequest {
-  name: string;
-}
-
-export interface UpdateOrganizationRequest {
-  name?: string;
-  mission?: string | null;
-}
-
-export interface CreateProjectRequest {
-  name: string;
-  startMonth: string;
-  endMonth: string;
-  fundingProgram?: string;
-  fundingOrganization?: string;
-  targetGroups: string[];
-  overarchingTargetGroup?: string;
-  intendedChanges: string[];
-  areaOfOperation?: string;
-  partnerships?: string;
-  sdgs?: string[];
-}
-
-export interface UpdateProjectRequest {
-  name?: string;
-  startMonth?: string | null;
-  endMonth?: string | null;
-  fundingProgram?: string | null;
-  fundingOrganization?: string | null;
-  targetGroups?: string[];
-  overarchingTargetGroup?: string;
-  intendedChanges?: string[];
-  areaOfOperation?: string | null;
-  partnerships?: string | null;
-  sdgs?: string[];
-  impactModel?: {
-    inputs?: string | null;
-    activities?: string | null;
-    outputs?: string | null;
-    impact?: string | null;
-    outcomes?: string | null;
-  };
-  successIndicators?: string | null;
-}
-
-export interface CreateActivityRequest {
-  name: string;
-  description?: string;
-  startDate?: string;
-  endDate?: string;
-  targetAudience?: string;
-  objectives?: string;
-  output?: string;
-  outcome?: string;
-  status?: ActivityStatus;
-}
-
-export interface UpdateActivityRequest {
-  name?: string;
-  description?: string | null;
-  startDate?: string | null;
-  endDate?: string | null;
-  targetAudience?: string | null;
-  objectives?: string | null;
-  output?: string | null;
-  outcome?: string | null;
-  status?: ActivityStatus;
-}
-
-export interface CreateUploadMetadataRequest {
-  originalFileName: string;
-  contentType?: string;
-  sizeBytes?: number;
-  storageKey?: string;
-  activityId?: string | null;
-  replacesUploadMetadataId?: string | null;
-}
-
-export interface UpdateUploadMetadataRequest {
-  contentType?: string | null;
-  sizeBytes?: number | null;
-  storageKey?: string | null;
-  supersededAt?: string | null;
-  originalFileDeletedAt?: string | null;
-  status?: UploadMetadataStatus;
-}
-
-export interface CreateProcessingJobRequest {
-  activityId?: string | null;
-  uploadMetadataId?: string | null;
-  jobType: ProcessingJobType;
-  payload?: Record<string, unknown>;
-}
-export type CreateAIExecutionRequest = CreateProcessingJobRequest;
-
-export interface UpdateProcessingJobRequest {
-  status?: ProcessingJobStatus;
-  payload?: Record<string, unknown> | null;
-  errorMessage?: string | null;
-  startedAt?: string | null;
-  completedAt?: string | null;
-}
-export type UpdateAIExecutionRequest = UpdateProcessingJobRequest;
-
 export interface StartEvidenceAnalysisResponse {
   job: ProcessingJobRecord;
-}
-
-export interface ApprovePrivacyReviewRequest {
-  decisions?: Record<string, unknown>;
 }
 
 export interface ApprovePrivacyReviewResponse {

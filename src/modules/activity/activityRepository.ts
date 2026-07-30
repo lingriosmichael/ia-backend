@@ -27,6 +27,7 @@ export interface ActivityRepository {
     projectIds: string[],
     session: DatabaseSession,
   ): Promise<ActivityPersistenceRecord[]>;
+  deleteByProject(projectId: string, session: DatabaseSession): Promise<number>;
   deleteById(
     activityId: string,
     session: DatabaseSession,

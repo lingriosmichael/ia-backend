@@ -1,6 +1,8 @@
 import type { FastifyBaseLogger } from "fastify";
 import { databaseSession } from "../../shared/database/databaseClient.js";
+import { isMongoDuplicateKeyError } from "../../shared/database/mongoErrors.js";
 import type { TransactionManager } from "../../shared/database/transactionManager.js";
+import type { UploadMetadataRecord } from "../../shared/contracts.js";
 import type { ProcessingJobRepository } from "../ai/execution/processingJobRepository.js";
 import { ProjectDerivedStateInvalidationService } from "../analytics/projectDerivedStateInvalidationService.js";
 import { AppError } from "../../shared/errors/appError.js";
@@ -17,6 +19,11 @@ import type { UploadMetadataRepository } from "./uploadMetadataRepository.js";
 
 function mapUploadStatus(status: "pending" | "uploaded" | "archived") {
   return status;
+}
+
+interface DerivedWorkbookSheetUploadResult {
+  upload: UploadMetadataRecord;
+  created: boolean;
 }
 
 export class UploadMetadataService {
@@ -199,6 +206,167 @@ export class UploadMetadataService {
     return this.mapRecordWithUploaderName(record);
   }
 
+  async createDerivedWorkbookSheetUpload(input: {
+    sourceWorkbookUploadMetadataId: string;
+    triggeredById: string;
+    originalFileName: string;
+    contentType: string | null;
+    sizeBytes: number | null;
+    storageKey: string;
+    derivedSheetName: string;
+    derivedSheetIndex: number;
+  }): Promise<DerivedWorkbookSheetUploadResult> {
+    const sourceWorkbookUpload = await this.uploadMetadataRepository.findById(
+      input.sourceWorkbookUploadMetadataId,
+      databaseSession,
+    );
+
+    if (!sourceWorkbookUpload) {
+      throw new AppError(
+        "Source workbook upload not found.",
+        404,
+        "source_workbook_upload_not_found",
+      );
+    }
+
+    if (!sourceWorkbookUpload.activityId) {
+      throw new AppError(
+        "Workbook sheet uploads require an activity-scoped source upload.",
+        400,
+        "source_workbook_activity_missing",
+      );
+    }
+    const sourceActivityId = sourceWorkbookUpload.activityId;
+
+    const existingDerivedUpload =
+      await this.uploadMetadataRepository.findDerivedBySourceWorkbookAndSheetIndex(
+        sourceWorkbookUpload.id,
+        input.derivedSheetIndex,
+        databaseSession,
+      );
+
+    if (existingDerivedUpload) {
+      return {
+        upload: await this.mapRecordWithUploaderName(existingDerivedUpload),
+        created: false,
+      };
+    }
+
+    let result:
+      | {
+          record: UploadMetadataPersistenceRecord;
+          created: boolean;
+        }
+      | undefined;
+
+    try {
+      result = await this.transactionManager.runInTransaction(
+        async (session) => {
+          const existingRecord =
+            await this.uploadMetadataRepository.findDerivedBySourceWorkbookAndSheetIndex(
+              sourceWorkbookUpload.id,
+              input.derivedSheetIndex,
+              session,
+            );
+
+          if (existingRecord) {
+            return {
+              record: existingRecord,
+              created: false,
+            };
+          }
+
+          const createdRecord = await this.uploadMetadataRepository.create(
+            {
+              organizationId: sourceWorkbookUpload.organizationId,
+              projectId: sourceWorkbookUpload.projectId,
+              activityId: sourceActivityId,
+              sourceWorkbookUploadMetadataId: sourceWorkbookUpload.id,
+              derivedSheetName: input.derivedSheetName.trim(),
+              derivedSheetIndex: input.derivedSheetIndex,
+              uploadedById: input.triggeredById,
+              originalFileName: input.originalFileName.trim(),
+              contentType: input.contentType?.trim() ?? null,
+              sizeBytes: input.sizeBytes,
+              storageKey: input.storageKey.trim(),
+            },
+            session,
+          );
+
+          const uploadedRecord = await this.uploadMetadataRepository.update(
+            createdRecord.id,
+            {
+              status: "uploaded",
+            },
+            session,
+          );
+
+          await this.processingJobRepository.create(
+            {
+              organizationId: sourceWorkbookUpload.organizationId,
+              projectId: sourceWorkbookUpload.projectId,
+              activityId: sourceActivityId,
+              uploadMetadataId: uploadedRecord.id,
+              triggeredById: input.triggeredById,
+              jobType: "evidence_processing",
+              payload: {
+                source: "workbook_sheet_split",
+                sourceWorkbookUploadMetadataId: sourceWorkbookUpload.id,
+                derivedSheetName: input.derivedSheetName.trim(),
+                derivedSheetIndex: input.derivedSheetIndex,
+              },
+            },
+            session,
+          );
+
+          const clearedActivityState =
+            await clearActivityAiKnowledgeStateIfPresent(
+              this.activityRepository,
+              sourceActivityId,
+              session,
+            );
+
+          if (clearedActivityState.clearedAcknowledgment) {
+            await this.projectDerivedStateInvalidationService.invalidateProject(
+              sourceWorkbookUpload.projectId,
+              session,
+            );
+          }
+
+          return {
+            record: uploadedRecord,
+            created: true,
+          };
+        },
+      );
+    } catch (error) {
+      if (!isMongoDuplicateKeyError(error)) {
+        throw error;
+      }
+
+      const existingRecord =
+        await this.uploadMetadataRepository.findDerivedBySourceWorkbookAndSheetIndex(
+          sourceWorkbookUpload.id,
+          input.derivedSheetIndex,
+          databaseSession,
+        );
+
+      if (!existingRecord) {
+        throw error;
+      }
+
+      result = {
+        record: existingRecord,
+        created: false,
+      };
+    }
+
+    return {
+      upload: await this.mapRecordWithUploaderName(result.record),
+      created: result.created,
+    };
+  }
+
   async update(
     userId: string,
     uploadMetadataId: string,
@@ -375,6 +543,135 @@ export class UploadMetadataService {
       id: record.id,
       activityId: record.activityId,
       projectId: record.projectId,
+    };
+  }
+
+  async archiveAfterWorkbookSplit(uploadMetadataId: string) {
+    const record = await this.uploadMetadataRepository.findById(
+      uploadMetadataId,
+      databaseSession,
+    );
+
+    if (!record) {
+      throw new AppError(
+        "Upload metadata not found.",
+        404,
+        "upload_metadata_not_found",
+      );
+    }
+
+    if (
+      record.status === "archived" &&
+      (!record.storageKey || record.originalFileDeletedAt)
+    ) {
+      return this.mapRecordWithUploaderName(record);
+    }
+
+    if (record.storageKey && !record.originalFileDeletedAt) {
+      await this.fileStorageService.deleteStoredFiles([record.storageKey]);
+    }
+
+    const updatedRecord = await this.uploadMetadataRepository.update(
+      uploadMetadataId,
+      {
+        status: "archived",
+        originalFileDeletedAt:
+          record.storageKey && !record.originalFileDeletedAt
+            ? new Date()
+            : record.originalFileDeletedAt,
+      },
+      databaseSession,
+    );
+
+    return this.mapRecordWithUploaderName(updatedRecord);
+  }
+
+  async cleanupDerivedWorkbookSheetUploads(
+    sourceWorkbookUploadMetadataId: string,
+  ) {
+    const derivedUploads =
+      await this.uploadMetadataRepository.listDerivedBySourceWorkbook(
+        sourceWorkbookUploadMetadataId,
+        databaseSession,
+      );
+
+    if (derivedUploads.length === 0) {
+      return { deletedCount: 0 };
+    }
+
+    const firstDerivedUpload =
+      derivedUploads[0] as UploadMetadataPersistenceRecord;
+
+    await this.transactionManager.runInTransaction(async (session) => {
+      if (firstDerivedUpload.activityId) {
+        const activity = await this.activityRepository.findById(
+          firstDerivedUpload.activityId,
+          session,
+        );
+
+        if (activity) {
+          const clearedActivityState =
+            await clearActivityAiKnowledgeStateIfPresent(
+              this.activityRepository,
+              firstDerivedUpload.activityId,
+              session,
+            );
+
+          if (clearedActivityState.clearedAcknowledgment) {
+            await this.projectDerivedStateInvalidationService.invalidateProject(
+              firstDerivedUpload.projectId,
+              session,
+            );
+          }
+        }
+      }
+
+      for (const derivedUpload of derivedUploads) {
+        await this.processingResourceCleanupService.deleteByUploadMetadataId(
+          derivedUpload.id,
+          session,
+        );
+        await this.processingJobRepository.deleteByUploadMetadataId(
+          derivedUpload.id,
+          session,
+        );
+        await this.uploadMetadataRepository.deleteById(
+          derivedUpload.id,
+          session,
+        );
+      }
+    });
+
+    const storageKeys = derivedUploads
+      .filter(
+        (
+          derivedUpload,
+        ): derivedUpload is UploadMetadataPersistenceRecord & {
+          storageKey: string;
+        } =>
+          Boolean(
+            derivedUpload.storageKey && !derivedUpload.originalFileDeletedAt,
+          ),
+      )
+      .map((derivedUpload) => derivedUpload.storageKey);
+
+    if (storageKeys.length > 0) {
+      try {
+        await this.fileStorageService.deleteStoredFiles(storageKeys);
+      } catch (error) {
+        this.logger.error(
+          {
+            sourceWorkbookUploadMetadataId,
+            storageKeys,
+            error,
+          },
+          "Failed to delete derived workbook sheet files during rollback.",
+        );
+      }
+    }
+
+    return {
+      deletedCount: derivedUploads.length,
     };
   }
 

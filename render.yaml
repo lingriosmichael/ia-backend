@@ -62,7 +62,10 @@ services:
       - key: UPLOAD_DIR
         value: /opt/render/project/src/uploads
       - key: EMAIL_PROVIDER
-        value: mailersend
+        # Keep production deploys bootable until a real MailerSend token is
+        # configured. Switch this back to `mailersend` only after setting
+        # MAILERSEND_API_TOKEN in Render.
+        value: disabled
       - key: EMAIL_FROM
         sync: false
       - key: EMAIL_FROM_NAME

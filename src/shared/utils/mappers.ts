@@ -24,21 +24,18 @@ import type {
   InterpretationSupportingQuote,
   InterpretationWarning,
   ParsedRepresentationPreviewRecord,
-  ParsedRepresentationRecord,
   ProcessingJobStatus,
   ProjectPermissions,
   ProcessingJobType,
   ProcessingJobRecord,
   PrivacyReviewDecisions,
   PrivacyReviewRecord,
-  PrivacySafeRepresentationRecord,
   ProjectStatus,
   ProjectSummary,
   UploadMetadataStatus,
   UploadMetadataRecord,
   UserSummary,
   WorkspaceActivity,
-  WorkspaceProject,
 } from "../contracts.js";
 import { classifyEvidenceModalityFromPayload } from "./evidenceModality.js";
 import { classifyInterpretationDataTypeFromPayload } from "./interpretationDataType.js";
@@ -192,63 +189,6 @@ export function mapOrganizationMembership(record: {
     role: normalizedRole,
     permissions: mapOrganizationPermissions(normalizedRole),
     createdAt: toIso(record.organization.createdAt),
-  };
-}
-
-export function mapProject(
-  project: {
-    id: string;
-    organizationId: string;
-    ownerId: string;
-    ownerName?: string | null;
-    name: string;
-    startMonth: string | null;
-    endMonth: string | null;
-    fundingProgram: string | null;
-    fundingOrganization: string | null;
-    targetGroups: string[];
-    overarchingTargetGroup: string | null;
-    intendedChanges: string[];
-    areaOfOperation: string | null;
-    partnerships: string | null;
-    sdgs: string[];
-    impactModel: {
-      inputs: string | null;
-      activities: string | null;
-      outputs: string | null;
-      impact: string | null;
-      outcomes: string | null;
-    };
-    successIndicators: string | null;
-    status: ProjectStatus | keyof typeof projectStatusMap;
-    createdAt: Date;
-    updatedAt: Date;
-  },
-  currentUserId: string,
-): WorkspaceProject {
-  return {
-    id: project.id,
-    organizationId: project.organizationId,
-    ownerId: project.ownerId,
-    ownerName: project.ownerName ?? null,
-    name: project.name,
-    startMonth: project.startMonth,
-    endMonth: project.endMonth,
-    fundingProgram: project.fundingProgram,
-    fundingOrganization: project.fundingOrganization,
-    targetGroups: project.targetGroups,
-    overarchingTargetGroup: project.overarchingTargetGroup,
-    intendedChanges: project.intendedChanges,
-    areaOfOperation: project.areaOfOperation,
-    partnerships: project.partnerships,
-    sdgs: project.sdgs,
-    impactModel: project.impactModel,
-    successIndicators: project.successIndicators,
-    status: normalizeProjectStatus(project.status),
-    permissions: mapProjectPermissions(project.ownerId, currentUserId),
-    createdAt: toIso(project.createdAt),
-    updatedAt: toIso(project.updatedAt),
-    activities: [],
   };
 }
 
@@ -514,6 +454,9 @@ export function mapUploadMetadata(record: {
   organizationId: string;
   projectId: string;
   activityId: string | null;
+  sourceWorkbookUploadMetadataId?: string | null;
+  derivedSheetName?: string | null;
+  derivedSheetIndex?: number | null;
   logicalEvidenceId: string;
   versionNumber: number;
   replacesUploadMetadataId: string | null;
@@ -534,6 +477,10 @@ export function mapUploadMetadata(record: {
     organizationId: record.organizationId,
     projectId: record.projectId,
     activityId: record.activityId,
+    sourceWorkbookUploadMetadataId:
+      record.sourceWorkbookUploadMetadataId ?? null,
+    derivedSheetName: record.derivedSheetName ?? null,
+    derivedSheetIndex: record.derivedSheetIndex ?? null,
     logicalEvidenceId: record.logicalEvidenceId,
     versionNumber: record.versionNumber,
     replacesUploadMetadataId: record.replacesUploadMetadataId,
@@ -584,38 +531,6 @@ export function mapProcessingJob(record: {
     updatedAt: toIso(record.updatedAt),
     startedAt: record.startedAt ? toIso(record.startedAt) : null,
     completedAt: record.completedAt ? toIso(record.completedAt) : null,
-  };
-}
-
-export function mapParsedRepresentation(record: {
-  id: string;
-  organizationId: string;
-  projectId: string;
-  activityId: string | null;
-  uploadMetadataId: string;
-  processingJobId: string;
-  fileType: "spreadsheet" | "document" | "unknown";
-  payload: unknown;
-  createdAt: Date;
-  updatedAt: Date;
-}): ParsedRepresentationRecord {
-  const interpretationDataType = classifyInterpretationDataTypeFromPayload(
-    record.payload,
-  );
-  const evidenceModality = classifyEvidenceModalityFromPayload(record.payload);
-  return {
-    id: record.id,
-    organizationId: record.organizationId,
-    projectId: record.projectId,
-    activityId: record.activityId,
-    uploadMetadataId: record.uploadMetadataId,
-    processingJobId: record.processingJobId,
-    fileType: record.fileType,
-    interpretationDataType,
-    evidenceModality,
-    payload: (record.payload as Record<string, unknown>) ?? {},
-    createdAt: toIso(record.createdAt),
-    updatedAt: toIso(record.updatedAt),
   };
 }
 
@@ -690,40 +605,6 @@ export function mapPrivacyReview(record: {
   };
 }
 
-export function mapPrivacySafeRepresentation(record: {
-  id: string;
-  organizationId: string;
-  projectId: string;
-  activityId: string | null;
-  uploadMetadataId: string;
-  processingJobId: string;
-  privacyReviewId: string;
-  parsedRepresentationId: string;
-  payload: unknown;
-  createdAt: Date;
-  updatedAt: Date;
-}): PrivacySafeRepresentationRecord {
-  const interpretationDataType = classifyInterpretationDataTypeFromPayload(
-    record.payload,
-  );
-  const evidenceModality = classifyEvidenceModalityFromPayload(record.payload);
-  return {
-    id: record.id,
-    organizationId: record.organizationId,
-    projectId: record.projectId,
-    activityId: record.activityId,
-    uploadMetadataId: record.uploadMetadataId,
-    processingJobId: record.processingJobId,
-    privacyReviewId: record.privacyReviewId,
-    parsedRepresentationId: record.parsedRepresentationId,
-    interpretationDataType,
-    evidenceModality,
-    payload: (record.payload as Record<string, unknown>) ?? {},
-    createdAt: toIso(record.createdAt),
-    updatedAt: toIso(record.updatedAt),
-  };
-}
-
 export function mapInterpretationResult(record: {
   id: string;
   organizationId: string;
@@ -749,6 +630,8 @@ export function mapInterpretationResult(record: {
     kind: InterpretationQuestionKind;
     questionDomain: InterpretationQuestionDomain;
     options: string[] | null;
+    recommendedOption: string | null;
+    recommendedConfidence: number | null;
     isBlocking: boolean;
     questionCode: InterpretationQuestionCode | null;
     targetTableName: string | null;
@@ -838,6 +721,8 @@ export function mapInterpretationResult(record: {
       kind: question.kind,
       questionDomain: question.questionDomain,
       options: question.options,
+      recommendedOption: question.recommendedOption,
+      recommendedConfidence: question.recommendedConfidence,
       isBlocking: question.isBlocking,
       questionCode: question.questionCode,
       targetTableName: question.targetTableName,

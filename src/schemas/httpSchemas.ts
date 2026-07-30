@@ -303,3 +303,8 @@ export const workerClaimProcessingJobSchema = z.object({
 export const workerHeartbeatSchema = z.object({
   workerId: z.string().trim().min(1).max(200),
 });
+
+export const workbookDerivedSheetUploadQuerySchema = z.object({
+  sheetName: z.string().trim().min(1).max(255),
+  sheetIndex: z.coerce.number().int().min(0).max(10_000),
+});

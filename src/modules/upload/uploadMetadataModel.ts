@@ -7,6 +7,13 @@ const uploadMetadataSchema = new Schema(
     organizationId: { type: String, required: true, index: true },
     projectId: { type: String, required: true, index: true },
     activityId: { type: String, default: null, index: true },
+    sourceWorkbookUploadMetadataId: {
+      type: String,
+      default: null,
+      index: true,
+    },
+    derivedSheetName: { type: String, default: null },
+    derivedSheetIndex: { type: Number, default: null },
     uploadedById: { type: String, required: true },
     logicalEvidenceId: { type: String, required: true, index: true },
     versionNumber: { type: Number, required: true, min: 1 },
@@ -30,6 +37,16 @@ const uploadMetadataSchema = new Schema(
 );
 
 uploadMetadataSchema.index({ logicalEvidenceId: 1, versionNumber: -1 });
+uploadMetadataSchema.index(
+  { sourceWorkbookUploadMetadataId: 1, derivedSheetIndex: 1 },
+  {
+    unique: true,
+    partialFilterExpression: {
+      sourceWorkbookUploadMetadataId: { $type: "string" },
+      derivedSheetIndex: { $type: "number" },
+    },
+  },
+);
 
 export type UploadMetadataMongoDocument = InferSchemaType<
   typeof uploadMetadataSchema

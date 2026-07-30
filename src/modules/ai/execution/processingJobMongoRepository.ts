@@ -257,6 +257,19 @@ export class MongoProcessingJobRepository implements ProcessingJobRepository {
     return toPlainProcessingJob(document);
   }
 
+  async deleteByProject(
+    projectId: string,
+    session: DatabaseSession,
+  ): Promise<number> {
+    const result = await applyMongoSession(
+      ProcessingJobMongoModel.deleteMany({
+        projectId,
+      }),
+      session,
+    ).exec();
+    return result.deletedCount ?? 0;
+  }
+
   async deleteByActivity(
     activityId: string,
     session: DatabaseSession,

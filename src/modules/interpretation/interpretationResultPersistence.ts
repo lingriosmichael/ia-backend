@@ -37,6 +37,8 @@ export interface InterpretationQuestionPersistence {
   kind: InterpretationQuestionKind;
   questionDomain: InterpretationQuestionDomain;
   options: string[] | null;
+  recommendedOption: string | null;
+  recommendedConfidence: number | null;
   isBlocking: boolean;
   questionCode: InterpretationQuestionCode | null;
   targetTableName: string | null;
@@ -145,6 +147,8 @@ export interface InterpretationQuestionCreateInput {
   kind: InterpretationQuestionKind;
   questionDomain: InterpretationQuestionDomain;
   options: string[] | null;
+  recommendedOption: string | null;
+  recommendedConfidence: number | null;
   isBlocking: boolean;
   questionCode: InterpretationQuestionCode | null;
   targetTableName: string | null;

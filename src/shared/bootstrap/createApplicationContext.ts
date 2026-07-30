@@ -240,6 +240,7 @@ export function createApplicationContext(
   const processingJobService = new ProcessingJobService(
     processingJobRepository,
     uploadMetadataRepository,
+    uploadMetadataService,
     authorizationService,
     evidenceProcessingArtifactService,
     interpretationArtifactService,

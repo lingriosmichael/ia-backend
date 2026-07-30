@@ -133,9 +133,8 @@ test(
   "project deletion removes the project and stored upload files after confirmation",
   { concurrency: false },
   async () => {
-    let deleteCallCount = 0;
+    const calls: string[] = [];
     let deletedStorageKeys: string[] = [];
-    let deletedUploadRecords = 0;
 
     const projectRepository = {
       findDeleteContext: async () => ({
@@ -144,7 +143,7 @@ test(
         organizationId: "organization-1",
       }),
       delete: async () => {
-        deleteCallCount += 1;
+        calls.push("deleteProject");
         return {
           id: "project-1",
           organizationId: "organization-1",
@@ -203,20 +202,36 @@ test(
         "activity-1/dataset.csv",
       ],
       deleteByProject: async () => {
-        deletedUploadRecords += 1;
+        calls.push("deleteUploads");
         return 2;
       },
     } as unknown as UploadMetadataRepository;
-    const activityRepository = {} as ActivityRepository;
+    const activityRepository = {
+      deleteByProject: async () => {
+        calls.push("deleteActivities");
+        return 2;
+      },
+    } as unknown as ActivityRepository;
 
     const transactionManager = {
-      runInTransaction: async <T>(operation: (session: null) => Promise<T>) =>
-        operation(null),
+      runInTransaction: async <T>(operation: (session: null) => Promise<T>) => {
+        calls.push("beginTransaction");
+        const result = await operation(null);
+        calls.push("commitTransaction");
+        return result;
+      },
     } as unknown as TransactionManager;
-    const processingJobRepository = {} as ProcessingJobRepository;
+    const processingJobRepository = {
+      deleteByProject: async () => {
+        calls.push("deleteJobs");
+        return 2;
+      },
+    } as unknown as ProcessingJobRepository;
     const userRepository = {} as UserRepository;
     const processingResourceCleanupService = {
-      deleteByProjectId: async () => undefined,
+      deleteByProjectId: async () => {
+        calls.push("cleanupProcessing");
+      },
     } as unknown as ProcessingResourceCleanupService;
 
     const projectService = new ProjectService(
@@ -241,8 +256,15 @@ test(
       id: "project-1",
       organizationId: "organization-1",
     });
-    assert.equal(deleteCallCount, 1);
-    assert.equal(deletedUploadRecords, 1);
+    assert.deepEqual(calls, [
+      "beginTransaction",
+      "cleanupProcessing",
+      "deleteJobs",
+      "deleteUploads",
+      "deleteActivities",
+      "deleteProject",
+      "commitTransaction",
+    ]);
     assert.deepEqual(deletedStorageKeys, [
       "activity-1/dataset.csv",
       "activity-1/dataset.csv",
@@ -321,13 +343,17 @@ test(
       listStorageKeysByProject: async () => ["activity-1/dataset.csv"],
       deleteByProject: async () => 1,
     } as unknown as UploadMetadataRepository;
-    const activityRepository = {} as ActivityRepository;
+    const activityRepository = {
+      deleteByProject: async () => 1,
+    } as unknown as ActivityRepository;
 
     const transactionManager = {
       runInTransaction: async <T>(operation: (session: null) => Promise<T>) =>
         operation(null),
     } as unknown as TransactionManager;
-    const processingJobRepository = {} as ProcessingJobRepository;
+    const processingJobRepository = {
+      deleteByProject: async () => 0,
+    } as unknown as ProcessingJobRepository;
     const userRepository = {} as UserRepository;
     const processingResourceCleanupService = {
       deleteByProjectId: async () => {

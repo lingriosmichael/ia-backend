@@ -528,7 +528,9 @@ export class ProjectService {
           projectId,
           session,
         );
+        await this.processingJobRepository.deleteByProject(projectId, session);
         await this.uploadMetadataRepository.deleteByProject(projectId, session);
+        await this.activityRepository.deleteByProject(projectId, session);
 
         return this.projectRepository.delete(projectId, session);
       },

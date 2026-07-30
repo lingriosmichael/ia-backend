@@ -96,7 +96,7 @@ This now runs:
 - MinIO console on `http://localhost:9001`
 - Backend on `http://localhost:4000`
 - Backend analytics worker as a separate managed process
-- Python API on `http://localhost:8000`
+- Python API on `http://127.0.0.1:8000`
 - Python background worker as a separate managed process
 
 ## Start MongoDB Only
@@ -181,6 +181,7 @@ docker compose down
 - If the server does not start, make sure Docker Desktop is open and running.
 - If MongoDB fails to connect, confirm the database container is running with `docker compose ps`.
 - If processing jobs stay queued, confirm the `python-worker` container or `make run-worker` process is running.
+- For host-run local development, prefer `PYTHON_SERVICE_URL=http://127.0.0.1:8000` and `BACKEND_BASE_URL=http://127.0.0.1:4000` instead of `localhost`.
 - If analytics generations stay queued, confirm the `analytics-worker` container or `npm run dev:analytics-worker` process is running.
 - If you see a port error, check whether port 4000 is already being used by another app.
 - If the app cannot connect to the frontend, confirm the backend is running and that `CORS_ORIGIN` in `.env` matches the frontend address.
