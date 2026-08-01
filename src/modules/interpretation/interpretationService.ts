@@ -1270,7 +1270,11 @@ export class InterpretationService {
     }
 
     return mapActivity(
-      { ...updatedActivity, projectOwnerId: project.ownerId },
+      {
+        ...updatedActivity,
+        projectOwnerId: project.ownerId,
+        projectStatus: project.status,
+      },
       userId,
     );
   }

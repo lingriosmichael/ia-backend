@@ -75,7 +75,7 @@ export function createApplicationContext(
   config: BackendConfig,
   logger: FastifyBaseLogger,
 ) {
-  const transactionManager = new MongoTransactionManager();
+  const transactionManager = new MongoTransactionManager(logger);
   const emailService = createEmailService(config);
   const userRepository = new MongoUserRepository();
   const organizationRepository = new MongoOrganizationRepository();

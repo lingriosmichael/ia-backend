@@ -30,6 +30,7 @@ function toProjectRecord(
     ownerId: document.ownerId,
     name: document.name,
     projectGoal: document.projectGoal ?? null,
+    initialSituation: document.initialSituation ?? null,
     startMonth: document.startMonth ?? null,
     endMonth: document.endMonth ?? null,
     fundingProgram: document.fundingProgram ?? null,
@@ -56,6 +57,7 @@ function toProjectRecord(
       totalTokensLifetime: document.llmTokenLedger?.totalTokensLifetime ?? 0,
     },
     status: document.status,
+    archivedFromStatus: document.archivedFromStatus ?? null,
     createdAt: document.createdAt,
     updatedAt: document.updatedAt,
   };
@@ -72,6 +74,7 @@ export class MongoProjectRepository implements ProjectRepository {
           _id: createDocumentId(),
           ...input,
           status: input.status ?? "planning",
+          archivedFromStatus: input.archivedFromStatus ?? null,
         },
       ],
       getMongoSessionOptions(session),

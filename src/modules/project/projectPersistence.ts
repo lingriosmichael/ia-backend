@@ -20,6 +20,7 @@ export interface ProjectPersistenceRecord {
   ownerId: string;
   name: string;
   projectGoal: string | null;
+  initialSituation: string | null;
   startMonth: string | null;
   endMonth: string | null;
   fundingProgram: string | null;
@@ -34,6 +35,7 @@ export interface ProjectPersistenceRecord {
   successIndicators: string | null;
   llmTokenLedger?: ProjectLlmTokenLedgerPersistence;
   status: ProjectStatus;
+  archivedFromStatus?: Exclude<ProjectStatus, "completed"> | null;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -42,6 +44,7 @@ export interface ProjectCreateInput {
   organizationId: string;
   ownerId: string;
   name: string;
+  initialSituation: string | null;
   startMonth: string;
   endMonth: string;
   fundingProgram: string | null;
@@ -55,10 +58,12 @@ export interface ProjectCreateInput {
   impactModel: ProjectImpactModelPersistence;
   successIndicators: string | null;
   status?: ProjectStatus;
+  archivedFromStatus?: Exclude<ProjectStatus, "completed"> | null;
 }
 
 export interface ProjectUpdateInput {
   name?: string;
+  initialSituation?: string | null;
   startMonth?: string | null;
   endMonth?: string | null;
   fundingProgram?: string | null;
@@ -72,6 +77,7 @@ export interface ProjectUpdateInput {
   impactModel?: Partial<ProjectImpactModelPersistence>;
   successIndicators?: string | null;
   status?: ProjectStatus;
+  archivedFromStatus?: Exclude<ProjectStatus, "completed"> | null;
 }
 
 export interface ProjectLlmTokenLedgerIncrement {

@@ -40,6 +40,7 @@ export class ActivityService {
         {
           ...activity,
           projectOwnerId: project.ownerId,
+          projectStatus: project.status,
         },
         userId,
       ),
@@ -62,7 +63,10 @@ export class ActivityService {
       status?: "active" | "completed";
     },
   ) {
-    await this.authorizationService.canEditProject(userId, projectId);
+    const { project } = await this.authorizationService.canEditProject(
+      userId,
+      projectId,
+    );
 
     const activity = await this.activityRepository.create(
       {
@@ -85,7 +89,8 @@ export class ActivityService {
     return mapActivity(
       {
         ...activity,
-        projectOwnerId: userId,
+        projectOwnerId: project.ownerId,
+        projectStatus: project.status,
       },
       userId,
     );
@@ -206,6 +211,7 @@ export class ActivityService {
       {
         ...updatedActivity,
         projectOwnerId: project.ownerId,
+        projectStatus: project.status,
       },
       userId,
     );
@@ -219,6 +225,7 @@ export class ActivityService {
       {
         ...activity,
         projectOwnerId: project.ownerId,
+        projectStatus: project.status,
       },
       userId,
     );

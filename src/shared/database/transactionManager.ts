@@ -8,6 +8,10 @@ export interface TransactionManager {
   ): Promise<T>;
 }
 
+interface TransactionFallbackLogger {
+  warn(payload: unknown, message: string): void;
+}
+
 export class NoopTransactionManager implements TransactionManager {
   async runInTransaction<T>(
     operation: (session: DatabaseSession) => Promise<T>,
@@ -16,7 +20,10 @@ export class NoopTransactionManager implements TransactionManager {
   }
 }
 
-function isStandaloneTransactionUnsupportedError(error: unknown): boolean {
+function isStandaloneTransactionUnsupportedError(
+  error: unknown,
+  options: { allowLooseCodeName: boolean } = { allowLooseCodeName: true },
+): boolean {
   if (typeof error !== "object" || error === null) {
     return false;
   }
@@ -26,17 +33,41 @@ function isStandaloneTransactionUnsupportedError(error: unknown): boolean {
     codeName?: string;
     message?: string;
     errmsg?: string;
+    cause?: unknown;
+    originalError?: unknown;
+    errorResponse?: unknown;
   };
 
-  return (
+  const isDirectMatch =
     candidate.code === 20 ||
-    candidate.codeName === "IllegalOperation" ||
+    (options.allowLooseCodeName && candidate.codeName === "IllegalOperation") ||
     candidate.message?.includes(
       "Transaction numbers are only allowed on a replica set member or mongos",
     ) === true ||
+    candidate.message?.includes(
+      "This MongoDB deployment does not support retryable writes",
+    ) === true ||
     candidate.errmsg?.includes(
       "Transaction numbers are only allowed on a replica set member or mongos",
-    ) === true
+    ) === true ||
+    candidate.errmsg?.includes(
+      "This MongoDB deployment does not support retryable writes",
+    ) === true;
+
+  if (isDirectMatch) {
+    return true;
+  }
+
+  return (
+    isStandaloneTransactionUnsupportedError(candidate.cause, {
+      allowLooseCodeName: false,
+    }) ||
+    isStandaloneTransactionUnsupportedError(candidate.originalError, {
+      allowLooseCodeName: false,
+    }) ||
+    isStandaloneTransactionUnsupportedError(candidate.errorResponse, {
+      allowLooseCodeName: false,
+    })
   );
 }
 
@@ -50,6 +81,8 @@ async function abortTransactionSafely(session: mongoose.mongo.ClientSession) {
 }
 
 export class MongoTransactionManager implements TransactionManager {
+  constructor(private readonly logger?: TransactionFallbackLogger) {}
+
   async runInTransaction<T>(
     operation: (session: DatabaseSession) => Promise<T>,
   ): Promise<T> {
@@ -67,6 +100,11 @@ export class MongoTransactionManager implements TransactionManager {
         if (transactionStarted) {
           await abortTransactionSafely(session);
         }
+
+        this.logger?.warn(
+          { error },
+          "Mongo transactions are unsupported by the current deployment. Retrying without a transaction.",
+        );
 
         return operation(databaseSession);
       }

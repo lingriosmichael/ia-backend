@@ -257,7 +257,7 @@ export class ProcessingJobService {
       );
     }
 
-    await this.authorizationService.canEditProject(
+    await this.authorizationService.canManageProject(
       userId,
       existingJob.projectId,
     );

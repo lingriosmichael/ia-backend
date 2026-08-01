@@ -83,6 +83,7 @@ export interface OrganizationSettings {
 export interface ProjectPermissions {
   canEdit: boolean;
   canDelete: boolean;
+  canManageLifecycle: boolean;
   canCreateActivity: boolean;
   canUploadEvidence: boolean;
 }
@@ -118,6 +119,7 @@ export interface ProjectSummary {
   ownerId: string;
   ownerName: string | null;
   name: string;
+  initialSituation: string | null;
   startMonth: string | null;
   endMonth: string | null;
   fundingProgram: string | null;

@@ -22,6 +22,7 @@ import { ProcessingResourceCleanupService } from "../processing/processingResour
 import type { ProcessingJobRepository } from "../ai/execution/processingJobRepository.js";
 import type {
   ActiveProcessingJobStatus,
+  ProjectStatus,
   ProjectOverview,
   ProjectRecentActivityItem,
 } from "../../shared/contracts.js";
@@ -35,6 +36,41 @@ const ACTIVE_AI_KNOWLEDGE_JOB_STATUSES: ActiveProcessingJobStatus[] = [
 
 function mapProjectStatus(status: "planning" | "active" | "completed") {
   return status;
+}
+
+function resolveReactivatedProjectStatus(input: {
+  currentArchivedFromStatus:
+    Exclude<ProjectStatus, "completed"> | null | undefined;
+  requestedStatus: Exclude<ProjectStatus, "completed">;
+}) {
+  return input.currentArchivedFromStatus ?? input.requestedStatus;
+}
+
+function hasProjectContentUpdates(input: {
+  name?: string;
+  initialSituation?: string | null;
+  startMonth?: string | null;
+  endMonth?: string | null;
+  fundingProgram?: string | null;
+  fundingOrganization?: string | null;
+  targetGroups?: string[];
+  overarchingTargetGroup?: string;
+  intendedChanges?: string[];
+  areaOfOperation?: string | null;
+  partnerships?: string | null;
+  sdgs?: string[];
+  impactModel?: {
+    inputs?: string | null;
+    activities?: string | null;
+    outputs?: string | null;
+    impact?: string | null;
+    outcomes?: string | null;
+  };
+  successIndicators?: string | null;
+  status?: "planning" | "active" | "completed";
+}) {
+  const { status: _status, ...nonStatusFields } = input;
+  return Object.values(nonStatusFields).some((value) => value !== undefined);
 }
 
 function toIso(value: Date) {
@@ -110,6 +146,7 @@ export class ProjectService {
     organizationId: string,
     input: {
       name: string;
+      initialSituation?: string;
       startMonth: string;
       endMonth: string;
       fundingProgram?: string;
@@ -131,6 +168,7 @@ export class ProjectService {
         organizationId,
         ownerId: userId,
         name: trimRequiredText(input.name),
+        initialSituation: trimNullableText(input.initialSituation) ?? null,
         startMonth: input.startMonth,
         endMonth: input.endMonth,
         fundingProgram: trimNullableText(input.fundingProgram) ?? null,
@@ -174,6 +212,7 @@ export class ProjectService {
     projectId: string,
     input: {
       name?: string;
+      initialSituation?: string | null;
       startMonth?: string | null;
       endMonth?: string | null;
       fundingProgram?: string | null;
@@ -195,7 +234,14 @@ export class ProjectService {
       status?: "planning" | "active" | "completed";
     },
   ) {
-    await this.authorizationService.canEditProject(userId, projectId);
+    const { project } = await this.authorizationService.canManageProject(
+      userId,
+      projectId,
+    );
+
+    if (project.status === "completed" && hasProjectContentUpdates(input)) {
+      this.authorizationService.assertProjectIsOperational(project);
+    }
 
     const targetGroups = trimStringArray(input.targetGroups);
     const overarchingTargetGroup =
@@ -205,11 +251,53 @@ export class ProjectService {
             targetGroups,
           }) ?? undefined)
         : undefined;
+    let nextStatus: ProjectStatus | undefined;
+    let archivedFromStatus:
+      Exclude<ProjectStatus, "completed"> | null | undefined;
+
+    if (input.status !== undefined) {
+      if (project.status === "completed") {
+        if (input.status === "completed") {
+          nextStatus = "completed";
+          archivedFromStatus = project.archivedFromStatus ?? null;
+        } else {
+          nextStatus = resolveReactivatedProjectStatus({
+            currentArchivedFromStatus: project.archivedFromStatus,
+            requestedStatus: input.status,
+          });
+          archivedFromStatus = null;
+        }
+      } else if (input.status === "completed") {
+        const activeJobCount =
+          await this.processingJobRepository.countByProjectStatuses(
+            projectId,
+            [...ACTIVE_AI_KNOWLEDGE_JOB_STATUSES],
+            databaseSession,
+          );
+
+        if (activeJobCount > 0) {
+          throw new AppError(
+            "Project cannot be archived while processing is still active.",
+            409,
+            "project_processing_in_progress",
+          );
+        }
+
+        nextStatus = "completed";
+        archivedFromStatus = project.status;
+      } else {
+        nextStatus = mapProjectStatus(input.status);
+        archivedFromStatus = project.archivedFromStatus ?? null;
+      }
+    } else {
+      this.authorizationService.assertProjectIsOperational(project);
+    }
 
     const updatedProject = await this.projectRepository.update(
       projectId,
       {
         name: input.name?.trim(),
+        initialSituation: trimNullableText(input.initialSituation),
         startMonth:
           input.startMonth === undefined ? undefined : input.startMonth,
         endMonth: input.endMonth === undefined ? undefined : input.endMonth,
@@ -231,7 +319,8 @@ export class ProjectService {
             }
           : undefined,
         successIndicators: trimNullableText(input.successIndicators),
-        status: input.status ? mapProjectStatus(input.status) : undefined,
+        status: nextStatus,
+        archivedFromStatus,
       },
       databaseSession,
     );
@@ -363,6 +452,7 @@ export class ProjectService {
         {
           ...activity,
           projectOwnerId: overview.ownerId,
+          projectStatus: overview.status,
           _count: {
             uploadMetadata: activityUploadCounts[activity.id] ?? 0,
             processingJobs: 0,
@@ -485,7 +575,7 @@ export class ProjectService {
       throw new AppError("Project not found.", 404, "project_not_found");
     }
 
-    await this.authorizationService.canEditProject(userId, projectId);
+    await this.authorizationService.canManageProject(userId, projectId);
 
     if (input.projectName !== existingProject.name) {
       throw new AppError(

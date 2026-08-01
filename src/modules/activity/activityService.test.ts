@@ -137,7 +137,46 @@ test("activity create trims text fields and collapses whitespace-only optional t
   } as unknown as ActivityRepository;
 
   const authorizationService = {
-    canEditProject: async () => undefined,
+    canEditProject: async () => ({
+      membership: {
+        id: "membership-1",
+        userId: "user-1",
+        organizationId: "organization-1",
+        role: "PROJECT_MANAGER",
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      },
+      project: {
+        id: "project-1",
+        organizationId: "organization-1",
+        ownerId: "user-1",
+        ownerName: "Owner",
+        name: "Project One",
+        initialSituation: null,
+        startMonth: "012026",
+        endMonth: "122026",
+        fundingProgram: null,
+        fundingOrganization: null,
+        targetGroups: [],
+        overarchingTargetGroup: null,
+        intendedChanges: [],
+        areaOfOperation: null,
+        partnerships: null,
+        sdgs: [],
+        impactModel: {
+          inputs: null,
+          activities: null,
+          outputs: null,
+          impact: null,
+          outcomes: null,
+        },
+        successIndicators: null,
+        status: "active",
+        archivedFromStatus: null,
+        createdAt: new Date("2026-01-01T00:00:00.000Z"),
+        updatedAt: new Date("2026-01-01T00:00:00.000Z"),
+      },
+    }),
   } as unknown as AuthorizationService;
 
   const activityService = new ActivityService(

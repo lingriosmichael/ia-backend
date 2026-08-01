@@ -12,6 +12,43 @@ import type { UploadMetadataRepository } from "../upload/uploadMetadataRepositor
 import type { ProcessingJobRepository } from "../ai/execution/processingJobRepository.js";
 import type { ProcessingResourceCleanupService } from "../processing/processingResourceCleanupService.js";
 import type { UserRepository } from "../user/userRepository.js";
+import type { ProjectUpdateInput } from "./projectPersistence.js";
+
+function createOwnedProjectRecord(
+  status: "planning" | "active" | "completed" = "planning",
+  archivedFromStatus: "planning" | "active" | null = null,
+) {
+  return {
+    id: "project-1",
+    organizationId: "organization-1",
+    ownerId: "user-1",
+    name: "Mentoring Programme 2026",
+    projectGoal: null,
+    initialSituation: null,
+    startMonth: "012026",
+    endMonth: "122026",
+    fundingProgram: null,
+    fundingOrganization: null,
+    targetGroups: [],
+    overarchingTargetGroup: null,
+    intendedChanges: [],
+    areaOfOperation: null,
+    partnerships: null,
+    sdgs: [],
+    impactModel: {
+      inputs: null,
+      activities: null,
+      outputs: null,
+      impact: null,
+      outcomes: null,
+    },
+    successIndicators: null,
+    status,
+    archivedFromStatus,
+    createdAt: new Date("2026-01-01T00:00:00.000Z"),
+    updatedAt: new Date("2026-01-02T00:00:00.000Z"),
+  };
+}
 
 test(
   "project deletion rejects a mismatched confirmation name",
@@ -37,7 +74,7 @@ test(
     } as unknown as ProjectRepository;
 
     const authorizationService = {
-      canEditProject: async () => ({
+      canManageProject: async () => ({
         membership: {
           id: "membership-1",
           userId: "user-1",
@@ -46,32 +83,7 @@ test(
           createdAt: new Date(),
           updatedAt: new Date(),
         },
-        project: {
-          id: "project-1",
-          organizationId: "organization-1",
-          ownerId: "user-1",
-          name: "Mentoring Programme 2026",
-          projectGoal: null,
-          startMonth: null,
-          endMonth: null,
-          fundingProgram: null,
-          fundingOrganization: null,
-          targetGroups: [],
-          areaOfOperation: null,
-          partnerships: null,
-          sdgs: [],
-          impactModel: {
-            inputs: null,
-            activities: null,
-            outputs: null,
-            impact: null,
-            outcomes: null,
-          },
-          successIndicators: null,
-          status: "planning",
-          createdAt: new Date(),
-          updatedAt: new Date(),
-        },
+        project: createOwnedProjectRecord(),
       }),
     } as unknown as AuthorizationService;
 
@@ -152,7 +164,7 @@ test(
     } as unknown as ProjectRepository;
 
     const authorizationService = {
-      canEditProject: async () => ({
+      canManageProject: async () => ({
         membership: {
           id: "membership-1",
           userId: "user-1",
@@ -161,32 +173,7 @@ test(
           createdAt: new Date(),
           updatedAt: new Date(),
         },
-        project: {
-          id: "project-1",
-          organizationId: "organization-1",
-          ownerId: "user-1",
-          name: "Mentoring Programme 2026",
-          projectGoal: null,
-          startMonth: null,
-          endMonth: null,
-          fundingProgram: null,
-          fundingOrganization: null,
-          targetGroups: [],
-          areaOfOperation: null,
-          partnerships: null,
-          sdgs: [],
-          impactModel: {
-            inputs: null,
-            activities: null,
-            outputs: null,
-            impact: null,
-            outcomes: null,
-          },
-          successIndicators: null,
-          status: "planning",
-          createdAt: new Date(),
-          updatedAt: new Date(),
-        },
+        project: createOwnedProjectRecord(),
       }),
     } as unknown as AuthorizationService;
 
@@ -295,7 +282,7 @@ test(
     } as unknown as ProjectRepository;
 
     const authorizationService = {
-      canEditProject: async () => ({
+      canManageProject: async () => ({
         membership: {
           id: "membership-1",
           userId: "user-1",
@@ -304,32 +291,7 @@ test(
           createdAt: new Date(),
           updatedAt: new Date(),
         },
-        project: {
-          id: "project-1",
-          organizationId: "organization-1",
-          ownerId: "user-1",
-          name: "Mentoring Programme 2026",
-          projectGoal: null,
-          startMonth: null,
-          endMonth: null,
-          fundingProgram: null,
-          fundingOrganization: null,
-          targetGroups: [],
-          areaOfOperation: null,
-          partnerships: null,
-          sdgs: [],
-          impactModel: {
-            inputs: null,
-            activities: null,
-            outputs: null,
-            impact: null,
-            outcomes: null,
-          },
-          successIndicators: null,
-          status: "planning",
-          createdAt: new Date(),
-          updatedAt: new Date(),
-        },
+        project: createOwnedProjectRecord(),
       }),
     } as unknown as AuthorizationService;
 
@@ -393,6 +355,287 @@ test(
       undefined,
       "stored files must not be deleted when dependent cleanup fails",
     );
+  },
+);
+
+test(
+  "project archiving stores the previous status when no active processing is running",
+  { concurrency: false },
+  async () => {
+    let receivedUpdate: ProjectUpdateInput | undefined;
+
+    const projectRepository = {
+      update: async (_projectId: string, input: ProjectUpdateInput) => {
+        receivedUpdate = input;
+        return {
+          ...createOwnedProjectRecord(
+            "completed",
+            input.archivedFromStatus ?? null,
+          ),
+          status: input.status ?? "completed",
+          archivedFromStatus: input.archivedFromStatus ?? null,
+          updatedAt: new Date("2026-01-03T00:00:00.000Z"),
+        };
+      },
+    } as unknown as ProjectRepository;
+
+    const authorizationService = {
+      canManageProject: async () => ({
+        membership: {
+          id: "membership-1",
+          userId: "user-1",
+          organizationId: "organization-1",
+          role: "PROJECT_MANAGER",
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        },
+        project: createOwnedProjectRecord("planning"),
+      }),
+      assertProjectIsOperational: () => undefined,
+    } as unknown as AuthorizationService;
+
+    const processingJobRepository = {
+      countByProjectStatuses: async () => 0,
+    } as unknown as ProcessingJobRepository;
+    const userRepository = {
+      findById: async () => ({
+        id: "user-1",
+        email: "owner@example.org",
+        fullName: "Project Owner",
+        passwordHash: "hash",
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      }),
+    } as unknown as UserRepository;
+
+    const service = new ProjectService(
+      projectRepository,
+      authorizationService,
+      {} as FileStorageService,
+      {} as ActivityRepository,
+      {} as UploadMetadataRepository,
+      processingJobRepository,
+      {} as TransactionManager,
+      userRepository,
+      {} as ProcessingResourceCleanupService,
+      {} as OrganizationRepository,
+      { error: () => undefined } as never,
+    );
+
+    const updated = await service.update("user-1", "project-1", {
+      status: "completed",
+    });
+
+    assert.deepEqual(receivedUpdate, {
+      name: undefined,
+      initialSituation: undefined,
+      startMonth: undefined,
+      endMonth: undefined,
+      fundingProgram: undefined,
+      fundingOrganization: undefined,
+      targetGroups: undefined,
+      overarchingTargetGroup: undefined,
+      intendedChanges: undefined,
+      areaOfOperation: undefined,
+      partnerships: undefined,
+      sdgs: undefined,
+      impactModel: undefined,
+      successIndicators: undefined,
+      status: "completed",
+      archivedFromStatus: "planning",
+    });
+    assert.equal(updated.status, "completed");
+  },
+);
+
+test(
+  "project reactivation restores the archived previous status",
+  { concurrency: false },
+  async () => {
+    let receivedUpdate: ProjectUpdateInput | undefined;
+
+    const projectRepository = {
+      update: async (_projectId: string, input: ProjectUpdateInput) => {
+        receivedUpdate = input;
+        return {
+          ...createOwnedProjectRecord(input.status ?? "planning", null),
+          status: input.status ?? "planning",
+          archivedFromStatus: input.archivedFromStatus ?? null,
+          updatedAt: new Date("2026-01-03T00:00:00.000Z"),
+        };
+      },
+    } as unknown as ProjectRepository;
+
+    const authorizationService = {
+      canManageProject: async () => ({
+        membership: {
+          id: "membership-1",
+          userId: "user-1",
+          organizationId: "organization-1",
+          role: "PROJECT_MANAGER",
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        },
+        project: createOwnedProjectRecord("completed", "planning"),
+      }),
+    } as unknown as AuthorizationService;
+
+    const userRepository = {
+      findById: async () => ({
+        id: "user-1",
+        email: "owner@example.org",
+        fullName: "Project Owner",
+        passwordHash: "hash",
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      }),
+    } as unknown as UserRepository;
+
+    const service = new ProjectService(
+      projectRepository,
+      authorizationService,
+      {} as FileStorageService,
+      {} as ActivityRepository,
+      {} as UploadMetadataRepository,
+      {} as ProcessingJobRepository,
+      {} as TransactionManager,
+      userRepository,
+      {} as ProcessingResourceCleanupService,
+      {} as OrganizationRepository,
+      { error: () => undefined } as never,
+    );
+
+    const updated = await service.update("user-1", "project-1", {
+      status: "active",
+    });
+
+    assert.deepEqual(receivedUpdate, {
+      name: undefined,
+      initialSituation: undefined,
+      startMonth: undefined,
+      endMonth: undefined,
+      fundingProgram: undefined,
+      fundingOrganization: undefined,
+      targetGroups: undefined,
+      overarchingTargetGroup: undefined,
+      intendedChanges: undefined,
+      areaOfOperation: undefined,
+      partnerships: undefined,
+      sdgs: undefined,
+      impactModel: undefined,
+      successIndicators: undefined,
+      status: "planning",
+      archivedFromStatus: null,
+    });
+    assert.equal(updated.status, "planning");
+  },
+);
+
+test(
+  "archived projects reject non-status edits and archiving is blocked while processing is active",
+  { concurrency: false },
+  async () => {
+    let updateCalled = false;
+
+    const projectRepository = {
+      update: async () => {
+        updateCalled = true;
+        return createOwnedProjectRecord();
+      },
+    } as unknown as ProjectRepository;
+
+    const userRepository = {
+      findById: async () => ({
+        id: "user-1",
+        email: "owner@example.org",
+        fullName: "Project Owner",
+        passwordHash: "hash",
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      }),
+    } as unknown as UserRepository;
+
+    const archivedService = new ProjectService(
+      projectRepository,
+      {
+        canManageProject: async () => ({
+          membership: {
+            id: "membership-1",
+            userId: "user-1",
+            organizationId: "organization-1",
+            role: "PROJECT_MANAGER",
+            createdAt: new Date(),
+            updatedAt: new Date(),
+          },
+          project: createOwnedProjectRecord("completed", "active"),
+        }),
+        assertProjectIsOperational: () => {
+          throw new AppError(
+            "Archived projects are read-only. Reactivate the project to make changes.",
+            409,
+            "project_archived_read_only",
+          );
+        },
+      } as unknown as AuthorizationService,
+      {} as FileStorageService,
+      {} as ActivityRepository,
+      {} as UploadMetadataRepository,
+      {} as ProcessingJobRepository,
+      {} as TransactionManager,
+      userRepository,
+      {} as ProcessingResourceCleanupService,
+      {} as OrganizationRepository,
+      { error: () => undefined } as never,
+    );
+
+    await assert.rejects(
+      archivedService.update("user-1", "project-1", {
+        name: "Updated name",
+      }),
+      (error: unknown) =>
+        error instanceof AppError &&
+        error.code === "project_archived_read_only",
+    );
+
+    const archivingBlockedService = new ProjectService(
+      projectRepository,
+      {
+        canManageProject: async () => ({
+          membership: {
+            id: "membership-1",
+            userId: "user-1",
+            organizationId: "organization-1",
+            role: "PROJECT_MANAGER",
+            createdAt: new Date(),
+            updatedAt: new Date(),
+          },
+          project: createOwnedProjectRecord("active"),
+        }),
+        assertProjectIsOperational: () => undefined,
+      } as unknown as AuthorizationService,
+      {} as FileStorageService,
+      {} as ActivityRepository,
+      {} as UploadMetadataRepository,
+      {
+        countByProjectStatuses: async () => 1,
+      } as unknown as ProcessingJobRepository,
+      {} as TransactionManager,
+      userRepository,
+      {} as ProcessingResourceCleanupService,
+      {} as OrganizationRepository,
+      { error: () => undefined } as never,
+    );
+
+    await assert.rejects(
+      archivingBlockedService.update("user-1", "project-1", {
+        status: "completed",
+      }),
+      (error: unknown) =>
+        error instanceof AppError &&
+        error.code === "project_processing_in_progress",
+    );
+
+    assert.equal(updateCalled, false);
   },
 );
 

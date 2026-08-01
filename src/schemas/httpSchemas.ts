@@ -127,6 +127,7 @@ export const updateOrganizationSchema = z.object({
 
 export const createProjectSchema = z.object({
   name: z.string().trim().min(2).max(120),
+  initialSituation: z.string().trim().max(2000).optional(),
   startMonth: monthValueSchema,
   endMonth: monthValueSchema,
   fundingProgram: z.string().trim().max(200).optional(),
@@ -141,6 +142,7 @@ export const createProjectSchema = z.object({
 
 export const updateProjectSchema = z.object({
   name: z.string().trim().min(2).max(120).optional(),
+  initialSituation: z.string().trim().max(2000).nullable().optional(),
   startMonth: monthValueSchema.nullable().optional(),
   endMonth: monthValueSchema.nullable().optional(),
   fundingProgram: z.string().trim().max(200).nullable().optional(),

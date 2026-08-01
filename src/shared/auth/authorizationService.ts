@@ -94,6 +94,13 @@ export class AuthorizationService {
   }
 
   async canEditProject(userId: string, projectId: string) {
+    const context = await this.canManageProject(userId, projectId);
+    this.assertProjectIsOperational(context.project);
+
+    return context;
+  }
+
+  async canManageProject(userId: string, projectId: string) {
     const context = await this.canViewProject(userId, projectId);
     if (context.project.ownerId !== userId) {
       throw new AppError(
@@ -153,6 +160,18 @@ export class AuthorizationService {
       ...projectContext,
       activity,
     } satisfies ActivityAuthorizationContext;
+  }
+
+  assertProjectIsOperational(
+    project: Pick<ProjectPersistenceRecord, "status">,
+  ) {
+    if (project.status === "completed") {
+      throw new AppError(
+        "Archived projects are read-only. Reactivate the project to make changes.",
+        409,
+        "project_archived_read_only",
+      );
+    }
   }
 
   private async requireMembership(userId: string, organizationId: string) {

@@ -8,6 +8,7 @@ const projectSchema = new Schema(
     ownerId: { type: String, required: true, index: true },
     name: { type: String, required: true, trim: true },
     projectGoal: { type: String, default: null },
+    initialSituation: { type: String, default: null },
     startMonth: { type: String, default: null },
     endMonth: { type: String, default: null },
     fundingProgram: { type: String, default: null },
@@ -35,6 +36,11 @@ const projectSchema = new Schema(
       type: String,
       enum: ["planning", "active", "completed"],
       default: "planning",
+    },
+    archivedFromStatus: {
+      type: String,
+      enum: ["planning", "active", null],
+      default: null,
     },
   },
   {

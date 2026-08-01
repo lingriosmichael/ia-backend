@@ -124,12 +124,15 @@ function mapOrganizationPermissions(
 function mapProjectPermissions(
   ownerId: string,
   currentUserId: string,
+  projectStatus: ProjectStatus,
 ): ProjectPermissions {
-  const canEdit = ownerId === currentUserId;
+  const canManageLifecycle = ownerId === currentUserId;
+  const canEdit = canManageLifecycle && projectStatus !== "completed";
 
   return {
     canEdit,
-    canDelete: canEdit,
+    canDelete: canManageLifecycle,
+    canManageLifecycle,
     canCreateActivity: canEdit,
     canUploadEvidence: canEdit,
   };
@@ -138,8 +141,10 @@ function mapProjectPermissions(
 function mapActivityPermissions(
   projectOwnerId: string,
   currentUserId: string,
+  projectStatus: ProjectStatus,
 ): ActivityPermissions {
-  const canEdit = projectOwnerId === currentUserId;
+  const canEdit =
+    projectOwnerId === currentUserId && projectStatus !== "completed";
 
   return {
     canEdit,
@@ -199,6 +204,7 @@ export function mapProjectSummary(
     ownerId: string;
     ownerName?: string | null;
     name: string;
+    initialSituation: string | null;
     startMonth: string | null;
     endMonth: string | null;
     fundingProgram: string | null;
@@ -229,6 +235,7 @@ export function mapProjectSummary(
     ownerId: project.ownerId,
     ownerName: project.ownerName ?? null,
     name: project.name,
+    initialSituation: project.initialSituation,
     startMonth: project.startMonth,
     endMonth: project.endMonth,
     fundingProgram: project.fundingProgram,
@@ -242,7 +249,11 @@ export function mapProjectSummary(
     impactModel: project.impactModel,
     successIndicators: project.successIndicators,
     status: normalizeProjectStatus(project.status),
-    permissions: mapProjectPermissions(project.ownerId, currentUserId),
+    permissions: mapProjectPermissions(
+      project.ownerId,
+      currentUserId,
+      normalizeProjectStatus(project.status),
+    ),
     createdAt: toIso(project.createdAt),
     updatedAt: toIso(project.updatedAt),
   };
@@ -253,6 +264,7 @@ export function mapActivity(
     id: string;
     projectId: string;
     projectOwnerId: string;
+    projectStatus: ProjectStatus | keyof typeof projectStatusMap;
     name: string;
     description: string | null;
     activityType: string | null;
@@ -287,7 +299,11 @@ export function mapActivity(
     output: activity.output,
     outcome: activity.outcome,
     status: normalizeActivityStatus(activity.status),
-    permissions: mapActivityPermissions(activity.projectOwnerId, currentUserId),
+    permissions: mapActivityPermissions(
+      activity.projectOwnerId,
+      currentUserId,
+      normalizeProjectStatus(activity.projectStatus),
+    ),
     interpretationAcknowledgedAt: activity.interpretationAcknowledgedAt
       ? toIso(activity.interpretationAcknowledgedAt)
       : null,
@@ -307,6 +323,7 @@ export function mapWorkspaceActivity(
     id: string;
     projectId: string;
     projectOwnerId: string;
+    projectStatus: ProjectStatus | keyof typeof projectStatusMap;
     name: string;
     description: string | null;
     activityType: string | null;
@@ -357,6 +374,7 @@ export function mapWorkspace(record: {
     ownerId: string;
     ownerName?: string | null;
     name: string;
+    initialSituation: string | null;
     startMonth: string | null;
     endMonth: string | null;
     fundingProgram: string | null;
@@ -426,6 +444,7 @@ export function mapWorkspace(record: {
       ownerId: project.ownerId,
       ownerName: project.ownerName ?? null,
       name: project.name,
+      initialSituation: project.initialSituation,
       startMonth: project.startMonth,
       endMonth: project.endMonth,
       fundingProgram: project.fundingProgram,
@@ -439,11 +458,21 @@ export function mapWorkspace(record: {
       impactModel: project.impactModel,
       successIndicators: project.successIndicators,
       status: normalizeProjectStatus(project.status),
-      permissions: mapProjectPermissions(project.ownerId, record.currentUserId),
+      permissions: mapProjectPermissions(
+        project.ownerId,
+        record.currentUserId,
+        normalizeProjectStatus(project.status),
+      ),
       createdAt: toIso(project.createdAt),
       updatedAt: toIso(project.updatedAt),
       activities: project.activities.map((activity) =>
-        mapWorkspaceActivity(activity, record.currentUserId),
+        mapWorkspaceActivity(
+          {
+            ...activity,
+            projectStatus: project.status,
+          },
+          record.currentUserId,
+        ),
       ),
     })),
   };
