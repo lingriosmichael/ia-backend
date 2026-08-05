@@ -9,6 +9,7 @@ import type { DatasetPreparationService } from "./datasetPreparationService.js";
 import type { DeterministicAnalysisService } from "./deterministicAnalysisService.js";
 import type { QuantitativeInterpretationSynthesisService } from "./quantitativeInterpretationSynthesisService.js";
 import type { ProjectLlmTokenLedgerService } from "../project/projectLlmTokenLedgerService.js";
+import type { EvidenceLinkageReconciliationService } from "../linkage/evidenceLinkageReconciliationService.js";
 import type {
   InterpretationResultCreateInput,
   InterpretationResultPersistenceRecord,
@@ -180,6 +181,10 @@ test("ingestProcessorArtifacts persists interpretation llmUsage calls", async ()
     silent: () => undefined,
   } as unknown as FastifyBaseLogger;
 
+  const evidenceLinkageReconciliationService = {
+    reconcileForActivity: async () => null,
+  } as unknown as EvidenceLinkageReconciliationService;
+
   const service = new InterpretationArtifactService(
     interpretationResultRepository,
     {} as ActivityRepository,
@@ -187,6 +192,7 @@ test("ingestProcessorArtifacts persists interpretation llmUsage calls", async ()
     deterministicAnalysisService,
     quantitativeInterpretationSynthesisService,
     projectLlmTokenLedgerService,
+    evidenceLinkageReconciliationService,
     logger,
   );
 

@@ -10,6 +10,29 @@ export type ProjectStatus = (typeof projectStatusValues)[number];
 export const activityStatusValues = ["active", "completed"] as const;
 export type ActivityStatus = (typeof activityStatusValues)[number];
 
+// cross-evidence-linkage-design.md §11. Computed fresh on every request
+// from uploads/jobs/results/linkage state (see
+// ia_backend/src/modules/activity/activityWorkflowStage.ts) — not stored,
+// so it can never drift from the data it's derived from. Distinct from
+// `ActivityStatus` above, which only tracks active/completed.
+export const activityWorkflowStageValues = [
+  "no_evidence",
+  "privacy_review",
+  "analysis_pending",
+  "analysis_running",
+  "needs_clarification",
+  "goal_review",
+  "assessment_ready",
+  "reviewed",
+] as const;
+export type ActivityWorkflowStage =
+  (typeof activityWorkflowStageValues)[number];
+
+export interface ActivityWorkflowStageRecord {
+  activityId: string;
+  stage: ActivityWorkflowStage;
+}
+
 export const uploadMetadataStatusValues = [
   "pending",
   "uploaded",
@@ -1013,6 +1036,75 @@ export interface DeterministicAnalysisRecord {
   updatedAt: string;
 }
 
+export interface LinkageEntityFieldValue {
+  fieldName: string;
+  value: string;
+  role: PreparedDatasetColumnRole;
+  isPositiveStatusField: boolean;
+  sourceUploadMetadataId: string;
+  sourceTableName: string;
+}
+
+export interface LinkageEntityRecord {
+  entityKey: string;
+  fields: LinkageEntityFieldValue[];
+  sourceUploadMetadataIds: string[];
+}
+
+export interface LinkageDuplicateRowRemoval {
+  uploadMetadataId: string;
+  tableName: string;
+  entityKey: string;
+  duplicateRowCount: number;
+}
+
+export interface LinkageConflictCompetingValue {
+  value: string;
+  sourceUploadMetadataId: string;
+  sourceTableName: string;
+}
+
+export interface LinkageConflictRecord {
+  entityKey: string;
+  fieldName: string;
+  competingValues: LinkageConflictCompetingValue[];
+  resolvedValue: string;
+}
+
+export interface LinkageCoverageDiffRecord {
+  uploadMetadataIdA: string;
+  uploadMetadataIdB: string;
+  entityKeysOnlyInA: string[];
+  entityKeysOnlyInB: string[];
+}
+
+export interface LinkagePositiveStatusFieldDefinition {
+  fieldName: string;
+  positiveStatusValues: string[];
+  sourceUploadMetadataId: string;
+  sourceTableName: string;
+}
+
+export interface ActivityEvidenceLinkageGroup {
+  joinKeyLabel: string;
+  linkedUploadMetadataIds: string[];
+  entities: LinkageEntityRecord[];
+  duplicateRowsRemoved: LinkageDuplicateRowRemoval[];
+  conflicts: LinkageConflictRecord[];
+  coverageDiffs: LinkageCoverageDiffRecord[];
+  positiveStatusFieldDefinitions: LinkagePositiveStatusFieldDefinition[];
+}
+
+export interface ActivityEvidenceLinkageResultRecord {
+  id: string;
+  organizationId: string;
+  projectId: string;
+  activityId: string;
+  groups: ActivityEvidenceLinkageGroup[];
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface DatasetPreparationRecord {
   id: string;
   organizationId: string;
@@ -1079,7 +1171,9 @@ export type ActivityAiKnowledgeInsightSourceType =
   | "goal_alignment"
   | "qualitative_finding"
   | "indicator"
-  | "distribution_signal";
+  | "distribution_signal"
+  | "linkage_contradiction"
+  | "linkage_coverage_issue";
 
 export interface ActivityAiKnowledgeInsight {
   id: string;

@@ -40,6 +40,8 @@ import { MongoDeterministicAnalysisRepository } from "../../modules/interpretati
 import { MongoDatasetPreparationRepository } from "../../modules/interpretation/datasetPreparationMongoRepository.js";
 import { DatasetPreparationService } from "../../modules/interpretation/datasetPreparationService.js";
 import { DeterministicAnalysisService } from "../../modules/interpretation/deterministicAnalysisService.js";
+import { MongoActivityEvidenceLinkageResultRepository } from "../../modules/linkage/activityEvidenceLinkageResultMongoRepository.js";
+import { EvidenceLinkageReconciliationService } from "../../modules/linkage/evidenceLinkageReconciliationService.js";
 import { MongoInterpretationResultRepository } from "../../modules/interpretation/interpretationResultMongoRepository.js";
 import { InterpretationService } from "../../modules/interpretation/interpretationService.js";
 import { QuantitativeInterpretationSynthesisService } from "../../modules/interpretation/quantitativeInterpretationSynthesisService.js";
@@ -94,6 +96,8 @@ export function createApplicationContext(
   const datasetPreparationRepository = new MongoDatasetPreparationRepository();
   const deterministicAnalysisRepository =
     new MongoDeterministicAnalysisRepository();
+  const activityEvidenceLinkageResultRepository =
+    new MongoActivityEvidenceLinkageResultRepository();
   const projectKnowledgeModelRepository =
     new MongoProjectKnowledgeModelRepository();
   const knowledgeEntityRepository = new MongoKnowledgeEntityRepository();
@@ -134,6 +138,7 @@ export function createApplicationContext(
     analyticsResultRepository,
     analyticsDashboardPreferenceRepository,
     analyticsDashboardEventRepository,
+    activityEvidenceLinkageResultRepository,
   );
   const authorizationService = new AuthorizationService(
     organizationRepository,
@@ -219,6 +224,15 @@ export function createApplicationContext(
     deterministicAnalysisRepository,
     privacySafeRepresentationRepository,
   );
+  const evidenceLinkageReconciliationService =
+    new EvidenceLinkageReconciliationService(
+      uploadMetadataRepository,
+      interpretationResultRepository,
+      datasetPreparationRepository,
+      privacySafeRepresentationRepository,
+      activityEvidenceLinkageResultRepository,
+      logger,
+    );
   const quantitativeInterpretationSynthesisService =
     new QuantitativeInterpretationSynthesisService(
       interpretationResultRepository,
@@ -235,6 +249,7 @@ export function createApplicationContext(
     deterministicAnalysisService,
     quantitativeInterpretationSynthesisService,
     projectLlmTokenLedgerService,
+    evidenceLinkageReconciliationService,
     logger,
   );
   const processingJobService = new ProcessingJobService(
@@ -281,6 +296,8 @@ export function createApplicationContext(
     quantitativeInterpretationSynthesisService,
     projectKnowledgeBuilderService,
     projectLlmTokenLedgerService,
+    evidenceLinkageReconciliationService,
+    activityEvidenceLinkageResultRepository,
   );
   const dashboardCatalogAssemblerService = new DashboardCatalogAssemblerService(
     projectKnowledgeModelRepository,

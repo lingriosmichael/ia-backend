@@ -74,6 +74,30 @@ export class InterpretationController {
     return successResponse(response);
   }
 
+  async regenerateActivityAiKnowledge(request: FastifyRequest) {
+    const auth = requireAuthenticatedUser(request);
+
+    const params = idParamSchema.parse(request.params);
+    const response =
+      await this.interpretationService.regenerateActivityAiKnowledge(
+        auth.userId,
+        params.activityId!,
+        resolveRequestLanguage(request.headers["accept-language"]),
+      );
+    return successResponse(response);
+  }
+
+  async getActivityWorkflowStage(request: FastifyRequest) {
+    const auth = requireAuthenticatedUser(request);
+
+    const params = idParamSchema.parse(request.params);
+    const response = await this.interpretationService.getActivityWorkflowStage(
+      auth.userId,
+      params.activityId!,
+    );
+    return successResponse(response);
+  }
+
   async getById(request: FastifyRequest) {
     const auth = requireAuthenticatedUser(request);
 

@@ -52,6 +52,7 @@ import { DatasetPreparationService } from "./datasetPreparationService.js";
 import { DeterministicAnalysisService } from "./deterministicAnalysisService.js";
 import { QuantitativeInterpretationSynthesisService } from "./quantitativeInterpretationSynthesisService.js";
 import type { ProjectLlmTokenLedgerService } from "../project/projectLlmTokenLedgerService.js";
+import type { EvidenceLinkageReconciliationService } from "../linkage/evidenceLinkageReconciliationService.js";
 
 type ProcessingStatusDetails = Record<string, unknown> | null | undefined;
 
@@ -669,6 +670,7 @@ export class InterpretationArtifactService {
     private readonly deterministicAnalysisService: DeterministicAnalysisService,
     private readonly quantitativeInterpretationSynthesisService: QuantitativeInterpretationSynthesisService,
     private readonly projectLlmTokenLedgerService: ProjectLlmTokenLedgerService,
+    private readonly evidenceLinkageReconciliationService: EvidenceLinkageReconciliationService,
     private readonly logger: FastifyBaseLogger,
   ) {}
 
@@ -804,6 +806,23 @@ export class InterpretationArtifactService {
         },
         "quantitative interpretation synthesis could not be completed during artifact ingest",
       );
+    }
+
+    if (created.activityId) {
+      try {
+        await this.evidenceLinkageReconciliationService.reconcileForActivity(
+          created.activityId,
+        );
+      } catch (error) {
+        this.logger.error(
+          {
+            activityId: created.activityId,
+            interpretationResultId: created.id,
+            error,
+          },
+          "evidence linkage reconciliation could not be completed during artifact ingest",
+        );
+      }
     }
 
     // A new interpretation result means the activity's knowledge just

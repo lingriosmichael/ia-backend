@@ -48,7 +48,7 @@ interface NumericColumnAnalysis {
   values: number[];
 }
 
-function readTableRecords(
+export function readTableRecords(
   payload: Record<string, unknown>,
 ): Record<string, unknown>[] {
   return Array.isArray(payload.tables)
@@ -59,7 +59,7 @@ function readTableRecords(
     : [];
 }
 
-function readRowRecords(value: unknown): Record<string, unknown>[] {
+export function readRowRecords(value: unknown): Record<string, unknown>[] {
   return Array.isArray(value)
     ? value.filter(
         (row): row is Record<string, unknown> =>

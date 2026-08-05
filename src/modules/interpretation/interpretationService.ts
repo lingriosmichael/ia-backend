@@ -11,6 +11,7 @@ import type {
   ActivitySummary,
   ActivityAiKnowledgeInsight,
   ActivityAiKnowledgeRecord,
+  ActivityWorkflowStageRecord,
   InterpretationIndicatorStatus,
   ProjectInterpretationOverview,
   StartActivityInterpretationResponse,
@@ -24,6 +25,24 @@ import { PythonProcessingClient } from "../processing/pythonProcessingClient.js"
 import type { UploadMetadataRepository } from "../upload/uploadMetadataRepository.js";
 import type { ProjectKnowledgeBuilderService } from "../knowledge/projectKnowledgeBuilderService.js";
 import type { ProjectLlmTokenLedgerService } from "../project/projectLlmTokenLedgerService.js";
+import type { EvidenceLinkageReconciliationService } from "../linkage/evidenceLinkageReconciliationService.js";
+import type { ActivityEvidenceLinkageResultRepository } from "../linkage/activityEvidenceLinkageResultRepository.js";
+import {
+  computeActivityWorkflowStage,
+  type ActivityWorkflowStage,
+} from "../activity/activityWorkflowStage.js";
+import type { ActivityEvidenceLinkageResultPersistenceRecord } from "../linkage/activityEvidenceLinkageResultPersistence.js";
+import {
+  buildCrossFileCrosstabs,
+  computeCohortFlagPrevalences,
+  computeGoalGap,
+  type LinkageGoalVerdict,
+} from "../linkage/linkageIndicatorCalculations.js";
+import type {
+  AiKnowledgeContradictionInput,
+  AiKnowledgeCoverageIssueInput,
+  AiKnowledgeIndicatorInput,
+} from "../processing/pythonProcessingClient.js";
 import type { InterpretationResultRepository } from "./interpretationResultRepository.js";
 import {
   clearActivityAiKnowledgeStateIfPresent,
@@ -245,12 +264,285 @@ function buildDistributionSignalDrafts(
   return deduplicateInsights(drafts);
 }
 
+// §7 bullet 3: crosstabs between fields living in *different* source
+// files, computed against the joined entity table (§6). This is the one
+// crosstab shape deterministicAnalysisService.ts's per-table §2.9 logic
+// cannot produce on its own.
+function buildLinkageCrossFileCrosstabDrafts(
+  linkageResult: ActivityEvidenceLinkageResultPersistenceRecord | null,
+  language: "de" | "en",
+): ActivityAiKnowledgeDraft[] {
+  if (!linkageResult) {
+    return [];
+  }
+
+  const drafts: ActivityAiKnowledgeDraft[] = [];
+  for (const group of linkageResult.groups) {
+    for (const crosstab of buildCrossFileCrosstabs(group.entities)) {
+      const topCells = [...crosstab.cells]
+        .sort((left, right) => right.count - left.count)
+        .slice(0, 2);
+      if (topCells.length === 0) {
+        continue;
+      }
+
+      const cellSummary = topCells
+        .map(
+          (cell) =>
+            `${cell.valueA} / ${cell.valueB} ${formatCountOrPercent(
+              cell.count,
+              cell.ratio,
+              language,
+            )}`,
+        )
+        .join(language === "de" ? ", gefolgt von " : ", followed by ");
+
+      drafts.push({
+        id: `linkage-crosstab:${linkageResult.activityId}:${crosstab.fieldNameA}:${crosstab.fieldNameB}`,
+        sourceType: "distribution_signal",
+        text:
+          language === "de"
+            ? `${crosstab.fieldNameA} (${crosstab.sourceTableNameA}) x ${crosstab.fieldNameB} (${crosstab.sourceTableNameB}), über Dateien hinweg verknüpft: ${cellSummary}`
+            : `${crosstab.fieldNameA} (${crosstab.sourceTableNameA}) x ${crosstab.fieldNameB} (${crosstab.sourceTableNameB}), linked across files: ${cellSummary}`,
+        isGoalRelevant: false,
+        sourceUploadMetadataIds: group.linkedUploadMetadataIds,
+        confidence: 1,
+      });
+    }
+  }
+
+  return deduplicateInsights(drafts);
+}
+
+// §8's "same-entity-different-value" rule, mechanical half (Tier B
+// conflicts from §4 reconciliation) — the byte-level, same-field-name
+// disagreements are surfaced here directly. Genuine cross-field semantic
+// contradictions (§3.1 of the AI-knowledge audit's examples) would need a
+// per-dataset-type rule config that doesn't exist yet; see design doc §15.2(B).
+function buildLinkageContradictionDrafts(
+  linkageResult: ActivityEvidenceLinkageResultPersistenceRecord | null,
+  language: "de" | "en",
+): ActivityAiKnowledgeDraft[] {
+  if (!linkageResult) {
+    return [];
+  }
+
+  const drafts: ActivityAiKnowledgeDraft[] = [];
+  for (const group of linkageResult.groups) {
+    for (const conflict of group.conflicts) {
+      const competingValueSummary = conflict.competingValues
+        .map(
+          (competing) => `"${competing.value}" (${competing.sourceTableName})`,
+        )
+        .join(" vs. ");
+
+      drafts.push({
+        id: `linkage-conflict:${linkageResult.activityId}:${conflict.entityKey}:${conflict.fieldName}`,
+        sourceType: "linkage_contradiction",
+        text:
+          language === "de"
+            ? `Eintrag ${conflict.entityKey}, Feld "${conflict.fieldName}": widersprüchliche Werte über Dateien hinweg: ${competingValueSummary}`
+            : `Entry ${conflict.entityKey}, field "${conflict.fieldName}": conflicting values across files: ${competingValueSummary}`,
+        isGoalRelevant: true,
+        sourceUploadMetadataIds: group.linkedUploadMetadataIds,
+        confidence: 1,
+      });
+    }
+  }
+
+  return deduplicateInsights(drafts);
+}
+
+// §8's coverage-gap rule: a positive decision co-occurring with an
+// unresolved flag/remark recorded in a *different* source file. This is
+// the highest-value fact class this whole design exists to surface (the
+// walkthrough's "12 of 20 selected candidates carry an unresolved
+// safeguarding flag").
+function buildLinkageCoverageIssueDrafts(
+  linkageResult: ActivityEvidenceLinkageResultPersistenceRecord | null,
+  language: "de" | "en",
+): ActivityAiKnowledgeDraft[] {
+  if (!linkageResult) {
+    return [];
+  }
+
+  const drafts: ActivityAiKnowledgeDraft[] = [];
+  for (const group of linkageResult.groups) {
+    const prevalences = computeCohortFlagPrevalences(
+      group.entities,
+      group.positiveStatusFieldDefinitions,
+    );
+
+    for (const prevalence of prevalences) {
+      if (prevalence.flaggedCount === 0) {
+        continue;
+      }
+
+      drafts.push({
+        id: `linkage-coverage:${linkageResult.activityId}:${prevalence.cohortFieldName}:${prevalence.flagFieldName}`,
+        sourceType: "linkage_coverage_issue",
+        text:
+          language === "de"
+            ? `${prevalence.flaggedCount} von ${prevalence.cohortSize} Einträgen mit "${prevalence.cohortFieldName}: ${prevalence.cohortValueLabel}" haben einen ungeklärten Eintrag bei "${prevalence.flagFieldName}" (${formatCountOrPercent(prevalence.flaggedCount, prevalence.ratio, language)})`
+            : `${prevalence.flaggedCount} of ${prevalence.cohortSize} entries marked "${prevalence.cohortFieldName}: ${prevalence.cohortValueLabel}" carry an unresolved "${prevalence.flagFieldName}" entry (${formatCountOrPercent(prevalence.flaggedCount, prevalence.ratio, language)})`,
+        isGoalRelevant: true,
+        sourceUploadMetadataIds: group.linkedUploadMetadataIds,
+        confidence: 1,
+      });
+    }
+  }
+
+  return deduplicateInsights(drafts);
+}
+
+const AI_KNOWLEDGE_GOAL_VERDICT_TO_MET_GOAL: Record<
+  LinkageGoalVerdict,
+  "true" | "false" | "partial"
+> = {
+  achieved: "true",
+  partly_achieved: "partial",
+  not_achieved: "false",
+};
+
+function goalTextForIndicatorRelevanceStage(
+  activity: { output: string | null; outcome: string | null },
+  relevanceStage: InterpretationResultPersistenceRecord["indicators"][number]["relevanceStage"],
+): string | null {
+  if (relevanceStage === "output") {
+    return activity.output;
+  }
+  if (relevanceStage === "outcome" || relevanceStage === "impact") {
+    return activity.outcome;
+  }
+  return null;
+}
+
+// Cross-evidence-linkage-design.md §9/§15.2(G): the goal-verdict compiler
+// linkageIndicatorCalculations.ts's own comment flags as not yet built
+// would require matching a goal's wording to a computed field/bucket by
+// text — a heuristic this function deliberately does not invent. Instead
+// it only surfaces indicators ia_python_service already flagged, at
+// extraction time, as directly measuring a stated goal
+// (matchesStatedGoal), so "which number goes with which goal" is never
+// guessed here. An indicator is skipped (not defaulted) whenever its
+// goal text carries no extractable number, since metGoal is a required
+// field on the wire and a made-up verdict would be worse than omitting it.
+function buildAiKnowledgeIndicatorInputs(
+  results: InterpretationResultPersistenceRecord[],
+  activity: { output: string | null; outcome: string | null },
+): AiKnowledgeIndicatorInput[] {
+  const inputs: AiKnowledgeIndicatorInput[] = [];
+
+  for (const result of results) {
+    for (const indicator of result.indicators) {
+      if (
+        !isIncludedInAiKnowledge(indicator.status) ||
+        !indicator.matchesStatedGoal ||
+        !indicator.computedValue ||
+        typeof indicator.computedValue.value !== "number"
+      ) {
+        continue;
+      }
+
+      const goalText = goalTextForIndicatorRelevanceStage(
+        activity,
+        indicator.relevanceStage,
+      );
+      const goalGap = goalText
+        ? computeGoalGap(goalText, indicator.computedValue.value)
+        : null;
+      if (!goalGap) {
+        continue;
+      }
+
+      inputs.push({
+        label: indicator.name,
+        value: indicator.computedValue.value,
+        denominator:
+          indicator.computedValue.recordsIncluded +
+          indicator.computedValue.recordsExcluded,
+        target: goalGap.target,
+        metGoal: AI_KNOWLEDGE_GOAL_VERDICT_TO_MET_GOAL[goalGap.verdict],
+      });
+    }
+  }
+
+  return inputs;
+}
+
+// Tier B conflicts (§4) carry every competing value, not just a pair, so a
+// conflict with 3+ disagreeing sources is reported as one contradiction
+// per source paired against the first (kept) value, rather than dropped
+// or silently narrowed to two.
+function buildAiKnowledgeContradictionInputs(
+  linkageResult: ActivityEvidenceLinkageResultPersistenceRecord | null,
+): AiKnowledgeContradictionInput[] {
+  if (!linkageResult) {
+    return [];
+  }
+
+  const inputs: AiKnowledgeContradictionInput[] = [];
+  for (const group of linkageResult.groups) {
+    for (const conflict of group.conflicts) {
+      const [firstValue, ...competingValues] = conflict.competingValues;
+      if (!firstValue) {
+        continue;
+      }
+      for (const competingValue of competingValues) {
+        inputs.push({
+          entityName: conflict.entityKey,
+          fieldOrTopic: conflict.fieldName,
+          valueA: firstValue.value,
+          sourceA: firstValue.sourceTableName,
+          valueB: competingValue.value,
+          sourceB: competingValue.sourceTableName,
+        });
+      }
+    }
+  }
+
+  return inputs;
+}
+
+function buildAiKnowledgeCoverageIssueInputs(
+  linkageResult: ActivityEvidenceLinkageResultPersistenceRecord | null,
+): AiKnowledgeCoverageIssueInput[] {
+  if (!linkageResult) {
+    return [];
+  }
+
+  const inputs: AiKnowledgeCoverageIssueInput[] = [];
+  for (const group of linkageResult.groups) {
+    const prevalences = computeCohortFlagPrevalences(
+      group.entities,
+      group.positiveStatusFieldDefinitions,
+    );
+
+    for (const prevalence of prevalences) {
+      if (prevalence.flaggedCount === 0) {
+        continue;
+      }
+
+      inputs.push({
+        cohortLabel: `${prevalence.cohortFieldName}: ${prevalence.cohortValueLabel}`,
+        cohortSize: prevalence.cohortSize,
+        flagLabel: prevalence.flagFieldName,
+        flagCount: prevalence.flaggedCount,
+        flagShare: prevalence.ratio,
+      });
+    }
+  }
+
+  return inputs;
+}
+
 function buildActivityAiKnowledgeDrafts(
   results: InterpretationResultPersistenceRecord[],
   analysesByInterpretationResultId: ReadonlyMap<
     string,
     DeterministicAnalysisPersistenceRecord
   >,
+  linkageResult: ActivityEvidenceLinkageResultPersistenceRecord | null,
   language: "de" | "en",
 ): ActivityAiKnowledgeDraft[] {
   const goalRelevantFindings = deduplicateInsights(
@@ -334,8 +626,24 @@ function buildActivityAiKnowledgeDrafts(
       .sort((left, right) => right.confidence - left.confidence),
   );
 
-  const distributionSignals = buildDistributionSignalDrafts(
-    analysesByInterpretationResultId,
+  const distributionSignals = deduplicateInsights([
+    ...buildDistributionSignalDrafts(
+      analysesByInterpretationResultId,
+      language,
+    ),
+    ...buildLinkageCrossFileCrosstabDrafts(linkageResult, language),
+  ]);
+
+  // §10 of the design doc: extend the existing ranking/capping mechanism
+  // rather than building a second one. Coverage issues outrank generic
+  // qualitative findings; contradictions rank alongside them, since both
+  // are the new, higher-value fact classes this feature exists to surface.
+  const linkageCoverageIssues = buildLinkageCoverageIssueDrafts(
+    linkageResult,
+    language,
+  );
+  const linkageContradictions = buildLinkageContradictionDrafts(
+    linkageResult,
     language,
   );
 
@@ -347,6 +655,8 @@ function buildActivityAiKnowledgeDrafts(
 
   if (goalRelevantDrafts.length > 0) {
     return deduplicateInsights([
+      ...linkageCoverageIssues,
+      ...linkageContradictions,
       ...goalRelevantDrafts,
       ...distributionSignals,
       ...contextOnlyFindings,
@@ -369,24 +679,24 @@ function buildActivityAiKnowledgeDrafts(
   );
 
   return deduplicateInsights([
+    ...linkageCoverageIssues,
+    ...linkageContradictions,
     ...goalAlignmentFallback,
     ...distributionSignals,
     ...contextOnlyFindings,
   ]);
 }
 
-function buildAiKnowledgeSummaryFallback(
-  insights: Array<Pick<ActivityAiKnowledgeDraft, "text">>,
-): string {
-  if (insights.length === 0) {
-    return "";
-  }
-
-  return insights
-    .map((insight) =>
-      ensureTerminalPunctuation(normalizeInsightText(insight.text)),
-    )
-    .join(" ");
+// Reachable only once generateAiKnowledgeSummaryText has already confirmed
+// there's real grounded content (see the early-return above it) — the LLM
+// call itself failed or returned nothing usable. Deliberately does NOT
+// fall back to concatenating raw insight text: that text is written to be
+// LLM input (raw field/table names, snake_case identifiers), not something
+// a non-technical reviewer should ever see verbatim.
+function buildAiKnowledgeSummaryFallback(language: "de" | "en"): string {
+  return language === "de"
+    ? "Für diese Aktivität konnte aktuell keine automatische Zusammenfassung erstellt werden."
+    : "We couldn't generate an automatic summary for this activity right now.";
 }
 
 export class InterpretationService {
@@ -404,6 +714,8 @@ export class InterpretationService {
     private readonly quantitativeInterpretationSynthesisService: QuantitativeInterpretationSynthesisService,
     private readonly projectKnowledgeBuilderService: ProjectKnowledgeBuilderService,
     private readonly projectLlmTokenLedgerService: ProjectLlmTokenLedgerService,
+    private readonly evidenceLinkageReconciliationService: EvidenceLinkageReconciliationService,
+    private readonly activityEvidenceLinkageResultRepository: ActivityEvidenceLinkageResultRepository,
   ) {}
 
   private async generateAiKnowledgeSummaryText(input: {
@@ -435,8 +747,20 @@ export class InterpretationService {
       } | null;
       successIndicators: string | null;
     } | null;
+    indicators?: AiKnowledgeIndicatorInput[];
+    contradictions?: AiKnowledgeContradictionInput[];
+    coverageIssues?: AiKnowledgeCoverageIssueInput[];
   }): Promise<string> {
-    if (input.insights.length === 0) {
+    const indicators = input.indicators ?? [];
+    const contradictions = input.contradictions ?? [];
+    const coverageIssues = input.coverageIssues ?? [];
+
+    if (
+      input.insights.length === 0 &&
+      indicators.length === 0 &&
+      contradictions.length === 0 &&
+      coverageIssues.length === 0
+    ) {
       return "";
     }
 
@@ -455,6 +779,9 @@ export class InterpretationService {
           language: input.language,
           activityGoals: input.activityGoals,
           projectGoals: input.projectGoals,
+          indicators,
+          contradictions,
+          coverageIssues,
         });
       await this.projectLlmTokenLedgerService.recordUsage(
         input.projectId,
@@ -463,14 +790,14 @@ export class InterpretationService {
       );
       return (
         summary.summaryText.trim() ||
-        buildAiKnowledgeSummaryFallback(input.insights)
+        buildAiKnowledgeSummaryFallback(input.language)
       );
     } catch (error) {
       this.logger.error(
         { err: error, scope: input.scope, subjectName: input.subjectName },
         "Failed to generate AI knowledge summary text.",
       );
-      return buildAiKnowledgeSummaryFallback(input.insights);
+      return buildAiKnowledgeSummaryFallback(input.language);
     }
   }
 
@@ -533,6 +860,7 @@ export class InterpretationService {
     };
     uploads: Array<{ id: string }>;
     results: InterpretationResultPersistenceRecord[];
+    linkageResult: ActivityEvidenceLinkageResultPersistenceRecord | null;
     language: "de" | "en";
   }): Promise<ActivityAiKnowledgeSnapshotPersistenceRecord> {
     const deterministicAnalyses =
@@ -545,9 +873,11 @@ export class InterpretationService {
         analysis,
       ]),
     );
+    const { linkageResult } = input;
     const insightDrafts = buildActivityAiKnowledgeDrafts(
       input.results,
       deterministicAnalysisByInterpretationResultId,
+      linkageResult,
       input.language,
     );
     const insights = insightDrafts.map((draft) => ({
@@ -557,12 +887,33 @@ export class InterpretationService {
       isGoalRelevant: draft.isGoalRelevant,
       sourceUploadMetadataIds: draft.sourceUploadMetadataIds,
     }));
+
+    const indicators = buildAiKnowledgeIndicatorInputs(
+      input.results,
+      input.activity,
+    );
+    const contradictions = buildAiKnowledgeContradictionInputs(linkageResult);
+    const coverageIssues = buildAiKnowledgeCoverageIssueInputs(linkageResult);
+
+    // Once any of indicators/contradictions/coverageIssues is non-empty,
+    // ia_python_service switches to the structured prompt, which already
+    // states every contradiction/coverage issue as its own JSON record —
+    // repeating them again as prose insight text would just spend the
+    // structured prompt's "at most two additional insights" allowance on
+    // facts it already has, crowding out qualitative findings and goal
+    // gaps that have no structured equivalent yet.
+    const supplementaryInsights = insightDrafts.filter(
+      (draft) =>
+        draft.sourceType !== "linkage_contradiction" &&
+        draft.sourceType !== "linkage_coverage_issue",
+    );
+
     const summaryText = await this.generateAiKnowledgeSummaryText({
       scope: "activity",
       projectId: input.project.id,
       subjectName: input.activity.name,
       interpretedEvidenceCount: input.results.length,
-      insights,
+      insights: supplementaryInsights,
       language: input.language,
       activityGoals: {
         activityType: input.activity.activityType,
@@ -575,6 +926,9 @@ export class InterpretationService {
         impactModel: input.project.impactModel,
         successIndicators: input.project.successIndicators,
       },
+      indicators,
+      contradictions,
+      coverageIssues,
     });
 
     return {
@@ -944,14 +1298,56 @@ export class InterpretationService {
     activityId: string,
     language: "de" | "en" = "en",
   ): Promise<ActivityAiKnowledgeRecord> {
+    return this.generateOrRegenerateActivityAiKnowledge(
+      userId,
+      activityId,
+      language,
+      "create",
+    );
+  }
+
+  /**
+   * Explicit re-run: overwrites an existing aiKnowledgeSnapshot in place
+   * with a freshly generated one, without requiring new evidence first.
+   * Shares every precondition and the whole build/persist path with
+   * generateActivityAiKnowledge — the only difference is which side of
+   * the aiKnowledgeSnapshot-existence check is enforced.
+   */
+  async regenerateActivityAiKnowledge(
+    userId: string,
+    activityId: string,
+    language: "de" | "en" = "en",
+  ): Promise<ActivityAiKnowledgeRecord> {
+    return this.generateOrRegenerateActivityAiKnowledge(
+      userId,
+      activityId,
+      language,
+      "replace",
+    );
+  }
+
+  private async generateOrRegenerateActivityAiKnowledge(
+    userId: string,
+    activityId: string,
+    language: "de" | "en",
+    mode: "create" | "replace",
+  ): Promise<ActivityAiKnowledgeRecord> {
     const { activity, project } =
       await this.authorizationService.canEditActivity(userId, activityId);
 
-    if (activity.aiKnowledgeSnapshot) {
+    if (mode === "create" && activity.aiKnowledgeSnapshot) {
       throw new AppError(
-        "AI knowledge is already available for this activity. Upload new evidence before generating it again.",
+        "AI knowledge is already available for this activity. Use regenerate to replace it, or upload new evidence.",
         409,
         "activity_ai_knowledge_already_generated",
+      );
+    }
+
+    if (mode === "replace" && !activity.aiKnowledgeSnapshot) {
+      throw new AppError(
+        "This activity has no AI knowledge yet. Generate it first.",
+        409,
+        "activity_ai_knowledge_not_generated_yet",
       );
     }
 
@@ -968,41 +1364,62 @@ export class InterpretationService {
       );
     }
 
-    const activeJobs = await this.processingJobRepository.listByActivity(
+    const jobs = await this.processingJobRepository.listByActivity(
       activityId,
       databaseSession,
     );
-    const hasActiveInterpretationJob = activeJobs.some(
-      (job) =>
-        job.jobType === "dataset_interpretation" &&
-        !["completed", "failed", "cancelled"].includes(job.status),
-    );
-
-    if (hasActiveInterpretationJob) {
-      throw new AppError(
-        "AI knowledge cannot be generated while interpretation is still running.",
-        409,
-        "activity_ai_knowledge_not_ready",
-      );
-    }
-
     const results =
       await this.interpretationResultRepository.findLatestByUploadMetadataIds(
         uploads.map((upload) => upload.id),
         databaseSession,
       );
 
-    if (results.length !== uploads.length) {
-      throw new AppError(
-        "All evidence in this activity must finish interpretation before AI knowledge is available.",
-        409,
-        "activity_ai_knowledge_not_ready",
-      );
-    }
+    // §11 of the cross-evidence-linkage design: an activity with 2+ uploads
+    // must not be treated as assessment-ready until evidence linkage has
+    // had a chance to run for it. There is no persisted general lifecycle
+    // state to gate this on (see the design doc's correction note), so
+    // this consults computeActivityWorkflowStage — the same derivation
+    // exposed read-only via getActivityWorkflowStage() — as the single
+    // source of truth for every precondition below, rather than
+    // re-deriving each one separately. EvidenceLinkageReconciliationService
+    // persists a record (even an empty-groups one) for every activity it
+    // successfully reconciles, so a missing record here means
+    // reconciliation hasn't completed for the current evidence set yet.
+    const linkageResult =
+      uploads.length >= 2
+        ? await this.activityEvidenceLinkageResultRepository.findByActivityId(
+            activityId,
+            databaseSession,
+          )
+        : null;
 
-    if (hasPendingBlockingQuestions(results)) {
-      throw new AppError(
+    const stage = computeActivityWorkflowStage({
+      isAcknowledged: Boolean(activity.interpretationAcknowledgedAt),
+      uploadIds: uploads.map((upload) => upload.id),
+      jobs,
+      results,
+      hasLinkageResultIfApplicable: linkageResult !== null,
+    });
+
+    const notReadyMessageByStage: Partial<
+      Record<ActivityWorkflowStage, string>
+    > = {
+      privacy_review:
+        "Every evidence file must complete privacy review before AI knowledge is available.",
+      analysis_running:
+        "AI knowledge cannot be generated while interpretation is still running.",
+      analysis_pending:
+        "All evidence in this activity must finish interpretation before AI knowledge is available.",
+      needs_clarification:
         "This activity still has unresolved clarification questions.",
+      goal_review:
+        "Evidence linkage across this activity's uploads has not finished yet. Try again in a moment.",
+    };
+
+    const notReadyMessage = notReadyMessageByStage[stage];
+    if (notReadyMessage) {
+      throw new AppError(
+        notReadyMessage,
         409,
         "activity_ai_knowledge_not_ready",
       );
@@ -1013,6 +1430,7 @@ export class InterpretationService {
       project,
       uploads,
       results,
+      linkageResult,
       language,
     });
 
@@ -1036,6 +1454,55 @@ export class InterpretationService {
     }
 
     return this.mapActivityAiKnowledgeRecord(updatedActivity, project.id);
+  }
+
+  /**
+   * Read-only, authoritative version of the workflow stage the webapp
+   * currently only derives client-side (cross-evidence-linkage-design.md
+   * §11). Computed fresh from current uploads/jobs/results/linkage state,
+   * never stored, so it can't drift out of sync.
+   */
+  async getActivityWorkflowStage(
+    userId: string,
+    activityId: string,
+  ): Promise<ActivityWorkflowStageRecord> {
+    const { activity } = await this.authorizationService.canViewActivity(
+      userId,
+      activityId,
+    );
+
+    const uploads = await this.uploadMetadataRepository.listByActivityIds(
+      [activityId],
+      databaseSession,
+    );
+
+    if (uploads.length === 0) {
+      return { activityId, stage: "no_evidence" };
+    }
+
+    const [jobs, results, linkageResult] = await Promise.all([
+      this.processingJobRepository.listByActivity(activityId, databaseSession),
+      this.interpretationResultRepository.findLatestByUploadMetadataIds(
+        uploads.map((upload) => upload.id),
+        databaseSession,
+      ),
+      uploads.length >= 2
+        ? this.activityEvidenceLinkageResultRepository.findByActivityId(
+            activityId,
+            databaseSession,
+          )
+        : Promise.resolve(null),
+    ]);
+
+    const stage = computeActivityWorkflowStage({
+      isAcknowledged: Boolean(activity.interpretationAcknowledgedAt),
+      uploadIds: uploads.map((upload) => upload.id),
+      jobs,
+      results,
+      hasLinkageResultIfApplicable: linkageResult !== null,
+    });
+
+    return { activityId, stage };
   }
 
   async getById(userId: string, interpretationResultId: string) {
@@ -1153,6 +1620,22 @@ export class InterpretationService {
         );
         return null;
       });
+
+    if (updated.activityId) {
+      await this.evidenceLinkageReconciliationService
+        .reconcileForActivity(updated.activityId)
+        .catch((error: unknown) => {
+          this.logger.error(
+            {
+              activityId: updated.activityId,
+              interpretationResultId: updated.id,
+              questionId,
+              error,
+            },
+            "evidence linkage reconciliation could not be completed after a question answer",
+          );
+        });
+    }
 
     return mapInterpretationResult({
       ...(synthesized ?? updated),

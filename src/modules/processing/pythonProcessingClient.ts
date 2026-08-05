@@ -4,6 +4,13 @@ import type {
   PrivacyReviewDecisions,
 } from "../../shared/contracts.js";
 
+// The shared PYTHON_SERVICE_TIMEOUT_MS is sized for lightweight calls
+// (status polls, small payloads). An AI-knowledge summary is an LLM call
+// whose prompt size scales with how much a project/activity has —
+// indicators, contradictions, coverage issues, insights — so it needs its
+// own, longer budget rather than sharing the general one.
+const AI_KNOWLEDGE_SUMMARY_TIMEOUT_MS = 60_000;
+
 interface PythonProcessingJobStatusResponse {
   externalJobId: string;
   status:
@@ -81,6 +88,36 @@ interface AiKnowledgeSummaryProjectGoalsInput {
   successIndicators: string | null;
 }
 
+// Cross-evidence-linkage-design.md §9: computed once in
+// interpretationService.ts from data that already exists (per-upload
+// InterpretationIndicator.computedValue, LinkageConflictRecord,
+// LinkageCohortFlagPrevalence) — never invented here. Presence of any of
+// these three is what flips ia_python_service onto the structured prompt.
+export interface AiKnowledgeIndicatorInput {
+  label: string;
+  value: number;
+  denominator: number | null;
+  target: number | null;
+  metGoal: "true" | "false" | "partial";
+}
+
+export interface AiKnowledgeContradictionInput {
+  entityName: string;
+  fieldOrTopic: string;
+  valueA: string;
+  sourceA: string;
+  valueB: string;
+  sourceB: string;
+}
+
+export interface AiKnowledgeCoverageIssueInput {
+  cohortLabel: string;
+  cohortSize: number;
+  flagLabel: string;
+  flagCount: number;
+  flagShare: number;
+}
+
 interface GenerateAiKnowledgeSummaryInput {
   scope: "activity" | "project";
   subjectName: string;
@@ -90,6 +127,9 @@ interface GenerateAiKnowledgeSummaryInput {
   language: "de" | "en";
   activityGoals?: AiKnowledgeSummaryActivityGoalsInput | null;
   projectGoals?: AiKnowledgeSummaryProjectGoalsInput | null;
+  indicators?: AiKnowledgeIndicatorInput[];
+  contradictions?: AiKnowledgeContradictionInput[];
+  coverageIssues?: AiKnowledgeCoverageIssueInput[];
 }
 
 interface GenerateAiKnowledgeSummaryResponse {
@@ -437,11 +477,12 @@ export class PythonProcessingClient {
     unavailableCode: string,
     timeoutMessage: string,
     timeoutCode: string,
+    timeoutMsOverride?: number,
   ): Promise<Response> {
     try {
       const response = await fetch(`${this.baseUrl}${path}`, {
         ...init,
-        signal: AbortSignal.timeout(this.timeoutMs),
+        signal: AbortSignal.timeout(timeoutMsOverride ?? this.timeoutMs),
       });
 
       if (!response.ok) {
@@ -639,6 +680,7 @@ export class PythonProcessingClient {
       "python_processing_ai_knowledge_summary_unavailable",
       "The Python processing service timed out while summarizing the AI knowledge.",
       "python_processing_ai_knowledge_summary_timeout",
+      AI_KNOWLEDGE_SUMMARY_TIMEOUT_MS,
     );
 
     return response.json() as Promise<GenerateAiKnowledgeSummaryResponse>;

@@ -46,6 +46,21 @@ export async function registerInterpretationRoutes(
     controller.generateActivityAiKnowledge.bind(controller),
   );
 
+  app.put(
+    "/activities/:activityId/ai-knowledge",
+    {
+      preHandler: authenticate,
+      config: processingKickoffRateLimitConfig,
+    },
+    controller.regenerateActivityAiKnowledge.bind(controller),
+  );
+
+  app.get(
+    "/activities/:activityId/workflow-stage",
+    { preHandler: authenticate },
+    controller.getActivityWorkflowStage.bind(controller),
+  );
+
   app.get(
     "/interpretations/:interpretationResultId",
     { preHandler: authenticate },

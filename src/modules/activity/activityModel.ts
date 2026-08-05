@@ -11,6 +11,8 @@ const activityAiKnowledgeInsightSchema = new Schema(
         "qualitative_finding",
         "indicator",
         "distribution_signal",
+        "linkage_contradiction",
+        "linkage_coverage_issue",
       ],
       required: true,
     },
