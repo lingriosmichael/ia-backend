@@ -55,6 +55,10 @@ export async function buildApp(config: BackendConfig) {
     },
   });
 
+  function requestPath(url: string): string {
+    return url.split("?")[0] ?? "";
+  }
+
   // Some routes are hit on a fixed, short interval by automated callers
   // rather than a human action: the frontend polling job-status endpoints
   // while a job is in flight, the Python worker polling
@@ -65,13 +69,51 @@ export async function buildApp(config: BackendConfig) {
   // just excluded from this access log. Real progress is logged separately,
   // once per actual status change, by ProcessingJobService.
   function isLowSignalRoute(url: string): boolean {
-    const path = url.split("?")[0] ?? "";
+    const path = requestPath(url);
     return (
       path.includes("/sync") ||
       /\/jobs$/.test(path) ||
       path === "/health" ||
       path === "/internal/processing-jobs/claim"
     );
+  }
+
+  // Successful reads are by far the noisiest traffic in local dev and in
+  // practice don't explain "what changed" in the system — mutations and
+  // failures do. Keep write paths visible, but suppress routine successful
+  // GET/HEAD access lines so polling and UI hydration don't drown out the
+  // operations that actually change backend state.
+  function isRoutineReadRequest(method: string): boolean {
+    return method === "GET" || method === "HEAD";
+  }
+
+  function shouldLogRequestReceived(request: {
+    method: string;
+    url: string;
+  }): boolean {
+    if (isLowSignalRoute(request.url)) {
+      return false;
+    }
+
+    return !isRoutineReadRequest(request.method);
+  }
+
+  function shouldLogRequestCompleted(
+    request: {
+      method: string;
+      url: string;
+    },
+    statusCode: number,
+  ): boolean {
+    if (statusCode >= 400) {
+      return !isLowSignalRoute(request.url);
+    }
+
+    if (isLowSignalRoute(request.url)) {
+      return false;
+    }
+
+    return !isRoutineReadRequest(request.method);
   }
 
   // Every request logs on arrival (before auth, so even a rejected or
@@ -81,7 +123,7 @@ export async function buildApp(config: BackendConfig) {
   // when, and with what outcome — without needing to add logging to every
   // individual route handler.
   app.addHook("onRequest", async (request) => {
-    if (isLowSignalRoute(request.url)) {
+    if (!shouldLogRequestReceived(request)) {
       return;
     }
     request.log.info(
@@ -91,7 +133,7 @@ export async function buildApp(config: BackendConfig) {
   });
 
   app.addHook("onResponse", async (request, reply) => {
-    if (isLowSignalRoute(request.url) && reply.statusCode < 400) {
+    if (!shouldLogRequestCompleted(request, reply.statusCode)) {
       return;
     }
     request.log.info(

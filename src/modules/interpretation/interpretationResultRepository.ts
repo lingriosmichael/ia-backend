@@ -3,6 +3,7 @@ import type {
   InterpretationQuestionAnswerInput,
   InterpretationResultCreateInput,
   InterpretationResultPersistenceRecord,
+  InterpretationResultSynthesisFailureInput,
   InterpretationResultSynthesisUpdateInput,
 } from "./interpretationResultPersistence.js";
 
@@ -14,6 +15,17 @@ export interface InterpretationResultRepository {
   replaceSynthesisArtifacts(
     interpretationResultId: string,
     input: InterpretationResultSynthesisUpdateInput,
+    session: DatabaseSession,
+  ): Promise<InterpretationResultPersistenceRecord | null>;
+  /**
+   * Records that a synthesis attempt (quantitative-only or mixed) failed,
+   * without touching any existing entities/indicators/etc — so a failed
+   * attempt is visibly distinct from "never attempted" instead of leaving
+   * the result silently unchanged (see InterpretationResultSynthesisStatus).
+   */
+  recordSynthesisFailure(
+    interpretationResultId: string,
+    input: InterpretationResultSynthesisFailureInput,
     session: DatabaseSession,
   ): Promise<InterpretationResultPersistenceRecord | null>;
   findById(

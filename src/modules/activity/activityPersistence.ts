@@ -31,6 +31,7 @@ export interface ActivityPersistenceRecord {
   objectives: string | null;
   output: string | null;
   outcome: string | null;
+  concernTaggingInstruction: string | null;
   status: ActivityStatus;
   interpretationAcknowledgedAt: Date | null;
   interpretationAcknowledgedById: string | null;
@@ -51,6 +52,7 @@ export interface ActivityCreateInput {
   objectives: string | null;
   output: string | null;
   outcome: string | null;
+  concernTaggingInstruction: string | null;
   status?: ActivityStatus;
 }
 
@@ -64,6 +66,7 @@ export interface ActivityUpdateInput {
   objectives?: string | null;
   output?: string | null;
   outcome?: string | null;
+  concernTaggingInstruction?: string | null;
   status?: ActivityStatus;
   interpretationAcknowledgedAt?: Date | null;
   interpretationAcknowledgedById?: string | null;

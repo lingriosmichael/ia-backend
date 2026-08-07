@@ -73,6 +73,8 @@ function buildCreatedResult(
     warnings: [],
     goalAlignment: [],
     llmUsage: input.llmUsage,
+    synthesisStatus: null,
+    synthesisError: null,
     createdAt: new Date("2026-07-17T09:01:00.000Z"),
     updatedAt: new Date("2026-07-17T09:01:00.000Z"),
   };

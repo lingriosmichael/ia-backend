@@ -173,6 +173,17 @@ export interface ActivitySummary {
   objectives: string | null;
   output: string | null;
   outcome: string | null;
+  // Free text, in the activity author's own words, describing what a
+  // narrow safeguarding/concern-tagging pass over this activity's
+  // free-text evidence columns should watch for (e.g. "flag any note
+  // suggesting a boundary or safety concern"). Null/empty means the
+  // activity hasn't opted into this — evidence linkage never runs the
+  // tagging pass or calls the LLM for it in that case. Kept as an
+  // activity-scoped, human-authored instruction (mirrors how
+  // positiveStatusValues is human-confirmed rather than guessed) instead
+  // of a hardcoded "safeguarding" concept, so the platform stays generic
+  // across activity types.
+  concernTaggingInstruction: string | null;
   status: ActivityStatus;
   permissions: ActivityPermissions;
   interpretationAcknowledgedAt: string | null;
@@ -461,6 +472,19 @@ export type InterpretationQuestionStatus =
 export const interpretationWarningSeverityValues = ["info", "warning"] as const;
 export type InterpretationWarningSeverity =
   (typeof interpretationWarningSeverityValues)[number];
+
+// Tracks the outcome of the post-creation LLM synthesis call
+// (quantitative-only or mixed, see QuantitativeInterpretationSynthesisService)
+// distinctly from "never attempted" (represented by the field being null) —
+// without this, a synthesis call that failed (e.g. timed out) was
+// indistinguishable from one that never applied to this dataset in the
+// first place.
+export const interpretationResultSynthesisStatusValues = [
+  "succeeded",
+  "failed",
+] as const;
+export type InterpretationResultSynthesisStatus =
+  (typeof interpretationResultSynthesisStatusValues)[number];
 
 export const datasetProfileColumnTypeValues = [
   "identifier",
@@ -1147,6 +1171,8 @@ export interface InterpretationResultRecord {
   warnings: InterpretationWarning[];
   goalAlignment: InterpretationGoalCoverage[];
   llmUsage: LlmUsageSummary | null;
+  synthesisStatus: InterpretationResultSynthesisStatus | null;
+  synthesisError: string | null;
   datasetPreparation: DatasetPreparationRecord | null;
   deterministicAnalysis: DeterministicAnalysisRecord | null;
   createdAt: string;

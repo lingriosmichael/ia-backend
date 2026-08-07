@@ -202,7 +202,7 @@ The default values are already provided in .env.example:
 - PYTHON_SERVICE_URL: URL for the Python service if you use it
 - PYTHON_SERVICE_SHARED_SECRET: shared secret sent as `x-internal-service-token`; must exactly match `ia_python_service`'s `INTERNAL_SERVICE_TOKEN`
 - PYTHON_SERVICE_TIMEOUT_MS: timeout for ordinary backend-to-Python requests
-- PYTHON_ANALYTICS_TIMEOUT_MS: longer timeout for analytics curation requests
+- PYTHON_ANALYTICS_TIMEOUT_MS: longer timeout for LLM-backed Python requests such as analytics curation, AI knowledge summaries, interpretation synthesis, and concern tagging
 - FILE_STORAGE_DRIVER: `local` for development or `s3` for shared object storage
 - UPLOAD_DIR: where upload files are stored locally
 - S3_ENDPOINT: object storage endpoint when using `FILE_STORAGE_DRIVER=s3`

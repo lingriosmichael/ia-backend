@@ -67,6 +67,8 @@ function makeResult(
     warnings: [],
     goalAlignment: [],
     llmUsage: null,
+    synthesisStatus: null,
+    synthesisError: null,
     createdAt: NOW,
     updatedAt: NOW,
     ...overrides,

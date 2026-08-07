@@ -372,22 +372,28 @@ function buildGroup(
         (joinColumnNameCounts.get(joinColumnName) ?? 0) + 1,
       );
 
-      if (
-        table.primaryStatusColumn &&
-        table.positiveStatusValues.length > 0 &&
-        !positiveStatusFieldDefinitionsByFieldName.has(
-          table.primaryStatusColumn,
-        )
-      ) {
-        positiveStatusFieldDefinitionsByFieldName.set(
-          table.primaryStatusColumn,
-          {
-            fieldName: table.primaryStatusColumn,
-            positiveStatusValues: table.positiveStatusValues,
+      // A table's own positiveStatusValues only ever describes its single
+      // designated primaryStatusColumn, but a table can carry other
+      // categorical/status-like columns (e.g. a safeguarding taxonomy that
+      // isn't the table's main recommendation field) that independently
+      // define their own positive value set on the column itself. Every
+      // one of those is captured here, not just the table's designated
+      // one — this is what lets computeCohortFlagPrevalences treat such a
+      // field as "flagged means not one of these specific values" instead
+      // of either missing it entirely or (isFlaggedValue's fallback)
+      // wrongly treating every recorded value as flagged.
+      for (const column of table.columns) {
+        if (
+          column.positiveStatusValues.length > 0 &&
+          !positiveStatusFieldDefinitionsByFieldName.has(column.name)
+        ) {
+          positiveStatusFieldDefinitionsByFieldName.set(column.name, {
+            fieldName: column.name,
+            positiveStatusValues: column.positiveStatusValues,
             sourceUploadMetadataId: table.uploadMetadataId,
             sourceTableName: table.tableName,
-          },
-        );
+          });
+        }
       }
 
       const canonicalRows = table.rows.map((row) =>

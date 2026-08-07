@@ -12,6 +12,7 @@ import type {
   InterpretationIndicatorComputedValue,
   InterpretationIndicatorStatus,
   InterpretationIndicatorSuggestedCalculation,
+  InterpretationResultSynthesisStatus,
   InterpretationQuestionDomain,
   InterpretationQuestionKind,
   InterpretationQuestionStatus,
@@ -72,6 +73,11 @@ export interface InterpretationResultPersistenceRecord {
   warnings: InterpretationWarning[];
   goalAlignment: InterpretationGoalCoverage[];
   llmUsage: LlmUsageSummary | null;
+  // null means synthesis was never attempted (either not applicable to this
+  // dataset's evidence modality, or not reached yet) — see
+  // interpretationResultSynthesisStatusValues in shared/contracts.ts.
+  synthesisStatus: InterpretationResultSynthesisStatus | null;
+  synthesisError: string | null;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -201,6 +207,10 @@ export interface InterpretationResultSynthesisUpdateInput {
   supportingQuotes: InterpretationSupportingQuoteCreateInput[];
   warnings: InterpretationWarningCreateInput[];
   goalAlignment: InterpretationGoalCoverageCreateInput[];
+}
+
+export interface InterpretationResultSynthesisFailureInput {
+  error: string;
 }
 
 export interface InterpretationQuestionAnswerInput {

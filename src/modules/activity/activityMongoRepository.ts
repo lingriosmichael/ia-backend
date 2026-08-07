@@ -35,6 +35,7 @@ function toActivityRecord(
     objectives: document.objectives ?? null,
     output: document.output ?? null,
     outcome: document.outcome ?? null,
+    concernTaggingInstruction: document.concernTaggingInstruction ?? null,
     status: document.status,
     interpretationAcknowledgedAt: document.interpretationAcknowledgedAt ?? null,
     interpretationAcknowledgedById:

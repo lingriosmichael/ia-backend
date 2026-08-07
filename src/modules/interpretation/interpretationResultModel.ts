@@ -15,6 +15,7 @@ import {
   interpretationQuoteExcerptKindValues,
   interpretationQuotePrivacyModeValues,
   interpretationQuoteSpeakerTypeValues,
+  interpretationResultSynthesisStatusValues,
   interpretationWarningSeverityValues,
 } from "../../shared/contracts.js";
 
@@ -212,6 +213,12 @@ const interpretationResultSchema = new Schema(
     warnings: { type: [interpretationWarningSchema], default: [] },
     goalAlignment: { type: [interpretationGoalCoverageSchema], default: [] },
     llmUsage: { type: Schema.Types.Mixed, default: null },
+    synthesisStatus: {
+      type: String,
+      enum: [...interpretationResultSynthesisStatusValues],
+      default: null,
+    },
+    synthesisError: { type: String, default: null },
   },
   {
     collection: "interpretation_results",

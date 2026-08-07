@@ -1,3 +1,4 @@
+import type { FastifyBaseLogger } from "fastify";
 import { databaseSession } from "../../shared/database/databaseClient.js";
 import type {
   PreparedDatasetColumn,
@@ -18,6 +19,7 @@ export interface LinkageEvidenceLoaderDependencies {
   interpretationResultRepository: InterpretationResultRepository;
   datasetPreparationRepository: DatasetPreparationRepository;
   privacySafeRepresentationRepository: PrivacySafeRepresentationRepository;
+  logger: FastifyBaseLogger;
 }
 
 export interface LinkageEvidenceTable {
@@ -71,6 +73,10 @@ export async function loadLinkageEvidenceTablesForActivity(
     databaseSession,
   );
   if (uploads.length < 2) {
+    deps.logger.info(
+      { activityId, uploadCount: uploads.length },
+      "evidence linkage skipped: activity has fewer than 2 uploads",
+    );
     return empty;
   }
 
@@ -80,6 +86,14 @@ export async function loadLinkageEvidenceTablesForActivity(
       databaseSession,
     );
   if (results.length < 2) {
+    deps.logger.info(
+      {
+        activityId,
+        uploadCount: uploads.length,
+        interpretationResultCount: results.length,
+      },
+      "evidence linkage skipped: fewer than 2 uploads have a finished interpretation result yet",
+    );
     return empty;
   }
 
@@ -99,6 +113,17 @@ export async function loadLinkageEvidenceTablesForActivity(
   for (const result of results) {
     const preparation = preparationByResultId.get(result.id);
     if (!isReadyForLinkage(preparation)) {
+      deps.logger.info(
+        {
+          activityId,
+          uploadMetadataId: result.uploadMetadataId,
+          interpretationResultId: result.id,
+          datasetPreparationStatus:
+            preparation?.status ?? "no_preparation_record",
+          hasPreparedDataset: preparation?.preparedDataset != null,
+        },
+        "evidence linkage: excluding upload, dataset preparation not yet ready for deterministic analysis",
+      );
       continue;
     }
 

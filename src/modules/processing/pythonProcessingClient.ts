@@ -4,13 +4,6 @@ import type {
   PrivacyReviewDecisions,
 } from "../../shared/contracts.js";
 
-// The shared PYTHON_SERVICE_TIMEOUT_MS is sized for lightweight calls
-// (status polls, small payloads). An AI-knowledge summary is an LLM call
-// whose prompt size scales with how much a project/activity has —
-// indicators, contradictions, coverage issues, insights — so it needs its
-// own, longer budget rather than sharing the general one.
-const AI_KNOWLEDGE_SUMMARY_TIMEOUT_MS = 60_000;
-
 interface PythonProcessingJobStatusResponse {
   externalJobId: string;
   status:
@@ -97,8 +90,30 @@ export interface AiKnowledgeIndicatorInput {
   label: string;
   value: number;
   denominator: number | null;
+  // Mirrors ia_python_service's EvidenceCatalogMetricEntry.deduplicationConfidence
+  // (analytics/models.py) — "not_deduplicated_across_sources" means this
+  // indicator's denominator came from one file's raw rows while other
+  // indicators for the same activity may be computed against the
+  // cross-file deduplicated entity count, so the two are not directly
+  // comparable even though they look like the same kind of number.
+  denominatorBasis:
+    "deduplicated" | "not_deduplicated_across_sources" | "not_applicable";
   target: number | null;
-  metGoal: "true" | "false" | "partial";
+  metGoal: "true" | "false" | "partial" | "unverifiable";
+}
+
+// A full category breakdown for one status/categorical field (e.g. every
+// value of a "Führungszeugnis status" column, not just its collapsed
+// positive count) — built once in interpretationService.ts from a
+// deterministic distribution ia_backend already always computes, and
+// already formatted into plain-language, target-language text there
+// (reusing summarizeTopEntries/formatCountOrPercent) so this never has to
+// be re-derived downstream. Sent as its own guaranteed field for the same
+// reason contradictions/coverage issues are: the full breakdown must never
+// depend on whether the LLM narration happened to have room to mention it.
+export interface AiKnowledgeDistributionInput {
+  label: string;
+  summaryText: string;
 }
 
 export interface AiKnowledgeContradictionInput {
@@ -118,6 +133,28 @@ export interface AiKnowledgeCoverageIssueInput {
   flagShare: number;
 }
 
+export interface ConcernTaggingEntityInput {
+  entityKey: string;
+  text: string;
+}
+
+export interface ConcernTaggingInput {
+  instruction: string;
+  entities: ConcernTaggingEntityInput[];
+  language: "de" | "en";
+}
+
+export interface ConcernTaggingResultOutput {
+  entityKey: string;
+  flagged: boolean;
+  reason: string;
+}
+
+interface ConcernTaggingOutput {
+  results: ConcernTaggingResultOutput[];
+  llmUsage?: LlmUsageSummary | null;
+}
+
 interface GenerateAiKnowledgeSummaryInput {
   scope: "activity" | "project";
   subjectName: string;
@@ -130,6 +167,7 @@ interface GenerateAiKnowledgeSummaryInput {
   indicators?: AiKnowledgeIndicatorInput[];
   contradictions?: AiKnowledgeContradictionInput[];
   coverageIssues?: AiKnowledgeCoverageIssueInput[];
+  distributions?: AiKnowledgeDistributionInput[];
 }
 
 interface GenerateAiKnowledgeSummaryResponse {
@@ -464,6 +502,13 @@ export class PythonProcessingClient {
     private readonly baseUrl: string,
     private readonly sharedSecret: string,
     private readonly timeoutMs: number,
+    // The shared PYTHON_SERVICE_TIMEOUT_MS stays intentionally short for
+    // lightweight Python-service calls. LLM-backed routes such as
+    // AI-knowledge summary, interpretation synthesis, and concern tagging
+    // need the longer, separately-configurable PYTHON_ANALYTICS_TIMEOUT_MS
+    // budget instead; a real activity summary was observed timing out at
+    // ~60s despite the route itself eventually succeeding.
+    private readonly llmTimeoutMs: number,
   ) {}
 
   private authHeaders(): Record<string, string> {
@@ -627,6 +672,7 @@ export class PythonProcessingClient {
       "python_processing_quantitative_synthesis_unavailable",
       "The Python processing service timed out while synthesizing the quantitative interpretation.",
       "python_processing_quantitative_synthesis_timeout",
+      this.llmTimeoutMs,
     );
 
     return response.json() as Promise<QuantitativeInterpretationSynthesisResponse>;
@@ -635,30 +681,50 @@ export class PythonProcessingClient {
   async synthesizeMixedInterpretation(
     input: MixedInterpretationSynthesisInput,
   ): Promise<QuantitativeInterpretationSynthesisResponse> {
-    const response = await this.request(
-      "/processing/interpretation/mixed-synthesis",
-      {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          ...this.authHeaders(),
+    const attemptRequest = () =>
+      this.request(
+        "/processing/interpretation/mixed-synthesis",
+        {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            ...this.authHeaders(),
+          },
+          body: JSON.stringify({
+            datasetProfile: input.datasetProfile,
+            preparedDataset: input.preparedDataset,
+            deterministicAnalysis: input.deterministicAnalysis,
+            qualitativeFindings: input.qualitativeFindings,
+            supportingQuotes: input.supportingQuotes,
+            language: input.language,
+            activityGoals: input.activityGoals,
+            projectGoals: input.projectGoals,
+          }),
         },
-        body: JSON.stringify({
-          datasetProfile: input.datasetProfile,
-          preparedDataset: input.preparedDataset,
-          deterministicAnalysis: input.deterministicAnalysis,
-          qualitativeFindings: input.qualitativeFindings,
-          supportingQuotes: input.supportingQuotes,
-          language: input.language,
-          activityGoals: input.activityGoals,
-          projectGoals: input.projectGoals,
-        }),
-      },
-      "The Python processing service could not synthesize the mixed interpretation.",
-      "python_processing_mixed_synthesis_unavailable",
-      "The Python processing service timed out while synthesizing the mixed interpretation.",
-      "python_processing_mixed_synthesis_timeout",
-    );
+        "The Python processing service could not synthesize the mixed interpretation.",
+        "python_processing_mixed_synthesis_unavailable",
+        "The Python processing service timed out while synthesizing the mixed interpretation.",
+        "python_processing_mixed_synthesis_timeout",
+        this.llmTimeoutMs,
+      );
+
+    let response: Response;
+    try {
+      response = await attemptRequest();
+    } catch (error) {
+      // One retry, timeouts only: run_mixed_interpretation_synthesis on the
+      // python side is a stateless request/response call with no side
+      // effects, so retrying it is safe. A second failure (timeout or
+      // otherwise) propagates to the caller as normal.
+      if (
+        error instanceof AppError &&
+        error.code === "python_processing_mixed_synthesis_timeout"
+      ) {
+        response = await attemptRequest();
+      } else {
+        throw error;
+      }
+    }
 
     return response.json() as Promise<QuantitativeInterpretationSynthesisResponse>;
   }
@@ -680,9 +746,35 @@ export class PythonProcessingClient {
       "python_processing_ai_knowledge_summary_unavailable",
       "The Python processing service timed out while summarizing the AI knowledge.",
       "python_processing_ai_knowledge_summary_timeout",
-      AI_KNOWLEDGE_SUMMARY_TIMEOUT_MS,
+      this.llmTimeoutMs,
     );
 
     return response.json() as Promise<GenerateAiKnowledgeSummaryResponse>;
+  }
+
+  // Same class of call as generateAiKnowledgeSummary — an LLM classifying
+  // free text against an activity-authored instruction — so it gets the
+  // same extended timeout rather than the generic lightweight-call budget.
+  async runConcernTagging(
+    input: ConcernTaggingInput,
+  ): Promise<ConcernTaggingOutput> {
+    const response = await this.request(
+      "/internal/interpretation/concern-tagging",
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          ...this.authHeaders(),
+        },
+        body: JSON.stringify(input),
+      },
+      "The Python processing service could not run concern tagging.",
+      "python_processing_concern_tagging_unavailable",
+      "The Python processing service timed out while running concern tagging.",
+      "python_processing_concern_tagging_timeout",
+      this.llmTimeoutMs,
+    );
+
+    return response.json() as Promise<ConcernTaggingOutput>;
   }
 }

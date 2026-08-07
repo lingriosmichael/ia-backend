@@ -22,6 +22,12 @@ function createFakeProjectLlmTokenLedgerService() {
   } as unknown as ProjectLlmTokenLedgerService;
 }
 
+function createFakeLogger() {
+  return {
+    error: () => {},
+  } as unknown as import("fastify").FastifyBaseLogger;
+}
+
 function makeResult(
   overrides: Partial<InterpretationResultPersistenceRecord> = {},
 ): InterpretationResultPersistenceRecord {
@@ -50,6 +56,8 @@ function makeResult(
     ],
     goalAlignment: [],
     llmUsage: null,
+    synthesisStatus: null,
+    synthesisError: null,
     createdAt: NOW,
     updatedAt: NOW,
     ...overrides,
@@ -330,6 +338,7 @@ test("maps quantitative synthesis output back into the interpretation result", a
     projectRepository,
     pythonProcessingClient,
     createFakeProjectLlmTokenLedgerService(),
+    createFakeLogger(),
   );
 
   const updated = await service.maybeSyncForInterpretationResult(
@@ -365,6 +374,7 @@ test("skips synthesis until deterministic quantitative analysis is ready", async
     {} as ProjectRepository,
     {} as PythonProcessingClient,
     createFakeProjectLlmTokenLedgerService(),
+    createFakeLogger(),
   );
 
   const updated = await service.maybeSyncForInterpretationResult(
@@ -381,6 +391,79 @@ test("skips synthesis until deterministic quantitative analysis is ready", async
   );
 
   assert.equal(updated, null);
+});
+
+test("records a durable failure instead of throwing or silently returning null when the python synthesis call fails", async () => {
+  let capturedFailure: {
+    interpretationResultId: string;
+    error: string;
+  } | null = null;
+  const loggedErrors: unknown[] = [];
+
+  const interpretationResultRepository = {
+    recordSynthesisFailure: async (
+      interpretationResultId: string,
+      input: { error: string },
+    ) => {
+      capturedFailure = { interpretationResultId, error: input.error };
+      return makeResult({
+        synthesisStatus: "failed",
+        synthesisError: input.error,
+      });
+    },
+  } as unknown as InterpretationResultRepository;
+
+  const processingJobRepository = {
+    findById: async () => ({ id: "job-1", payload: { language: "en" } }),
+  } as unknown as ProcessingJobRepository;
+
+  const activityRepository = {
+    findById: async () => null,
+  } as unknown as ActivityRepository;
+
+  const projectRepository = {
+    findById: async () => null,
+  } as unknown as ProjectRepository;
+
+  const pythonProcessingClient = {
+    synthesizeQuantitativeInterpretation: async () => {
+      throw new Error("The Python processing service timed out.");
+    },
+  } as unknown as PythonProcessingClient;
+
+  const logger = {
+    error: (context: unknown) => {
+      loggedErrors.push(context);
+    },
+  } as unknown as import("fastify").FastifyBaseLogger;
+
+  const service = new QuantitativeInterpretationSynthesisService(
+    interpretationResultRepository,
+    processingJobRepository,
+    activityRepository,
+    projectRepository,
+    pythonProcessingClient,
+    createFakeProjectLlmTokenLedgerService(),
+    logger,
+  );
+
+  const result = await service.maybeSyncForInterpretationResult(
+    makeResult(),
+    makePreparation(),
+    makeAnalysis(),
+  );
+
+  assert.ok(result);
+  assert.equal(result?.synthesisStatus, "failed");
+  assert.equal(loggedErrors.length, 1);
+  assert.ok(capturedFailure);
+  if (capturedFailure === null) {
+    throw new Error("Expected a recorded synthesis failure.");
+  }
+  const failure: { interpretationResultId: string; error: string } =
+    capturedFailure;
+  assert.equal(failure.interpretationResultId, "result-1");
+  assert.match(failure.error, /timed out/);
 });
 
 test("mixed dual-track synthesis preserves qualitative artifacts and adds reconciled quantitative indicators", async () => {
@@ -519,6 +602,7 @@ test("mixed dual-track synthesis preserves qualitative artifacts and adds reconc
     projectRepository,
     pythonProcessingClient,
     createFakeProjectLlmTokenLedgerService(),
+    createFakeLogger(),
   );
 
   const updated = await service.maybeSyncForInterpretationResult(

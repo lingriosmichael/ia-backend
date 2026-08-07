@@ -274,6 +274,7 @@ export function mapActivity(
     objectives: string | null;
     output: string | null;
     outcome: string | null;
+    concernTaggingInstruction: string | null;
     status: ActivityStatus | keyof typeof activityStatusMap;
     interpretationAcknowledgedAt: Date | null;
     interpretationAcknowledgedById: string | null;
@@ -298,6 +299,7 @@ export function mapActivity(
     objectives: activity.objectives,
     output: activity.output,
     outcome: activity.outcome,
+    concernTaggingInstruction: activity.concernTaggingInstruction,
     status: normalizeActivityStatus(activity.status),
     permissions: mapActivityPermissions(
       activity.projectOwnerId,
@@ -333,6 +335,7 @@ export function mapWorkspaceActivity(
     objectives: string | null;
     output: string | null;
     outcome: string | null;
+    concernTaggingInstruction: string | null;
     status: ActivityStatus | keyof typeof activityStatusMap;
     interpretationAcknowledgedAt: Date | null;
     interpretationAcknowledgedById: string | null;
@@ -409,6 +412,7 @@ export function mapWorkspace(record: {
       objectives: string | null;
       output: string | null;
       outcome: string | null;
+      concernTaggingInstruction: string | null;
       status: ActivityStatus | keyof typeof activityStatusMap;
       interpretationAcknowledgedAt: Date | null;
       interpretationAcknowledgedById: string | null;
@@ -673,6 +677,8 @@ export function mapInterpretationResult(record: {
   warnings: InterpretationWarning[];
   goalAlignment: InterpretationGoalCoverage[];
   llmUsage: InterpretationResultRecord["llmUsage"];
+  synthesisStatus: InterpretationResultRecord["synthesisStatus"];
+  synthesisError: InterpretationResultRecord["synthesisError"];
   datasetPreparation?: {
     id: string;
     organizationId: string;
@@ -764,6 +770,8 @@ export function mapInterpretationResult(record: {
     warnings: record.warnings,
     goalAlignment: record.goalAlignment,
     llmUsage: record.llmUsage,
+    synthesisStatus: record.synthesisStatus,
+    synthesisError: record.synthesisError,
     datasetPreparation: record.datasetPreparation
       ? {
           id: record.datasetPreparation.id,

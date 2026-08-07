@@ -203,3 +203,230 @@ test("computeGoalGap grounds a numeric goal verdict in the actual count", () => 
 
   assert.equal(computeGoalGap("no target stated", 20), null);
 });
+
+function buildStructuredSafeguardingFixture(): LinkageEvidenceTable[] {
+  const matrixColumns = [
+    makeColumn("bewerbungs_id", "identifier"),
+    makeColumn("empfehlung", "primary_status", ["geeignet"]),
+  ];
+  const matrixRows = [
+    { bewerbungs_id: "B001", empfehlung: "geeignet" },
+    { bewerbungs_id: "B002", empfehlung: "geeignet" },
+    { bewerbungs_id: "B003", empfehlung: "geeignet" },
+    { bewerbungs_id: "B004", empfehlung: "geeignet" },
+    { bewerbungs_id: "B005", empfehlung: "geeignet" },
+  ];
+
+  // A structured status column (not free text) — role "primary_status"
+  // with its own captured positive value ("ok"). Only "unbekannt"/
+  // "rueckfrage noetig" should count as flagged, not "ok".
+  const safeguardingColumns = [
+    makeColumn("bewerbungs_id", "identifier"),
+    makeColumn("safeguarding_check", "primary_status", ["ok"]),
+  ];
+  const safeguardingRows = [
+    { bewerbungs_id: "B001", safeguarding_check: "ok" },
+    { bewerbungs_id: "B002", safeguarding_check: "unbekannt" },
+    { bewerbungs_id: "B003", safeguarding_check: "rueckfrage noetig" },
+    { bewerbungs_id: "B004", safeguarding_check: "ok" },
+    { bewerbungs_id: "B005", safeguarding_check: "unbekannt" },
+  ];
+
+  return [
+    {
+      uploadMetadataId: "upload-matrix",
+      tableName: "matrix",
+      identifierColumn: "bewerbungs_id",
+      primaryStatusColumn: "empfehlung",
+      positiveStatusValues: ["geeignet"],
+      columns: matrixColumns,
+      rows: matrixRows,
+    },
+    {
+      uploadMetadataId: "upload-safeguarding",
+      tableName: "safeguarding",
+      identifierColumn: "bewerbungs_id",
+      primaryStatusColumn: "safeguarding_check",
+      positiveStatusValues: ["ok"],
+      columns: safeguardingColumns,
+      rows: safeguardingRows,
+    },
+  ];
+}
+
+test("a structured status flag field (not free text) is only flagged for its own non-positive values, not any recorded value", () => {
+  const tables = buildStructuredSafeguardingFixture();
+  const candidates = computeLinkageCandidates(tables);
+  const [group] = reconcileEvidenceLinkageGroups(tables, candidates);
+  assert.ok(group);
+
+  const prevalences = computeCohortFlagPrevalences(
+    group.entities,
+    group.positiveStatusFieldDefinitions,
+  );
+  const prevalence = prevalences.find(
+    (candidate) => candidate.flagFieldName === "safeguarding_check",
+  );
+  assert.ok(prevalence);
+  assert.equal(prevalence.cohortFieldName, "empfehlung");
+  assert.equal(prevalence.cohortSize, 5);
+  // 3 of 5: B002, B003, B005 (unbekannt / rueckfrage noetig) — B001 and
+  // B004 ("ok") must not count, even though they have a recorded value.
+  assert.equal(prevalence.flaggedCount, 3);
+  assert.deepEqual(prevalence.flaggedEntityKeys, ["b002", "b003", "b005"]);
+});
+
+test("a structured status flag field with no captured positive-value definition falls back to any-recorded-value", () => {
+  // Same shape, but the safeguarding_check column itself never declared a
+  // positiveStatusValues set (on the table or the column) — there is no
+  // known "ok"-equivalent anywhere, so presence is the only signal left.
+  const tables = buildStructuredSafeguardingFixture();
+  const safeguardingTable = tables[1];
+  assert.ok(safeguardingTable);
+  safeguardingTable.primaryStatusColumn = null;
+  safeguardingTable.positiveStatusValues = [];
+  const safeguardingCheckColumn = safeguardingTable.columns.find(
+    (column) => column.name === "safeguarding_check",
+  );
+  assert.ok(safeguardingCheckColumn);
+  safeguardingCheckColumn.positiveStatusValues = [];
+
+  const candidates = computeLinkageCandidates(tables);
+  const [group] = reconcileEvidenceLinkageGroups(tables, candidates);
+  assert.ok(group);
+
+  const prevalences = computeCohortFlagPrevalences(
+    group.entities,
+    group.positiveStatusFieldDefinitions,
+  );
+  const prevalence = prevalences.find(
+    (candidate) => candidate.flagFieldName === "safeguarding_check",
+  );
+  assert.ok(prevalence);
+  assert.equal(prevalence.flaggedCount, 5);
+});
+
+test("a status field that is not its table's designated primary_status column still joins against the cohort, as long as it has its own positive-value definition", () => {
+  // The reported gap: safeguarding_check is rarely the table's one
+  // designated primary_status column (empfehlung already is, for the same
+  // table's own recommendation field) — it's a "subgroup" categorical
+  // column that nonetheless defines its own positive value ("ok"). Before
+  // this fix, only a table's single designated primary_status column ever
+  // reached positiveStatusFieldDefinitions, so this cohort join never ran
+  // at all for a field shaped exactly like this.
+  const tables = buildStructuredSafeguardingFixture();
+  const safeguardingTable = tables[1];
+  assert.ok(safeguardingTable);
+  // Nothing on this table is "the" primary status column, but the column
+  // itself still carries its own positiveStatusValues.
+  safeguardingTable.primaryStatusColumn = null;
+  safeguardingTable.positiveStatusValues = [];
+  const safeguardingCheckColumn = safeguardingTable.columns.find(
+    (column) => column.name === "safeguarding_check",
+  );
+  assert.ok(safeguardingCheckColumn);
+  safeguardingCheckColumn.role = "subgroup";
+
+  const candidates = computeLinkageCandidates(tables);
+  const [group] = reconcileEvidenceLinkageGroups(tables, candidates);
+  assert.ok(group);
+
+  assert.deepEqual(group.positiveStatusFieldDefinitions, [
+    {
+      fieldName: "empfehlung",
+      positiveStatusValues: ["geeignet"],
+      sourceUploadMetadataId: "upload-matrix",
+      sourceTableName: "matrix",
+    },
+    {
+      fieldName: "safeguarding_check",
+      positiveStatusValues: ["ok"],
+      sourceUploadMetadataId: "upload-safeguarding",
+      sourceTableName: "safeguarding",
+    },
+  ]);
+
+  const prevalences = computeCohortFlagPrevalences(
+    group.entities,
+    group.positiveStatusFieldDefinitions,
+  );
+  const prevalence = prevalences.find(
+    (candidate) => candidate.flagFieldName === "safeguarding_check",
+  );
+  assert.ok(prevalence);
+  assert.equal(prevalence.cohortFieldName, "empfehlung");
+  assert.equal(prevalence.cohortSize, 5);
+  // Still only the genuinely unresolved values, exactly as when
+  // safeguarding_check was its own table's primary_status column.
+  assert.equal(prevalence.flaggedCount, 3);
+  assert.deepEqual(prevalence.flaggedEntityKeys, ["b002", "b003", "b005"]);
+});
+
+test("computes every genuine cohort x flag pairing, never silently dropping the ones past an arbitrary count", () => {
+  // Regression test: this function used to stop after the first 8 pairs
+  // found. Once every column's own positive-value definition started
+  // being captured (not just one per table), the candidate space grew
+  // enough that a real safeguarding cohort join could sort past that cap
+  // and disappear entirely from a generated summary. Three tables, each
+  // with its own decision field (itself a valid flag-field candidate too,
+  // being primary_status) and two free-text flag fields, produce 18
+  // genuine cross-table pairs (3 decisions x 6 valid flag-field
+  // candidates each out of 9 total, since a decision never pairs with a
+  // field from its own table) — well past the old cap of 8.
+  const makeTable = (
+    tableName: string,
+    decisionColumnName: string,
+    flagColumnNames: [string, string],
+  ): LinkageEvidenceTable => ({
+    uploadMetadataId: `upload-${tableName}`,
+    tableName,
+    identifierColumn: "id",
+    primaryStatusColumn: decisionColumnName,
+    positiveStatusValues: ["active"],
+    columns: [
+      makeColumn("id", "identifier"),
+      makeColumn(decisionColumnName, "primary_status", ["active"]),
+      makeColumn(flagColumnNames[0], "free_text"),
+      makeColumn(flagColumnNames[1], "free_text"),
+    ],
+    // The join-key column needs at least 3 distinct, overlapping values
+    // across tables before linkageCandidateMatcher.ts treats it as a
+    // linkage candidate at all — one row per table isn't enough signal.
+    // "active" (not "yes"/"ja") deliberately avoids Tier C's
+    // CATEGORICAL_VALUE_SYNONYMS canonicalization, which would otherwise
+    // rewrite the stored value and make it never match this declared
+    // positive value.
+    rows: ["1", "2", "3"].map((id) => ({
+      id,
+      [decisionColumnName]: "active",
+      [flagColumnNames[0]]: "note",
+      [flagColumnNames[1]]: "note",
+    })),
+  });
+
+  const tables: LinkageEvidenceTable[] = [
+    makeTable("table-a", "decisionA", ["flagA1", "flagA2"]),
+    makeTable("table-b", "decisionB", ["flagB1", "flagB2"]),
+    makeTable("table-c", "decisionC", ["flagC1", "flagC2"]),
+  ];
+
+  const candidates = computeLinkageCandidates(tables);
+  const [group] = reconcileEvidenceLinkageGroups(tables, candidates);
+  assert.ok(group);
+
+  const prevalences = computeCohortFlagPrevalences(
+    group.entities,
+    group.positiveStatusFieldDefinitions,
+  );
+
+  assert.equal(prevalences.length, 18);
+  // The free-text flag fields (no positive-value definition of their own)
+  // are flagged for every entity that recorded any value at all.
+  const freeTextFlagPairs = prevalences.filter((prevalence) =>
+    prevalence.flagFieldName.startsWith("flag"),
+  );
+  assert.equal(freeTextFlagPairs.length, 12);
+  assert.ok(
+    freeTextFlagPairs.every((prevalence) => prevalence.flaggedCount === 3),
+  );
+});

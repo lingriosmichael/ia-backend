@@ -1,3 +1,4 @@
+import type { FastifyBaseLogger } from "fastify";
 import { databaseSession } from "../../shared/database/databaseClient.js";
 import { createDocumentId } from "../../shared/database/documentId.js";
 import type { ProcessingJobRepository } from "../ai/execution/processingJobRepository.js";
@@ -190,6 +191,7 @@ export class QuantitativeInterpretationSynthesisService {
     private readonly projectRepository: ProjectRepository,
     private readonly pythonProcessingClient: PythonProcessingClient,
     private readonly projectLlmTokenLedgerService: ProjectLlmTokenLedgerService,
+    private readonly logger: FastifyBaseLogger,
   ) {}
 
   async maybeSyncForInterpretationResult(
@@ -209,6 +211,40 @@ export class QuantitativeInterpretationSynthesisService {
       return null;
     }
 
+    try {
+      return await this.synthesizeAndPersist(
+        result,
+        preparedDataset,
+        deterministicAnalysis,
+      );
+    } catch (error) {
+      this.logger.error(
+        {
+          interpretationResultId: result.id,
+          uploadMetadataId: result.uploadMetadataId,
+          activityId: result.activityId,
+          evidenceModality: preparedDataset.evidenceModality,
+          error,
+        },
+        "interpretation synthesis call to the python processing service failed",
+      );
+      return this.interpretationResultRepository.recordSynthesisFailure(
+        result.id,
+        {
+          error: error instanceof Error ? error.message : String(error),
+        },
+        databaseSession,
+      );
+    }
+  }
+
+  private async synthesizeAndPersist(
+    result: InterpretationResultPersistenceRecord,
+    preparedDataset: NonNullable<
+      DatasetPreparationPersistenceRecord["preparedDataset"]
+    >,
+    deterministicAnalysis: DeterministicAnalysisPersistenceRecord,
+  ): Promise<InterpretationResultPersistenceRecord | null> {
     const processingJob = await this.processingJobRepository.findById(
       result.processingJobId,
       databaseSession,

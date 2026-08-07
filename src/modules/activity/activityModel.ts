@@ -54,6 +54,7 @@ const activitySchema = new Schema(
     objectives: { type: String, default: null },
     output: { type: String, default: null },
     outcome: { type: String, default: null },
+    concernTaggingInstruction: { type: String, default: null },
     status: {
       type: String,
       enum: ["active", "completed"],

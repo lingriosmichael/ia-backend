@@ -60,6 +60,7 @@ export class ActivityService {
       objectives?: string;
       output?: string;
       outcome?: string;
+      concernTaggingInstruction?: string;
       status?: "active" | "completed";
     },
   ) {
@@ -81,6 +82,8 @@ export class ActivityService {
         objectives: trimNullableText(input.objectives) ?? null,
         output: trimNullableText(input.output) ?? null,
         outcome: trimNullableText(input.outcome) ?? null,
+        concernTaggingInstruction:
+          trimNullableText(input.concernTaggingInstruction) ?? null,
         status: input.status,
       },
       databaseSession,
@@ -109,6 +112,7 @@ export class ActivityService {
       objectives?: string | null;
       output?: string | null;
       outcome?: string | null;
+      concernTaggingInstruction?: string | null;
       status?: "active" | "completed";
     },
   ) {
@@ -151,6 +155,10 @@ export class ActivityService {
       input.outcome === undefined
         ? activity.outcome
         : (trimNullableText(input.outcome) ?? null);
+    const nextConcernTaggingInstruction =
+      input.concernTaggingInstruction === undefined
+        ? activity.concernTaggingInstruction
+        : (trimNullableText(input.concernTaggingInstruction) ?? null);
     const shouldClearAiKnowledgeState =
       nextName !== activity.name ||
       nextDescription !== activity.description ||
@@ -158,7 +166,8 @@ export class ActivityService {
       nextTargetAudience !== activity.targetAudience ||
       nextObjectives !== activity.objectives ||
       nextOutput !== activity.output ||
-      nextOutcome !== activity.outcome;
+      nextOutcome !== activity.outcome ||
+      nextConcernTaggingInstruction !== activity.concernTaggingInstruction;
     const shouldInvalidateDerivedState = Boolean(
       shouldClearAiKnowledgeState &&
       (activity.interpretationAcknowledgedAt ||
@@ -188,6 +197,9 @@ export class ActivityService {
         objectives: trimNullableText(input.objectives),
         output: trimNullableText(input.output),
         outcome: trimNullableText(input.outcome),
+        concernTaggingInstruction: trimNullableText(
+          input.concernTaggingInstruction,
+        ),
         status: input.status,
         interpretationAcknowledgedAt: shouldClearAiKnowledgeState
           ? null

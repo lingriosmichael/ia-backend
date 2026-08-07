@@ -210,6 +210,7 @@ export const createActivitySchema = z.object({
   objectives: z.string().trim().max(2000).optional(),
   output: z.string().trim().max(2000).optional(),
   outcome: z.string().trim().max(2000).optional(),
+  concernTaggingInstruction: z.string().trim().max(2000).optional(),
   status: z.enum(activityStatusValues).optional(),
 });
 
@@ -223,6 +224,7 @@ export const updateActivitySchema = z.object({
   objectives: z.string().trim().max(2000).nullable().optional(),
   output: z.string().trim().max(2000).nullable().optional(),
   outcome: z.string().trim().max(2000).nullable().optional(),
+  concernTaggingInstruction: z.string().trim().max(2000).nullable().optional(),
   status: z.enum(activityStatusValues).optional(),
 });
 

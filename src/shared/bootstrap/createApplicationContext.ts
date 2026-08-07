@@ -208,6 +208,7 @@ export function createApplicationContext(
     config.PYTHON_SERVICE_URL,
     config.PYTHON_SERVICE_SHARED_SECRET,
     config.PYTHON_SERVICE_TIMEOUT_MS,
+    config.PYTHON_ANALYTICS_TIMEOUT_MS,
   );
   const evidenceProcessingArtifactService =
     new EvidenceProcessingArtifactService(
@@ -231,6 +232,8 @@ export function createApplicationContext(
       datasetPreparationRepository,
       privacySafeRepresentationRepository,
       activityEvidenceLinkageResultRepository,
+      activityRepository,
+      pythonProcessingClient,
       logger,
     );
   const quantitativeInterpretationSynthesisService =
@@ -241,6 +244,7 @@ export function createApplicationContext(
       projectRepository,
       pythonProcessingClient,
       projectLlmTokenLedgerService,
+      logger,
     );
   const interpretationArtifactService = new InterpretationArtifactService(
     interpretationResultRepository,

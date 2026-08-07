@@ -791,22 +791,17 @@ export class InterpretationArtifactService {
             datasetPreparation,
           )
         : datasetPreparation;
-    try {
-      await this.quantitativeInterpretationSynthesisService.maybeSyncForInterpretationResult(
-        created,
-        updatedPreparation,
-        deterministicAnalysis,
-      );
-    } catch (error) {
-      this.logger.error(
-        {
-          interpretationResultId: created.id,
-          uploadMetadataId: created.uploadMetadataId,
-          error,
-        },
-        "quantitative interpretation synthesis could not be completed during artifact ingest",
-      );
-    }
+    // Failure here (e.g. the python-service call timing out) is caught and
+    // persisted as a visible synthesisStatus on the result itself by
+    // QuantitativeInterpretationSynthesisService — not swallowed. Anything
+    // that escapes this call is a genuinely unexpected failure (e.g. the
+    // database write recording that failure also failing) and should
+    // propagate rather than be hidden.
+    await this.quantitativeInterpretationSynthesisService.maybeSyncForInterpretationResult(
+      created,
+      updatedPreparation,
+      deterministicAnalysis,
+    );
 
     if (created.activityId) {
       try {

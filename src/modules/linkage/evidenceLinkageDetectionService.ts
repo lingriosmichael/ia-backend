@@ -41,6 +41,7 @@ export class EvidenceLinkageDetectionService {
         datasetPreparationRepository: this.datasetPreparationRepository,
         privacySafeRepresentationRepository:
           this.privacySafeRepresentationRepository,
+        logger: this.logger,
       },
       activityId,
     );

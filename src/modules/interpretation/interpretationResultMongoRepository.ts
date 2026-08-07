@@ -20,6 +20,7 @@ import type {
   InterpretationQuestionAnswerInput,
   InterpretationResultCreateInput,
   InterpretationResultPersistenceRecord,
+  InterpretationResultSynthesisFailureInput,
   InterpretationResultSynthesisUpdateInput,
 } from "./interpretationResultPersistence.js";
 
@@ -138,6 +139,8 @@ function toInterpretationResultRecord(
       gapExplanation: coverage.gapExplanation ?? null,
     })),
     llmUsage: (document.llmUsage as LlmUsageSummary | null) ?? null,
+    synthesisStatus: document.synthesisStatus ?? null,
+    synthesisError: document.synthesisError ?? null,
     createdAt: document.createdAt,
     updatedAt: document.updatedAt,
   };
@@ -237,6 +240,30 @@ export class MongoInterpretationResultRepository implements InterpretationResult
             ),
             warnings: input.warnings,
             goalAlignment: input.goalAlignment,
+            synthesisStatus: "succeeded",
+            synthesisError: null,
+          },
+        },
+        { returnDocument: "after" },
+      ),
+      session,
+    ).exec();
+
+    return toInterpretationResultRecord(document);
+  }
+
+  async recordSynthesisFailure(
+    interpretationResultId: string,
+    input: InterpretationResultSynthesisFailureInput,
+    session: DatabaseSession,
+  ): Promise<InterpretationResultPersistenceRecord | null> {
+    const document = await applyMongoSession(
+      InterpretationResultMongoModel.findByIdAndUpdate(
+        interpretationResultId,
+        {
+          $set: {
+            synthesisStatus: "failed",
+            synthesisError: input.error,
           },
         },
         { returnDocument: "after" },

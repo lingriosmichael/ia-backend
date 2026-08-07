@@ -184,6 +184,69 @@ test("joins two linked uploads into one entity table, applying Tier A/B/C resolu
   ]);
 });
 
+test("Tier B detection is exhaustive: every same-key, differing-value pair becomes its own conflict, not just the first one found", () => {
+  // Five entities, each with the same join key present in both files but a
+  // byte-different name spelling — the exact "5 Tier-B name conflicts"
+  // shape reported against the real mentor-recruitment dataset, where only
+  // 1 of 5 expected conflicts was surfacing in the generated summary. This
+  // proves detection itself is not the bottleneck: every one of the 5
+  // pairs below produces its own LinkageConflictRecord, unconditionally.
+  const matrixColumns = [
+    makeColumn("bewerbungs_id", "identifier"),
+    makeColumn("name", "free_text"),
+  ];
+  const matrixRows = [
+    { bewerbungs_id: "B001", name: "Anna Berg" },
+    { bewerbungs_id: "B002", name: "Bernd Fischer" },
+    { bewerbungs_id: "B003", name: "Yasmin Koch" },
+    { bewerbungs_id: "B004", name: "Dieter Klein" },
+    { bewerbungs_id: "B005", name: "Erika Wolf" },
+  ];
+
+  const safeguardingColumns = [
+    makeColumn("bewerbungs_id", "identifier"),
+    makeColumn("name", "free_text"),
+  ];
+  const safeguardingRows = [
+    { bewerbungs_id: "B001", name: "Ana Berg" },
+    { bewerbungs_id: "B002", name: "Bernd Fischer II" },
+    { bewerbungs_id: "B003", name: "Yasmin Koc" },
+    { bewerbungs_id: "B004", name: "Dieter Kleinn" },
+    { bewerbungs_id: "B005", name: "Erika Wolff" },
+  ];
+
+  const tables: LinkageEvidenceTable[] = [
+    {
+      uploadMetadataId: "upload-matrix",
+      tableName: "matrix",
+      identifierColumn: "bewerbungs_id",
+      primaryStatusColumn: null,
+      positiveStatusValues: [],
+      columns: matrixColumns,
+      rows: matrixRows,
+    },
+    {
+      uploadMetadataId: "upload-csv",
+      tableName: "safeguarding",
+      identifierColumn: "bewerbungs_id",
+      primaryStatusColumn: null,
+      positiveStatusValues: [],
+      columns: safeguardingColumns,
+      rows: safeguardingRows,
+    },
+  ];
+
+  const candidates = computeLinkageCandidates(tables);
+  const [group] = reconcileEvidenceLinkageGroups(tables, candidates);
+  assert.ok(group);
+
+  assert.equal(group.conflicts.length, 5);
+  assert.deepEqual(
+    group.conflicts.map((conflict) => conflict.entityKey).sort(),
+    ["b001", "b002", "b003", "b004", "b005"],
+  );
+});
+
 test("returns no groups when no linkage candidate connects any uploads", () => {
   const tables: LinkageEvidenceTable[] = [
     {

@@ -284,6 +284,91 @@ test("activity update invalidates AI knowledge state when output/outcome actuall
   assert.deepEqual(calls, ["invalidate:project-1"]);
 });
 
+test("activity update invalidates AI knowledge state when concernTaggingInstruction changes, since it can change safeguarding coverage numbers", async () => {
+  const calls: string[] = [];
+  const captured: { input: Record<string, unknown> | null } = { input: null };
+
+  const activityRepository = {
+    findById: async () => ({
+      id: "activity-1",
+      projectId: "project-1",
+      name: "Activity One",
+      description: null,
+      startDate: null,
+      endDate: null,
+      targetAudience: null,
+      objectives: null,
+      output: null,
+      outcome: null,
+      concernTaggingInstruction: null,
+      status: "active",
+      interpretationAcknowledgedAt: new Date("2026-01-03T00:00:00.000Z"),
+      interpretationAcknowledgedById: "user-1",
+      createdAt: new Date("2026-01-01T00:00:00.000Z"),
+      updatedAt: new Date("2026-01-02T00:00:00.000Z"),
+    }),
+    update: async (_activityId: string, input: Record<string, unknown>) => {
+      captured.input = input;
+      return {
+        id: "activity-1",
+        projectId: "project-1",
+        name: "Activity One",
+        description: null,
+        startDate: null,
+        endDate: null,
+        targetAudience: null,
+        objectives: null,
+        output: null,
+        outcome: null,
+        concernTaggingInstruction: "Flag any note suggesting a safety concern.",
+        status: "active",
+        interpretationAcknowledgedAt: null,
+        interpretationAcknowledgedById: null,
+        createdAt: new Date("2026-01-01T00:00:00.000Z"),
+        updatedAt: new Date("2026-01-04T00:00:00.000Z"),
+      };
+    },
+  } as unknown as ActivityRepository;
+
+  const authorizationService = {
+    canEditActivity: async () => ({
+      project: { id: "project-1", ownerId: "user-1" },
+    }),
+  } as unknown as AuthorizationService;
+
+  const projectDerivedStateInvalidationService = {
+    invalidateProject: async (projectId: string) => {
+      calls.push(`invalidate:${projectId}`);
+    },
+  } as unknown as ProjectDerivedStateInvalidationService;
+
+  const activityService = new ActivityService(
+    activityRepository,
+    authorizationService,
+    {} as UploadMetadataRepository,
+    new FileStorageService("/tmp"),
+    {
+      runInTransaction: async (operation) => operation(null),
+    } as TransactionManager,
+    {} as ProcessingJobRepository,
+    {} as ProcessingResourceCleanupService,
+    projectDerivedStateInvalidationService,
+    { error: () => undefined } as never,
+  );
+
+  await activityService.update("user-1", "activity-1", {
+    concernTaggingInstruction: "Flag any note suggesting a safety concern.",
+  });
+
+  assert.equal(
+    captured.input?.concernTaggingInstruction,
+    "Flag any note suggesting a safety concern.",
+  );
+  assert.equal(captured.input?.interpretationAcknowledgedAt, null);
+  assert.equal(captured.input?.aiKnowledgeSnapshot, null);
+  assert.deepEqual(calls, ["invalidate:project-1"]);
+});
+
 test("activity update does not invalidate AI knowledge state when the only change is whitespace padding", async () => {
   const calls: string[] = [];
   const captured: { input: Record<string, unknown> | null } = { input: null };
