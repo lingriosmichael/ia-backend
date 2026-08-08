@@ -247,6 +247,182 @@ test("Tier B detection is exhaustive: every same-key, differing-value pair becom
   );
 });
 
+test("treats an open-to-suitable suitability update as progression rather than a conflict", () => {
+  const tables: LinkageEvidenceTable[] = [
+    {
+      uploadMetadataId: "upload-intake",
+      tableName: "intake",
+      identifierColumn: "bewerbungs_id",
+      primaryStatusColumn: "empfehlung",
+      positiveStatusValues: ["geeignet"],
+      columns: [
+        makeColumn("bewerbungs_id", "identifier"),
+        makeColumn("empfehlung", "primary_status", ["geeignet"]),
+      ],
+      rows: [
+        { bewerbungs_id: "B001", empfehlung: "noch offen" },
+        { bewerbungs_id: "B002", empfehlung: "geeignet" },
+        { bewerbungs_id: "B003", empfehlung: "geeignet" },
+        { bewerbungs_id: "B004", empfehlung: "geeignet" },
+        { bewerbungs_id: "B005", empfehlung: "geeignet" },
+      ],
+    },
+    {
+      uploadMetadataId: "upload-selection",
+      tableName: "selection_matrix",
+      identifierColumn: "bewerbungs_id",
+      primaryStatusColumn: "empfehlung",
+      positiveStatusValues: ["geeignet"],
+      columns: [
+        makeColumn("bewerbungs_id", "identifier"),
+        makeColumn("empfehlung", "primary_status", ["geeignet"]),
+      ],
+      rows: [
+        { bewerbungs_id: "B001", empfehlung: "geeignet" },
+        { bewerbungs_id: "B002", empfehlung: "geeignet" },
+        { bewerbungs_id: "B003", empfehlung: "geeignet" },
+        { bewerbungs_id: "B004", empfehlung: "geeignet" },
+        { bewerbungs_id: "B005", empfehlung: "geeignet" },
+      ],
+    },
+  ];
+
+  const candidates = computeLinkageCandidates(tables);
+  const [group] = reconcileEvidenceLinkageGroups(tables, candidates);
+  assert.ok(group);
+
+  assert.deepEqual(group.conflicts, []);
+  const assessment = group.semanticAssessments?.find(
+    (candidate) =>
+      candidate.entityKey === "b001" && candidate.concept === "suitability",
+  );
+  assert.ok(assessment);
+  assert.equal(assessment.outcome, "progression");
+  assert.equal(assessment.resolvedValue, "geeignet");
+  assert.deepEqual(
+    assessment.observations.map((observation) => observation.sourceRole).sort(),
+    ["assessment", "assessment"],
+  );
+
+  const entity = group.entities.find((candidate) => candidate.entityKey === "b001");
+  assert.equal(
+    entity?.fields.find((field) => field.fieldName === "empfehlung")?.value,
+    "geeignet",
+  );
+});
+
+test("records safeguarding concern-to-ok evidence as progression across fields, not as a contradiction", () => {
+  const tables: LinkageEvidenceTable[] = [
+    {
+      uploadMetadataId: "upload-concern",
+      tableName: "__concern_tagging__",
+      identifierColumn: "bewerbungs_id",
+      primaryStatusColumn: "concern_flag",
+      positiveStatusValues: ["no"],
+      columns: [
+        makeColumn("bewerbungs_id", "identifier"),
+        makeColumn("concern_flag", "primary_status", ["no"]),
+      ],
+      rows: [
+        { bewerbungs_id: "B001", concern_flag: "yes" },
+        { bewerbungs_id: "B002", concern_flag: "no" },
+        { bewerbungs_id: "B003", concern_flag: "no" },
+        { bewerbungs_id: "B004", concern_flag: "no" },
+        { bewerbungs_id: "B005", concern_flag: "no" },
+      ],
+    },
+    {
+      uploadMetadataId: "upload-safeguarding",
+      tableName: "safeguarding",
+      identifierColumn: "bewerbungs_id",
+      primaryStatusColumn: "safeguarding_check",
+      positiveStatusValues: ["ok"],
+      columns: [
+        makeColumn("bewerbungs_id", "identifier"),
+        makeColumn("safeguarding_check", "primary_status", ["ok"]),
+      ],
+      rows: [
+        { bewerbungs_id: "B001", safeguarding_check: "ok" },
+        { bewerbungs_id: "B002", safeguarding_check: "ok" },
+        { bewerbungs_id: "B003", safeguarding_check: "ok" },
+        { bewerbungs_id: "B004", safeguarding_check: "ok" },
+        { bewerbungs_id: "B005", safeguarding_check: "ok" },
+      ],
+    },
+  ];
+
+  const candidates = computeLinkageCandidates(tables);
+  const [group] = reconcileEvidenceLinkageGroups(tables, candidates);
+  assert.ok(group);
+
+  assert.deepEqual(group.conflicts, []);
+  const assessment = group.semanticAssessments?.find(
+    (candidate) =>
+      candidate.entityKey === "b001" && candidate.concept === "safeguarding",
+  );
+  assert.ok(assessment);
+  assert.equal(assessment.outcome, "progression");
+  assert.equal(assessment.resolvedValue, "ok");
+  assert.deepEqual(
+    assessment.observations.map((observation) => observation.fieldName).sort(),
+    ["concern_flag", "safeguarding_check"],
+  );
+});
+
+test("keeps incompatible terminal suitability decisions as a true conflict when no safe progression exists", () => {
+  const tables: LinkageEvidenceTable[] = [
+    {
+      uploadMetadataId: "upload-a",
+      tableName: "matrix_a",
+      identifierColumn: "bewerbungs_id",
+      primaryStatusColumn: "empfehlung",
+      positiveStatusValues: ["geeignet"],
+      columns: [
+        makeColumn("bewerbungs_id", "identifier"),
+        makeColumn("empfehlung", "primary_status", ["geeignet"]),
+      ],
+      rows: [
+        { bewerbungs_id: "B001", empfehlung: "geeignet" },
+        { bewerbungs_id: "B002", empfehlung: "geeignet" },
+        { bewerbungs_id: "B003", empfehlung: "geeignet" },
+        { bewerbungs_id: "B004", empfehlung: "geeignet" },
+        { bewerbungs_id: "B005", empfehlung: "geeignet" },
+      ],
+    },
+    {
+      uploadMetadataId: "upload-b",
+      tableName: "matrix_b",
+      identifierColumn: "bewerbungs_id",
+      primaryStatusColumn: "empfehlung",
+      positiveStatusValues: ["geeignet"],
+      columns: [
+        makeColumn("bewerbungs_id", "identifier"),
+        makeColumn("empfehlung", "primary_status", ["geeignet"]),
+      ],
+      rows: [
+        { bewerbungs_id: "B001", empfehlung: "nicht geeignet" },
+        { bewerbungs_id: "B002", empfehlung: "geeignet" },
+        { bewerbungs_id: "B003", empfehlung: "geeignet" },
+        { bewerbungs_id: "B004", empfehlung: "geeignet" },
+        { bewerbungs_id: "B005", empfehlung: "geeignet" },
+      ],
+    },
+  ];
+
+  const candidates = computeLinkageCandidates(tables);
+  const [group] = reconcileEvidenceLinkageGroups(tables, candidates);
+  assert.ok(group);
+
+  assert.equal(group.conflicts.length, 1);
+  assert.equal(group.conflicts[0]?.fieldName, "empfehlung");
+  const assessment = group.semanticAssessments?.find(
+    (candidate) =>
+      candidate.entityKey === "b001" && candidate.concept === "suitability",
+  );
+  assert.ok(assessment);
+  assert.equal(assessment.outcome, "true_conflict");
+});
+
 test("returns no groups when no linkage candidate connects any uploads", () => {
   const tables: LinkageEvidenceTable[] = [
     {

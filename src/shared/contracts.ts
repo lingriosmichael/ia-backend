@@ -914,6 +914,22 @@ export const deterministicAnalysisMetricKindValues = [
 export type DeterministicAnalysisMetricKind =
   (typeof deterministicAnalysisMetricKindValues)[number];
 
+export const deterministicAnalysisMetricGrainValues = [
+  "row",
+  "entity",
+  "event",
+  "source",
+] as const;
+export type DeterministicAnalysisMetricGrain =
+  (typeof deterministicAnalysisMetricGrainValues)[number];
+
+export const deterministicAnalysisDenominatorTypeValues = [
+  "rows",
+  "distinct_entities",
+] as const;
+export type DeterministicAnalysisDenominatorType =
+  (typeof deterministicAnalysisDenominatorTypeValues)[number];
+
 export interface DeterministicAnalysisMetric {
   metricKey: string;
   label: string;
@@ -924,6 +940,11 @@ export interface DeterministicAnalysisMetric {
   formula: string;
   value: number | null;
   unit: string | null;
+  grain?: DeterministicAnalysisMetricGrain;
+  numerator?: number | null;
+  denominator?: number | null;
+  denominatorType?: DeterministicAnalysisDenominatorType;
+  identifierColumn?: string | null;
   components: Record<string, unknown>;
 }
 
@@ -1034,6 +1055,11 @@ export interface DeterministicAnalysisCandidateIndicator {
   value: number | null;
   unit: string | null;
   sourceColumns: string[];
+  grain?: DeterministicAnalysisMetricGrain;
+  numerator?: number | null;
+  denominator?: number | null;
+  denominatorType?: DeterministicAnalysisDenominatorType;
+  identifierColumn?: string | null;
   groundingNote: string;
 }
 
@@ -1095,6 +1121,61 @@ export interface LinkageConflictRecord {
   resolvedValue: string;
 }
 
+export const linkageSemanticConceptValues = [
+  "suitability",
+  "safeguarding",
+  "background_check",
+] as const;
+export type LinkageSemanticConcept =
+  (typeof linkageSemanticConceptValues)[number];
+
+export const linkageSemanticSourceRoleValues = [
+  "administrative_record",
+  "assessment",
+  "follow_up",
+  "derived_signal",
+  "unknown",
+] as const;
+export type LinkageSemanticSourceRole =
+  (typeof linkageSemanticSourceRoleValues)[number];
+
+export const linkageSemanticAssessmentOutcomeValues = [
+  "consistent",
+  "progression",
+  "superseded",
+  "true_conflict",
+  "insufficient_context",
+] as const;
+export type LinkageSemanticAssessmentOutcome =
+  (typeof linkageSemanticAssessmentOutcomeValues)[number];
+
+export const linkageObservationDateConfidenceValues = [
+  "explicit",
+  "derived",
+  "unknown",
+] as const;
+export type LinkageObservationDateConfidence =
+  (typeof linkageObservationDateConfidenceValues)[number];
+
+export interface LinkageSemanticObservationRecord {
+  fieldName: string;
+  value: string;
+  sourceUploadMetadataId: string;
+  sourceTableName: string;
+  sourceRole: LinkageSemanticSourceRole;
+  observedAt: string | null;
+  observedAtConfidence: LinkageObservationDateConfidence;
+}
+
+export interface LinkageSemanticAssessmentRecord {
+  entityKey: string;
+  concept: LinkageSemanticConcept;
+  outcome: LinkageSemanticAssessmentOutcome;
+  resolvedValue: string | null;
+  rationale: string | null;
+  observations: LinkageSemanticObservationRecord[];
+}
+
 export interface LinkageCoverageDiffRecord {
   uploadMetadataIdA: string;
   uploadMetadataIdB: string;
@@ -1115,6 +1196,7 @@ export interface ActivityEvidenceLinkageGroup {
   entities: LinkageEntityRecord[];
   duplicateRowsRemoved: LinkageDuplicateRowRemoval[];
   conflicts: LinkageConflictRecord[];
+  semanticAssessments?: LinkageSemanticAssessmentRecord[];
   coverageDiffs: LinkageCoverageDiffRecord[];
   positiveStatusFieldDefinitions: LinkagePositiveStatusFieldDefinition[];
 }

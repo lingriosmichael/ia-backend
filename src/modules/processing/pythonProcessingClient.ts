@@ -102,6 +102,22 @@ export interface AiKnowledgeIndicatorInput {
   metGoal: "true" | "false" | "partial" | "unverifiable";
 }
 
+export interface AiKnowledgeOutcomeAssessmentInput {
+  goalText: string;
+  evaluationMode:
+    | "numeric_target"
+    | "condition"
+    | "directional_change"
+    | "evidence_only";
+  assessmentStatus:
+    | "achieved"
+    | "partially_supported"
+    | "not_achieved"
+    | "insufficient_evidence";
+  supportingEvidence: string[];
+  limitingEvidence: string[];
+}
+
 // A full category breakdown for one status/categorical field (e.g. every
 // value of a "Führungszeugnis status" column, not just its collapsed
 // positive count) — built once in interpretationService.ts from a
@@ -117,20 +133,11 @@ export interface AiKnowledgeDistributionInput {
 }
 
 export interface AiKnowledgeContradictionInput {
-  entityName: string;
-  fieldOrTopic: string;
-  valueA: string;
-  sourceA: string;
-  valueB: string;
-  sourceB: string;
+  summaryText: string;
 }
 
 export interface AiKnowledgeCoverageIssueInput {
-  cohortLabel: string;
-  cohortSize: number;
-  flagLabel: string;
-  flagCount: number;
-  flagShare: number;
+  summaryText: string;
 }
 
 export interface ConcernTaggingEntityInput {
@@ -165,6 +172,7 @@ interface GenerateAiKnowledgeSummaryInput {
   activityGoals?: AiKnowledgeSummaryActivityGoalsInput | null;
   projectGoals?: AiKnowledgeSummaryProjectGoalsInput | null;
   indicators?: AiKnowledgeIndicatorInput[];
+  outcomeAssessments?: AiKnowledgeOutcomeAssessmentInput[];
   contradictions?: AiKnowledgeContradictionInput[];
   coverageIssues?: AiKnowledgeCoverageIssueInput[];
   distributions?: AiKnowledgeDistributionInput[];

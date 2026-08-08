@@ -3,9 +3,11 @@ import type {
   DeterministicAnalysisCandidateIndicator,
   DeterministicAnalysisCategoricalCrosstab,
   DeterministicAnalysisCategoricalCrosstabCell,
+  DeterministicAnalysisDenominatorType,
   DeterministicAnalysisDistribution,
   DeterministicAnalysisDistributionBucket,
   DeterministicAnalysisMetric,
+  DeterministicAnalysisMetricGrain,
   DeterministicAnalysisNumericCategoryGroup,
   DeterministicAnalysisNumericCategorySummary,
   DeterministicAnalysisNumericCorrelation,
@@ -46,6 +48,16 @@ interface CategoricalColumnAnalysis {
 interface NumericColumnAnalysis {
   name: string;
   values: number[];
+}
+
+interface AnalysisRowContext {
+  rawRows: Record<string, unknown>[];
+  analysisRows: Record<string, unknown>[];
+  grain: Exclude<DeterministicAnalysisMetricGrain, "source">;
+  denominatorType: DeterministicAnalysisDenominatorType;
+  identifierColumn: string | null;
+  rawRowCount: number;
+  analysisRowCount: number;
 }
 
 export function readTableRecords(
@@ -153,6 +165,162 @@ function compareNullableStrings(
     return -1;
   }
   return left.localeCompare(right);
+}
+
+function countMeaningfulValues(row: Record<string, unknown>): number {
+  return Object.values(row).filter((value) => {
+    if (value === null || value === undefined) {
+      return false;
+    }
+    if (typeof value === "string") {
+      return value.trim().length > 0;
+    }
+    return true;
+  }).length;
+}
+
+function mergeRowsForIdentifier(
+  rows: Record<string, unknown>[],
+): Record<string, unknown> {
+  if (rows.length <= 1) {
+    return rows[0] ?? {};
+  }
+
+  const representative =
+    [...rows].sort(
+      (left, right) =>
+        countMeaningfulValues(right) - countMeaningfulValues(left),
+    )[0] ?? rows[0] ?? {};
+  const merged = { ...representative };
+  const allKeys = new Set(rows.flatMap((row) => Object.keys(row)));
+
+  for (const key of allKeys) {
+    const currentValue = merged[key];
+    if (
+      currentValue !== null &&
+      currentValue !== undefined &&
+      (typeof currentValue !== "string" || currentValue.trim().length > 0)
+    ) {
+      continue;
+    }
+
+    const fallbackValue = rows
+      .map((row) => row[key])
+      .find(
+        (value) =>
+          value !== null &&
+          value !== undefined &&
+          (typeof value !== "string" || value.trim().length > 0),
+      );
+    if (fallbackValue !== undefined) {
+      merged[key] = fallbackValue;
+    }
+  }
+
+  return merged;
+}
+
+function resolveAnalysisRowContext(
+  table: PreparedDatasetTable,
+  rawRows: Record<string, unknown>[],
+): AnalysisRowContext {
+  const identifierColumn = table.identifierColumn;
+  const shouldDeduplicate =
+    Boolean(identifierColumn) &&
+    table.identifierHandling === "deduplicate_by_identifier";
+
+  if (!shouldDeduplicate || !identifierColumn) {
+    const grain: AnalysisRowContext["grain"] =
+      table.identifierHandling === "allow_duplicate_rows_as_events"
+        ? "event"
+        : "row";
+    return {
+      rawRows,
+      analysisRows: rawRows,
+      grain,
+      denominatorType: "rows",
+      identifierColumn,
+      rawRowCount: rawRows.length,
+      analysisRowCount: rawRows.length,
+    };
+  }
+
+  const rowsWithoutIdentifier: Record<string, unknown>[] = [];
+  const rowsByIdentifier = new Map<string, Record<string, unknown>[]>();
+
+  for (const row of rawRows) {
+    const identifierValue = toCategoryValue(row[identifierColumn]);
+    if (!identifierValue) {
+      rowsWithoutIdentifier.push(row);
+      continue;
+    }
+    const bucket = rowsByIdentifier.get(identifierValue) ?? [];
+    bucket.push(row);
+    rowsByIdentifier.set(identifierValue, bucket);
+  }
+
+  const analysisRows = [
+    ...Array.from(rowsByIdentifier.values()).map((rows) =>
+      mergeRowsForIdentifier(rows),
+    ),
+    ...rowsWithoutIdentifier,
+  ];
+
+  return {
+    rawRows,
+    analysisRows,
+    grain: "entity",
+    denominatorType: "distinct_entities",
+    identifierColumn,
+    rawRowCount: rawRows.length,
+    analysisRowCount: analysisRows.length,
+  };
+}
+
+function withMetricMetadata(
+  metric: DeterministicAnalysisMetric,
+  rowContext: AnalysisRowContext,
+  overrides: Partial<
+    Pick<
+      DeterministicAnalysisMetric,
+      "grain" | "numerator" | "denominator" | "denominatorType"
+    >
+  > = {},
+): DeterministicAnalysisMetric {
+  return {
+    ...metric,
+    grain: overrides.grain ?? rowContext.grain,
+    numerator: overrides.numerator ?? metric.numerator ?? null,
+    denominator:
+      overrides.denominator ?? metric.denominator ?? rowContext.analysisRowCount,
+    denominatorType:
+      overrides.denominatorType ?? rowContext.denominatorType,
+    identifierColumn: rowContext.identifierColumn,
+  };
+}
+
+function withCandidateIndicatorMetadata(
+  indicator: DeterministicAnalysisCandidateIndicator,
+  rowContext: AnalysisRowContext,
+  overrides: Partial<
+    Pick<
+      DeterministicAnalysisCandidateIndicator,
+      "grain" | "numerator" | "denominator" | "denominatorType"
+    >
+  > = {},
+): DeterministicAnalysisCandidateIndicator {
+  return {
+    ...indicator,
+    grain: overrides.grain ?? rowContext.grain,
+    numerator: overrides.numerator ?? indicator.numerator ?? null,
+    denominator:
+      overrides.denominator ??
+      indicator.denominator ??
+      rowContext.analysisRowCount,
+    denominatorType:
+      overrides.denominatorType ?? rowContext.denominatorType,
+    identifierColumn: rowContext.identifierColumn,
+  };
 }
 
 function countPositiveRows(
@@ -596,6 +764,7 @@ function buildCategoricalDistributions(
 
 function buildCategoricalValueMetricsAndCandidates(
   table: PreparedDatasetTable,
+  rowContext: AnalysisRowContext,
   rowCount: number,
   categoricalColumns: CategoricalColumnAnalysis[],
 ): {
@@ -635,24 +804,40 @@ function buildCategoricalValueMetricsAndCandidates(
         unit: "count",
         components: {
           count,
+          rawRowCount: rowContext.rawRowCount,
+          analysisRowCount: rowContext.analysisRowCount,
           positiveStatusValues: [value],
           columnName: column.name,
           categoryValue: value,
         },
       };
-      metrics.push(countMetric);
-      candidateIndicators.push({
-        indicatorKey: countMetric.metricKey,
-        label: `${column.name}: ${value}`,
-        description: countMetric.description,
-        tableName: table.name,
-        formula: countMetric.formula,
+      metrics.push(
+        withMetricMetadata(countMetric, rowContext, {
+          numerator: count,
+          denominator: rowCount,
+        }),
+      );
+      candidateIndicators.push(
+        withCandidateIndicatorMetadata(
+          {
+            indicatorKey: countMetric.metricKey,
+            label: `${column.name}: ${value}`,
+            description: countMetric.description,
+            tableName: table.name,
+            formula: countMetric.formula,
         value: countMetric.value,
-        unit: countMetric.unit,
-        sourceColumns: countMetric.sourceColumns,
-        groundingNote:
-          "Derived deterministically from one categorical value in the prepared dataset.",
-      });
+            unit: countMetric.unit,
+            sourceColumns: countMetric.sourceColumns,
+            groundingNote:
+              "Derived deterministically from one categorical value in the prepared dataset.",
+          },
+          rowContext,
+          {
+            numerator: count,
+            denominator: rowCount,
+          },
+        ),
+      );
 
       const ratioMetric: DeterministicAnalysisMetric = {
         metricKey: `${table.name}::${column.name}::${safeValue}::ratio`,
@@ -667,12 +852,19 @@ function buildCategoricalValueMetricsAndCandidates(
         components: {
           numeratorCount: count,
           denominatorCount: rowCount,
+          rawRowCount: rowContext.rawRowCount,
+          analysisRowCount: rowContext.analysisRowCount,
           positiveStatusValues: [value],
           columnName: column.name,
           categoryValue: value,
         },
       };
-      metrics.push(ratioMetric);
+      metrics.push(
+        withMetricMetadata(ratioMetric, rowContext, {
+          numerator: count,
+          denominator: rowCount,
+        }),
+      );
     }
   }
 
@@ -912,6 +1104,7 @@ function buildNumericCorrelations(
 
 function buildPrimaryStatusMetricsAndCandidates(
   table: PreparedDatasetTable,
+  rowContext: AnalysisRowContext,
   rows: Record<string, unknown>[],
   positiveStatusValues: string[],
 ): {
@@ -937,21 +1130,41 @@ function buildPrimaryStatusMetricsAndCandidates(
       formula: `COUNT(${table.primaryStatusColumn} IN {${positiveStatusValues.join(", ")}})`,
       value: positiveCount,
       unit: "count",
-      components: { positiveCount, positiveStatusValues },
+      components: {
+        positiveCount,
+        denominatorCount: rows.length,
+        rawRowCount: rowContext.rawRowCount,
+        analysisRowCount: rowContext.analysisRowCount,
+        positiveStatusValues,
+      },
     };
-    metrics.push(countMetric);
-    candidateIndicators.push({
-      indicatorKey: countMetric.metricKey,
-      label: `Positive ${table.primaryStatusColumn}`,
-      description: countMetric.description,
-      tableName: table.name,
+    metrics.push(
+      withMetricMetadata(countMetric, rowContext, {
+        numerator: positiveCount,
+        denominator: rows.length,
+      }),
+    );
+    candidateIndicators.push(
+      withCandidateIndicatorMetadata(
+        {
+          indicatorKey: countMetric.metricKey,
+          label: `Positive ${table.primaryStatusColumn}`,
+          description: countMetric.description,
+          tableName: table.name,
       formula: countMetric.formula,
       value: countMetric.value,
-      unit: countMetric.unit,
-      sourceColumns: countMetric.sourceColumns,
-      groundingNote:
-        "Derived deterministically from the prepared primary status column and confirmed positive values.",
-    });
+          unit: countMetric.unit,
+          sourceColumns: countMetric.sourceColumns,
+          groundingNote:
+            "Derived deterministically from the prepared primary status column and confirmed positive values.",
+        },
+        rowContext,
+        {
+          numerator: positiveCount,
+          denominator: rows.length,
+        },
+      ),
+    );
 
     const ratio = rows.length > 0 ? positiveCount / rows.length : null;
     const ratioMetric: DeterministicAnalysisMetric = {
@@ -967,22 +1180,38 @@ function buildPrimaryStatusMetricsAndCandidates(
       components: {
         numeratorCount: positiveCount,
         denominatorCount: rows.length,
+        rawRowCount: rowContext.rawRowCount,
+        analysisRowCount: rowContext.analysisRowCount,
         positiveStatusValues,
       },
     };
-    metrics.push(ratioMetric);
-    candidateIndicators.push({
-      indicatorKey: ratioMetric.metricKey,
-      label: `Positive ${table.primaryStatusColumn} rate`,
-      description: ratioMetric.description,
-      tableName: table.name,
+    metrics.push(
+      withMetricMetadata(ratioMetric, rowContext, {
+        numerator: positiveCount,
+        denominator: rows.length,
+      }),
+    );
+    candidateIndicators.push(
+      withCandidateIndicatorMetadata(
+        {
+          indicatorKey: ratioMetric.metricKey,
+          label: `Positive ${table.primaryStatusColumn} rate`,
+          description: ratioMetric.description,
+          tableName: table.name,
       formula: ratioMetric.formula,
       value: ratioMetric.value,
-      unit: ratioMetric.unit,
-      sourceColumns: ratioMetric.sourceColumns,
-      groundingNote:
-        "Derived deterministically from the prepared primary status column and confirmed positive values.",
-    });
+          unit: ratioMetric.unit,
+          sourceColumns: ratioMetric.sourceColumns,
+          groundingNote:
+            "Derived deterministically from the prepared primary status column and confirmed positive values.",
+        },
+        rowContext,
+        {
+          numerator: positiveCount,
+          denominator: rows.length,
+        },
+      ),
+    );
   }
 
   return { metrics, candidateIndicators };
@@ -990,7 +1219,7 @@ function buildPrimaryStatusMetricsAndCandidates(
 
 function buildBaseMetricsAndCandidates(
   table: PreparedDatasetTable,
-  rows: Record<string, unknown>[],
+  rowContext: AnalysisRowContext,
 ): {
   metrics: DeterministicAnalysisMetric[];
   candidateIndicators: DeterministicAnalysisCandidateIndicator[];
@@ -998,33 +1227,88 @@ function buildBaseMetricsAndCandidates(
   const metrics: DeterministicAnalysisMetric[] = [];
   const candidateIndicators: DeterministicAnalysisCandidateIndicator[] = [];
 
+  const sourceRowsMetric: DeterministicAnalysisMetric = {
+    metricKey: `${table.name}::source_rows`,
+    label: `${table.name} source rows`,
+    description: `Raw source rows in ${table.name} before any identifier-based resolution`,
+    tableName: table.name,
+    sourceColumns: table.identifierColumn ? [table.identifierColumn] : [],
+    kind: "count",
+    formula: "COUNT(raw_rows)",
+    value: rowContext.rawRowCount,
+    unit: "count",
+    components: {
+      rowCount: rowContext.rawRowCount,
+      rawRowCount: rowContext.rawRowCount,
+      analysisRowCount: rowContext.analysisRowCount,
+    },
+  };
+  metrics.push(
+    withMetricMetadata(sourceRowsMetric, rowContext, {
+      grain: "source",
+      numerator: rowContext.rawRowCount,
+      denominator: rowContext.rawRowCount,
+      denominatorType: "rows",
+    }),
+  );
+
   const totalRowsMetric: DeterministicAnalysisMetric = {
     metricKey: `${table.name}::total_rows`,
-    label: `${table.name} rows`,
-    description: `Total rows in ${table.name}`,
+    label:
+      rowContext.grain === "entity" && rowContext.identifierColumn
+        ? `${table.name} resolved records`
+        : `${table.name} rows`,
+    description:
+      rowContext.grain === "entity" && rowContext.identifierColumn
+        ? `Distinct ${rowContext.identifierColumn} records in ${table.name} after identifier-based resolution`
+        : `Total rows in ${table.name}`,
     tableName: table.name,
-    sourceColumns: [],
+    sourceColumns: rowContext.identifierColumn ? [rowContext.identifierColumn] : [],
     kind: "count",
-    formula: "COUNT(rows)",
-    value: rows.length,
+    formula:
+      rowContext.grain === "entity" && rowContext.identifierColumn
+        ? `COUNT_DISTINCT(${rowContext.identifierColumn})`
+        : "COUNT(rows)",
+    value: rowContext.analysisRowCount,
     unit: "count",
-    components: { rowCount: rows.length },
+    components: {
+      rowCount: rowContext.analysisRowCount,
+      rawRowCount: rowContext.rawRowCount,
+      analysisRowCount: rowContext.analysisRowCount,
+    },
   };
-  metrics.push(totalRowsMetric);
-  candidateIndicators.push({
-    indicatorKey: totalRowsMetric.metricKey,
-    label: totalRowsMetric.label,
-    description: totalRowsMetric.description,
-    tableName: table.name,
-    formula: totalRowsMetric.formula,
-    value: totalRowsMetric.value,
-    unit: totalRowsMetric.unit,
-    sourceColumns: totalRowsMetric.sourceColumns,
-    groundingNote: "Derived deterministically from prepared dataset row count.",
-  });
+  metrics.push(
+    withMetricMetadata(totalRowsMetric, rowContext, {
+      numerator: rowContext.analysisRowCount,
+      denominator: rowContext.analysisRowCount,
+    }),
+  );
+  candidateIndicators.push(
+    withCandidateIndicatorMetadata(
+      {
+        indicatorKey: totalRowsMetric.metricKey,
+        label: totalRowsMetric.label,
+        description: totalRowsMetric.description,
+        tableName: table.name,
+        formula: totalRowsMetric.formula,
+        value: totalRowsMetric.value,
+        unit: totalRowsMetric.unit,
+        sourceColumns: totalRowsMetric.sourceColumns,
+        groundingNote:
+          rowContext.grain === "entity" && rowContext.identifierColumn
+            ? "Derived deterministically from the resolved distinct-entity dataset."
+            : "Derived deterministically from prepared dataset row count.",
+      },
+      rowContext,
+      {
+        numerator: rowContext.analysisRowCount,
+        denominator: rowContext.analysisRowCount,
+      },
+    ),
+  );
 
   const distinctIdentifierCount = countDistinctNonNull(
-    rows,
+    rowContext.rawRows,
     table.identifierColumn,
   );
   if (table.identifierColumn && distinctIdentifierCount !== null) {
@@ -1038,21 +1322,43 @@ function buildBaseMetricsAndCandidates(
       formula: `COUNT_DISTINCT(${table.identifierColumn})`,
       value: distinctIdentifierCount,
       unit: "count",
-      components: { distinctCount: distinctIdentifierCount },
+      components: {
+        distinctCount: distinctIdentifierCount,
+        rawRowCount: rowContext.rawRowCount,
+        analysisRowCount: rowContext.analysisRowCount,
+      },
     };
-    metrics.push(metric);
-    candidateIndicators.push({
-      indicatorKey: metric.metricKey,
-      label: `Unique ${table.identifierColumn}`,
-      description: metric.description,
-      tableName: table.name,
-      formula: metric.formula,
-      value: metric.value,
-      unit: metric.unit,
-      sourceColumns: metric.sourceColumns,
-      groundingNote:
-        "Derived deterministically from prepared identifier column.",
-    });
+    metrics.push(
+      withMetricMetadata(metric, rowContext, {
+        grain: "entity",
+        numerator: distinctIdentifierCount,
+        denominator: distinctIdentifierCount,
+        denominatorType: "distinct_entities",
+      }),
+    );
+    candidateIndicators.push(
+      withCandidateIndicatorMetadata(
+        {
+          indicatorKey: metric.metricKey,
+          label: `Unique ${table.identifierColumn}`,
+          description: metric.description,
+          tableName: table.name,
+          formula: metric.formula,
+          value: metric.value,
+          unit: metric.unit,
+          sourceColumns: metric.sourceColumns,
+          groundingNote:
+            "Derived deterministically from prepared identifier column.",
+        },
+        rowContext,
+        {
+          grain: "entity",
+          numerator: distinctIdentifierCount,
+          denominator: distinctIdentifierCount,
+          denominatorType: "distinct_entities",
+        },
+      ),
+    );
   }
 
   return { metrics, candidateIndicators };
@@ -1141,7 +1447,9 @@ function buildAnalysisInput(
 
   for (const preparedTable of preparedDataset.tables) {
     const payloadTable = payloadTablesByName.get(preparedTable.name);
-    const rows = readRowRecords(payloadTable?.rows);
+    const rawRows = readRowRecords(payloadTable?.rows);
+    const rowContext = resolveAnalysisRowContext(preparedTable, rawRows);
+    const rows = rowContext.analysisRows;
     const positiveStatusColumn = preparedTable.columns.find(
       (column) => column.name === preparedTable.primaryStatusColumn,
     );
@@ -1150,12 +1458,16 @@ function buildAnalysisInput(
     const categoricalColumns = buildCategoricalColumns(preparedTable, rows);
     const numericColumns = buildNumericColumns(preparedTable, rows);
 
-    const baseMetricOutput = buildBaseMetricsAndCandidates(preparedTable, rows);
+    const baseMetricOutput = buildBaseMetricsAndCandidates(
+      preparedTable,
+      rowContext,
+    );
     metrics.push(...baseMetricOutput.metrics);
     candidateIndicators.push(...baseMetricOutput.candidateIndicators);
 
     const categoricalMetricOutput = buildCategoricalValueMetricsAndCandidates(
       preparedTable,
+      rowContext,
       rows.length,
       categoricalColumns,
     );
@@ -1164,6 +1476,7 @@ function buildAnalysisInput(
 
     const primaryStatusOutput = buildPrimaryStatusMetricsAndCandidates(
       preparedTable,
+      rowContext,
       rows,
       positiveStatusValues,
     );

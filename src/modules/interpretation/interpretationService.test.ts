@@ -1706,11 +1706,11 @@ test("activity AI knowledge always surfaces an unlinked upload's own distributio
   assert.equal(capturedDistributions[0]?.label, "Wohnbezirk");
 });
 
-test("activity AI knowledge reduces a goal-relevant direct-identifier column to a completeness fact, never its actual values", async () => {
-  // A contact-info column can be goal-relevant (it feeds a Tier B
-  // contradiction here) and still must never have its real values
-  // rendered — an email address distribution is not a category breakdown,
-  // it is a list of real personal data with a count of 1 per entry.
+test("activity AI knowledge keeps a direct-identifier column out entirely when its only relevance signal is a linkage conflict", async () => {
+  // A contact-info column may appear in linkage diagnostics, but that
+  // alone must not promote it into AI knowledge. Direct identifiers now
+  // stay out of user-facing distributions entirely unless a later
+  // materiality layer proves they affect a real conclusion.
   const deps = createDependencies({
     buildForProject: async () => ({}),
     activities: [
@@ -1802,8 +1802,9 @@ test("activity AI knowledge reduces a goal-relevant direct-identifier column to 
           },
         ],
         duplicateRowsRemoved: [],
-        // email_adresse feeds a Tier B conflict, so it is goal-relevant —
-        // the PII gate must still win over the render-gate here.
+        // email_adresse appears in a Tier B conflict, but direct
+        // identifiers are now diagnostic-only and must not become AI
+        // knowledge distributions on that basis.
         conflicts: [
           {
             entityKey: "b003",
@@ -1859,14 +1860,10 @@ test("activity AI knowledge reduces a goal-relevant direct-identifier column to 
 
   await service.generateActivityAiKnowledge("user-1", "activity-1", "de");
 
-  assert.equal(capturedDistributions.length, 1);
-  const [distribution] = capturedDistributions;
-  assert.ok(distribution);
-  assert.doesNotMatch(distribution.summaryText, /@example\.com/);
-  assert.match(distribution.summaryText, /2 von 2/);
+  assert.deepEqual(capturedDistributions, []);
 });
 
-test("activity AI knowledge always sends a compliance status field's positive count as an indicator, even when the LLM synthesis stage didn't select it", async () => {
+test("activity AI knowledge keeps an unmatched compliance status field out of activity indicators when the LLM synthesis stage didn't select it", async () => {
   const deps = createDependencies({
     buildForProject: async () => ({}),
     results: [
@@ -1946,12 +1943,7 @@ test("activity AI knowledge always sends a compliance status field's positive co
 
   await service.generateActivityAiKnowledge("user-1", "activity-1", "de");
 
-  assert.equal(capturedIndicators.length, 1);
-  const [indicator] = capturedIndicators;
-  assert.ok(indicator);
-  assert.equal(indicator.value, 0);
-  assert.equal(indicator.denominator, 75);
-  assert.equal(indicator.metGoal, "unverifiable");
+  assert.deepEqual(capturedIndicators, []);
 });
 
 test("activity AI knowledge does not duplicate a compliance status indicator the LLM synthesis stage already selected", async () => {
@@ -2370,7 +2362,7 @@ test("activity AI knowledge reports a completion-style goal as not met when its 
   assert.equal(indicator.metGoal, "false");
 });
 
-test("activity AI knowledge sends a mandatory linkage indicator unverifiable rather than falsely matched when no goal text names its field", async () => {
+test("activity AI knowledge drops a mandatory linkage indicator entirely when no goal text names its field", async () => {
   const deps = createDependencies({
     buildForProject: async () => ({}),
     activities: [
@@ -2493,14 +2485,10 @@ test("activity AI knowledge sends a mandatory linkage indicator unverifiable rat
 
   await service.generateActivityAiKnowledge("user-1", "activity-1", "de");
 
-  assert.equal(capturedIndicators.length, 1);
-  const [indicator] = capturedIndicators;
-  assert.ok(indicator);
-  assert.equal(indicator.target, null);
-  assert.equal(indicator.metGoal, "unverifiable");
+  assert.deepEqual(capturedIndicators, []);
 });
 
-test("activity AI knowledge surfaces linkage contradictions and coverage issues ahead of other insights", async () => {
+test("activity AI knowledge keeps direct-identifier conflicts out of AI knowledge while still surfacing relevant coverage issues", async () => {
   const deps = createDependencies({
     buildForProject: async () => ({}),
     activities: [
@@ -2646,39 +2634,13 @@ test("activity AI knowledge surfaces linkage contradictions and coverage issues 
 
   let summarizedInsights: Array<{ text: string; isGoalRelevant: boolean }> = [];
   let capturedIndicators: Array<{ label: string }> = [];
-  let capturedContradictions: Array<{
-    entityName: string;
-    fieldOrTopic: string;
-    valueA: string;
-    sourceA: string;
-    valueB: string;
-    sourceB: string;
-  }> = [];
-  let capturedCoverageIssues: Array<{
-    cohortLabel: string;
-    cohortSize: number;
-    flagLabel: string;
-    flagCount: number;
-    flagShare: number;
-  }> = [];
+  let capturedContradictions: Array<{ summaryText: string }> = [];
+  let capturedCoverageIssues: Array<{ summaryText: string }> = [];
   deps.pythonProcessingClient.generateAiKnowledgeSummary = async (input: {
     insights: Array<{ text: string; isGoalRelevant: boolean }>;
     indicators?: Array<{ label: string }>;
-    contradictions?: Array<{
-      entityName: string;
-      fieldOrTopic: string;
-      valueA: string;
-      sourceA: string;
-      valueB: string;
-      sourceB: string;
-    }>;
-    coverageIssues?: Array<{
-      cohortLabel: string;
-      cohortSize: number;
-      flagLabel: string;
-      flagCount: number;
-      flagShare: number;
-    }>;
+    contradictions?: Array<{ summaryText: string }>;
+    coverageIssues?: Array<{ summaryText: string }>;
   }) => {
     summarizedInsights = input.insights;
     capturedIndicators = input.indicators ?? [];
@@ -2715,24 +2677,19 @@ test("activity AI knowledge surfaces linkage contradictions and coverage issues 
   // is still computed (buildLinkageCrossFileCrosstabDrafts runs
   // unconditionally) but never marked isGoalRelevant, so it no longer
   // surfaces as a top-level "distribution_signal" Erkenntnis competing
-  // with the coverage issue/contradiction/indicator that actually answer
-  // this activity's goals.
+  // with the coverage issue/indicator that actually answer this
+  // activity's goals. The name mismatch remains in linkage diagnostics,
+  // but the new field-eligibility gate keeps this direct-identifier
+  // conflict out of AI knowledge entirely.
   assert.deepEqual(
     knowledge.insights.map((insight) => insight.sourceType),
-    ["linkage_coverage_issue", "linkage_contradiction", "indicator"],
+    ["linkage_coverage_issue", "indicator"],
   );
 
   const coverageInsight = knowledge.insights.find(
     (insight) => insight.sourceType === "linkage_coverage_issue",
   );
   assert.match(coverageInsight?.text ?? "", /1 von 1 Einträgen/);
-
-  const contradictionInsight = knowledge.insights.find(
-    (insight) => insight.sourceType === "linkage_contradiction",
-  );
-  assert.match(contradictionInsight?.text ?? "", /b003/);
-  assert.match(contradictionInsight?.text ?? "", /yasmin koch/);
-  assert.match(contradictionInsight?.text ?? "", /yasmin koc/);
 
   // The persisted snapshot keeps every insight (for the review UI), but the
   // linkage contradiction/coverage issue text is now also sent structurally
@@ -2752,46 +2709,141 @@ test("activity AI knowledge surfaces linkage contradictions and coverage issues 
 
   // The LLM-selected indicator itself is dropped (no computedValue to
   // ground a number/target against, even though matchesStatedGoal is
-  // true) — but "empfehlung" has its own positiveStatusValues definition
-  // on the joined group, so the mandatory linkage-sourced mechanism now
-  // guarantees its own count regardless. Neither of this activity's goal
-  // texts ("Two orientation sessions run" / "strong attendance") names
-  // "geeignet" or "empfehlung," so it correctly stays unmatched/unverifiable
-  // rather than guessing a target.
-  assert.deepEqual(capturedIndicators, [
-    {
-      label: "Empfehlung",
-      value: 1,
-      denominator: 1,
-      denominatorBasis: "deduplicated",
-      target: null,
-      metGoal: "unverifiable",
-    },
-  ]);
+  // true), and the linkage-sourced fallback is now also suppressed
+  // because neither goal text ("Two orientation sessions run" / "strong
+  // attendance") explicitly names "geeignet" or "empfehlung." The
+  // cross-file coverage issue still surfaces below; the name conflict
+  // does not, because direct identifiers are now diagnostic-only.
+  assert.deepEqual(capturedIndicators, []);
 
-  assert.deepEqual(capturedContradictions, [
-    {
-      entityName: "b003",
-      fieldOrTopic: "name",
-      valueA: "yasmin koch",
-      sourceA: "matrix",
-      valueB: "yasmin koc",
-      sourceB: "safeguarding",
-    },
-  ]);
+  assert.deepEqual(capturedContradictions, []);
 
   assert.deepEqual(capturedCoverageIssues, [
     {
-      cohortLabel: "empfehlung: geeignet",
-      cohortSize: 1,
-      flagLabel: "remark",
-      flagCount: 1,
-      flagShare: 1,
+      summaryText:
+        '1 von 1 Einträgen mit Empfehlung "geeignet" haben bei Remark noch einen offenen oder ungeklärten Stand (100 %).',
     },
   ]);
 });
 
-test("activity AI knowledge sends every Tier B conflict as its own contradiction, never truncated to just one, no matter how many exist", async () => {
+test("activity AI knowledge sends structured outcome assessments for condition-style goals even without a numeric target", async () => {
+  const deps = createDependencies({
+    buildForProject: async () => ({}),
+    activities: [
+      {
+        id: "activity-1",
+        projectId: "project-1",
+        name: "Activity",
+        objectives: "prepare mentors",
+        output: "65 geeignete Mentor:innen",
+        outcome:
+          "Sicherheitsrelevante Bedenken werden vor Schulungsbeginn identifiziert und geklärt.",
+        interpretationAcknowledgedAt: null,
+        aiKnowledgeSnapshot: null,
+      },
+    ],
+    results: [
+      {
+        id: "result-1",
+        uploadMetadataId: "upload-1",
+        activityId: "activity-1",
+        updatedAt: NOW,
+        qualitativeFindings: [],
+        goalAlignment: [
+          {
+            id: "goal-alignment-support",
+            goalSummary:
+              "Sicherheitsrelevante Bedenken werden vor Schulungsbeginn identifiziert und geklärt.",
+            isSupportedByData: true,
+            gapExplanation: null,
+          },
+          {
+            id: "goal-alignment-gap",
+            goalSummary:
+              "Sicherheitsrelevante Bedenken werden vor Schulungsbeginn identifiziert und geklärt.",
+            isSupportedByData: false,
+            gapExplanation:
+              "Bei mehreren geeigneten Kandidat:innen ist die Sicherheitsklärung noch offen.",
+          },
+        ],
+        indicators: [],
+      },
+    ],
+  });
+
+  let capturedOutcomeAssessments: Array<{
+    goalText: string;
+    evaluationMode:
+      | "numeric_target"
+      | "condition"
+      | "directional_change"
+      | "evidence_only";
+    assessmentStatus:
+      | "achieved"
+      | "partially_supported"
+      | "not_achieved"
+      | "insufficient_evidence";
+    supportingEvidence: string[];
+    limitingEvidence: string[];
+  }> = [];
+  deps.pythonProcessingClient.generateAiKnowledgeSummary = async (input: {
+    outcomeAssessments?: Array<{
+      goalText: string;
+      evaluationMode:
+        | "numeric_target"
+        | "condition"
+        | "directional_change"
+        | "evidence_only";
+      assessmentStatus:
+        | "achieved"
+        | "partially_supported"
+        | "not_achieved"
+        | "insufficient_evidence";
+      supportingEvidence: string[];
+      limitingEvidence: string[];
+    }>;
+  }) => {
+    capturedOutcomeAssessments = input.outcomeAssessments ?? [];
+    return { summaryText: "summary" };
+  };
+
+  const service = new InterpretationService(
+    deps.uploadMetadataRepository,
+    deps.privacySafeRepresentationRepository,
+    deps.interpretationResultRepository,
+    deps.processingJobRepository,
+    deps.activityRepository,
+    deps.authorizationService,
+    deps.pythonProcessingClient,
+    deps.logger,
+    deps.datasetPreparationService,
+    deps.deterministicAnalysisService,
+    deps.quantitativeInterpretationSynthesisService,
+    deps.projectKnowledgeBuilderService,
+    deps.projectLlmTokenLedgerService,
+    deps.evidenceLinkageReconciliationService,
+    deps.activityEvidenceLinkageResultRepository,
+  );
+
+  await service.generateActivityAiKnowledge("user-1", "activity-1", "de");
+
+  assert.deepEqual(capturedOutcomeAssessments, [
+    {
+      goalText:
+        "Sicherheitsrelevante Bedenken werden vor Schulungsbeginn identifiziert und geklärt.",
+      evaluationMode: "condition",
+      assessmentStatus: "partially_supported",
+      supportingEvidence: [
+        "Sicherheitsrelevante Bedenken werden vor Schulungsbeginn identifiziert und geklärt.",
+      ],
+      limitingEvidence: [
+        "Bei mehreren geeigneten Kandidat:innen ist die Sicherheitsklärung noch offen.",
+      ],
+    },
+  ]);
+});
+
+test("activity AI knowledge still sends every eligible Tier B conflict as its own contradiction, never truncated to just one", async () => {
   const deps = createDependencies({
     buildForProject: async () => ({}),
     uploads: [
@@ -2850,20 +2902,20 @@ test("activity AI knowledge sends every Tier B conflict as its own contradiction
         duplicateRowsRemoved: [],
         conflicts: entityKeys.map((entityKey) => ({
           entityKey,
-          fieldName: "name",
+          fieldName: "fuehrungszeugnis_status",
           competingValues: [
             {
-              value: `${entityKey}-matrix-spelling`,
+              value: `${entityKey}-pending`,
               sourceUploadMetadataId: "upload-1",
               sourceTableName: "matrix",
             },
             {
-              value: `${entityKey}-safeguarding-spelling`,
+              value: `${entityKey}-ok`,
               sourceUploadMetadataId: "upload-2",
               sourceTableName: "safeguarding",
             },
           ],
-          resolvedValue: `${entityKey}-matrix-spelling`,
+          resolvedValue: `${entityKey}-ok`,
         })),
         coverageDiffs: [],
         positiveStatusFieldDefinitions: [],
@@ -2873,9 +2925,9 @@ test("activity AI knowledge sends every Tier B conflict as its own contradiction
     updatedAt: NOW,
   });
 
-  let capturedContradictions: Array<{ entityName: string }> = [];
+  let capturedContradictions: Array<{ summaryText: string }> = [];
   deps.pythonProcessingClient.generateAiKnowledgeSummary = async (input: {
-    contradictions?: Array<{ entityName: string }>;
+    contradictions?: Array<{ summaryText: string }>;
   }) => {
     capturedContradictions = input.contradictions ?? [];
     return { summaryText: "summary" };
@@ -2902,11 +2954,10 @@ test("activity AI knowledge sends every Tier B conflict as its own contradiction
   await service.generateActivityAiKnowledge("user-1", "activity-1", "de");
 
   assert.equal(capturedContradictions.length, 5);
-  assert.deepEqual(
-    capturedContradictions
-      .map((contradiction) => contradiction.entityName)
-      .sort(),
-    entityKeys,
+  assert.ok(
+    capturedContradictions.every((contradiction) =>
+      contradiction.summaryText.includes("widersprüchliche Angaben"),
+    ),
   );
 });
 

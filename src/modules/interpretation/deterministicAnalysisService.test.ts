@@ -232,7 +232,7 @@ test("builds deterministic quantitative analysis from a prepared dataset", async
 
   const input = requireCapturedInput(capturedInput);
   assert.equal(input.status, "ready");
-  assert.equal(input.metrics.length, 12);
+  assert.equal(input.metrics.length, 13);
   assert.equal(input.candidateIndicators.length, 8);
   assert.equal(input.distributions.length, 2);
   assert.equal(input.trends.length, 1);
@@ -240,6 +240,11 @@ test("builds deterministic quantitative analysis from a prepared dataset", async
   assert.equal(input.categoricalCrosstabs.length, 1);
   assert.equal(input.numericCategorySummaries.length, 4);
   assert.equal(input.numericCorrelations.length, 1);
+
+  const sourceRowsMetric = input.metrics.find(
+    (metric) => metric.metricKey === "attendance::source_rows",
+  );
+  assert.equal(sourceRowsMetric?.value, 3);
 
   const totalRowsMetric = input.metrics.find(
     (metric) => metric.metricKey === "attendance::total_rows",
@@ -332,6 +337,171 @@ test("builds deterministic quantitative analysis from a prepared dataset", async
     pearson: 0.6547,
     spearman: 0.5,
   });
+});
+
+test("deduplicates entity-level deterministic metrics when identifier handling says duplicate ids are the same applicant, while preserving raw source rows diagnostically", async () => {
+  let capturedInput: DeterministicAnalysisUpsertInput | null = null;
+
+  const repository = {
+    upsertByInterpretationResultId: async (
+      input: DeterministicAnalysisUpsertInput,
+    ) => {
+      capturedInput = input;
+      return {
+        id: "analysis-dedup-1",
+        ...input,
+        createdAt: NOW,
+        updatedAt: NOW,
+      };
+    },
+  } as unknown as DeterministicAnalysisRepository;
+
+  const uniqueRows: Array<Record<string, unknown>> = [];
+  let identifierCounter = 1;
+  const statuses: Array<[string, number]> = [
+    ["eingereicht", 25],
+    ["ausstehend", 16],
+    ["eingereicht - abgelaufen", 14],
+    ["beantragt", 12],
+    ["nicht vorhanden", 8],
+  ];
+  for (const [status, count] of statuses) {
+    for (let index = 0; index < count; index += 1) {
+      uniqueRows.push({
+        bewerbungs_id: `APP-${identifierCounter.toString().padStart(3, "0")}`,
+        fuehrungszeugnis_status: status,
+      });
+      identifierCounter += 1;
+    }
+  }
+  const duplicateIds = ["APP-001", "APP-026", "APP-042", "APP-056"];
+  const rows = [
+    ...uniqueRows,
+    ...duplicateIds.map((id) => {
+      const original = uniqueRows.find((row) => row.bewerbungs_id === id);
+      if (!original) {
+        throw new Error(`Missing seed row for duplicate id ${id}`);
+      }
+      return { ...original };
+    }),
+  ];
+
+  const privacySafeRepresentationRepository = {
+    findById: async () => ({
+      id: "psr-1",
+      organizationId: "org-1",
+      projectId: "project-1",
+      activityId: "activity-1",
+      uploadMetadataId: "upload-1",
+      processingJobId: "processing-1",
+      privacyReviewId: "review-1",
+      parsedRepresentationId: "parsed-1",
+      payload: {
+        tables: [
+          {
+            name: "applications",
+            columns: ["bewerbungs_id", "fuehrungszeugnis_status"],
+            rows,
+          },
+        ],
+      },
+      createdAt: NOW,
+      updatedAt: NOW,
+    }),
+  } as unknown as PrivacySafeRepresentationRepository;
+
+  const service = new DeterministicAnalysisService(
+    repository,
+    privacySafeRepresentationRepository,
+  );
+
+  await service.syncForInterpretationResult(
+    makeResult(),
+    makePreparation({
+      preparedDataset: {
+        evidenceModality: "structured_quantitative",
+        isReadyForDeterministicAnalysis: true,
+        unresolvedRequirements: [],
+        tables: [
+          {
+            name: "applications",
+            rowCount: 79,
+            columnCount: 2,
+            selectedRowGrain: "One row is one application record.",
+            identifierColumn: "bewerbungs_id",
+            identifierHandling: "deduplicate_by_identifier",
+            primaryStatusColumn: "fuehrungszeugnis_status",
+            primaryDateColumn: null,
+            columns: [
+              {
+                name: "bewerbungs_id",
+                inferredType: "identifier",
+                role: "identifier",
+                positiveStatusValues: [],
+                positiveStatusDefinitionText: null,
+                normalizationAccepted: null,
+              },
+              {
+                name: "fuehrungszeugnis_status",
+                inferredType: "categorical",
+                role: "primary_status",
+                positiveStatusValues: ["eingereicht"],
+                positiveStatusDefinitionText:
+                  "Treat eingereicht as the positive status.",
+                normalizationAccepted: true,
+              },
+            ],
+            notes: [],
+          },
+        ],
+      },
+    }),
+  );
+
+  const input = requireCapturedInput(capturedInput);
+  const sourceRowsMetric = input.metrics.find(
+    (metric) => metric.metricKey === "applications::source_rows",
+  );
+  const totalRowsMetric = input.metrics.find(
+    (metric) => metric.metricKey === "applications::total_rows",
+  );
+  const distinctIdentifierMetric = input.metrics.find(
+    (metric) => metric.metricKey === "applications::distinct_identifier_count",
+  );
+  const positiveCountMetric = input.metrics.find(
+    (metric) => metric.metricKey === "applications::positive_status_count",
+  );
+  const positiveRatioMetric = input.metrics.find(
+    (metric) => metric.metricKey === "applications::positive_status_ratio",
+  );
+  const statusDistribution = input.distributions.find(
+    (distribution) =>
+      distribution.distributionKey ===
+      "applications::fuehrungszeugnis_status::distribution",
+  );
+
+  assert.equal(sourceRowsMetric?.value, 79);
+  assert.equal(sourceRowsMetric?.grain, "source");
+  assert.equal(totalRowsMetric?.value, 75);
+  assert.equal(totalRowsMetric?.grain, "entity");
+  assert.equal(totalRowsMetric?.denominatorType, "distinct_entities");
+  assert.equal(distinctIdentifierMetric?.value, 75);
+  assert.equal(positiveCountMetric?.value, 25);
+  assert.equal(positiveCountMetric?.denominator, 75);
+  assert.equal(positiveRatioMetric?.value, 25 / 75);
+  assert.equal(positiveRatioMetric?.numerator, 25);
+  assert.equal(positiveRatioMetric?.denominator, 75);
+  assert.deepEqual(statusDistribution?.buckets, [
+    { value: "eingereicht", count: 25, ratio: 25 / 75 },
+    { value: "ausstehend", count: 16, ratio: 16 / 75 },
+    {
+      value: "eingereicht - abgelaufen",
+      count: 14,
+      ratio: 14 / 75,
+    },
+    { value: "beantragt", count: 12, ratio: 12 / 75 },
+    { value: "nicht vorhanden", count: 8, ratio: 8 / 75 },
+  ]);
 });
 
 test("marks deterministic analysis as awaiting preparation when the prepared dataset is not ready", async () => {

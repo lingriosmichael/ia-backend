@@ -13,6 +13,7 @@ import type {
   ActivityAiKnowledgeRecord,
   ActivityWorkflowStageRecord,
   InterpretationIndicatorStatus,
+  LinkageSemanticAssessmentRecord,
   ProjectInterpretationOverview,
   StartActivityInterpretationResponse,
   StartInterpretationResponse,
@@ -37,6 +38,7 @@ import {
   buildFieldDistributions,
   computeCohortFlagPrevalences,
   computeGoalGap,
+  extractGoalTargetNumber,
   type LinkageGoalVerdict,
 } from "../linkage/linkageIndicatorCalculations.js";
 import type {
@@ -44,6 +46,7 @@ import type {
   AiKnowledgeCoverageIssueInput,
   AiKnowledgeDistributionInput,
   AiKnowledgeIndicatorInput,
+  AiKnowledgeOutcomeAssessmentInput,
 } from "../processing/pythonProcessingClient.js";
 import type { InterpretationResultRepository } from "./interpretationResultRepository.js";
 import {
@@ -73,6 +76,27 @@ interface ActivityAiKnowledgeDraft {
 }
 
 const MAX_CONTEXT_ONLY_FINDINGS = 2;
+const DIRECTIONAL_GOAL_KEYWORDS: readonly string[] = [
+  "improve",
+  "improved",
+  "increase",
+  "increased",
+  "reduce",
+  "reduced",
+  "more",
+  "less",
+  "better",
+  "higher",
+  "lower",
+  "verbesser",
+  "steiger",
+  "senk",
+  "mehr",
+  "weniger",
+  "besser",
+  "hoeher",
+  "niedriger",
+];
 
 function normalizeInsightText(text: string): string {
   return text.trim().replace(/\s+/g, " ");
@@ -131,6 +155,19 @@ function formatCountOrPercent(
     return language === "de"
       ? `${percentage} % (${count})`
       : `${percentage}% (${count})`;
+  }
+
+  return `${count}`;
+}
+
+function formatPercentOrCount(
+  count: number,
+  ratio: number | null,
+  language: "de" | "en",
+): string {
+  if (ratio !== null && Number.isFinite(ratio)) {
+    const percentage = Math.round(ratio * 100);
+    return language === "de" ? `${percentage} %` : `${percentage}%`;
   }
 
   return `${count}`;
@@ -304,6 +341,35 @@ function resolveDistributionLabel(
     .replace(/^./, (character) => character.toUpperCase());
 }
 
+function findLinkedFieldSourceUploadMetadataId(
+  group: ActivityEvidenceLinkageGroup,
+  fieldName: string,
+): string | null {
+  return (
+    group.entities
+      .flatMap((entity) => entity.fields)
+      .find((field) => field.fieldName === fieldName)?.sourceUploadMetadataId ??
+    null
+  );
+}
+
+function resolveLinkedFieldLabel(
+  group: ActivityEvidenceLinkageGroup,
+  fieldName: string,
+  results: InterpretationResultPersistenceRecord[],
+): string {
+  const sourceUploadMetadataId = findLinkedFieldSourceUploadMetadataId(
+    group,
+    fieldName,
+  );
+  return sourceUploadMetadataId
+    ? resolveDistributionLabel(fieldName, sourceUploadMetadataId, results)
+    : fieldName
+        .replace(/[_-]+/g, " ")
+        .trim()
+        .replace(/^./, (character) => character.toUpperCase());
+}
+
 function summarizeDistributionBuckets(
   buckets: ReadonlyArray<{
     value: string | null;
@@ -420,6 +486,31 @@ function isDirectIdentifierFieldName(fieldName: string): boolean {
   );
 }
 
+// August 7 2026 fix: linkage conflicts and cohort/flag prevalences are
+// still computed for every field so the reconciliation layer keeps full
+// diagnostics, but a direct-identifier field such as a name must not be
+// promoted into AI knowledge as if it were a meaningful outcome/input
+// measure. Identity mismatches remain available in linkage artifacts for
+// debugging, yet stay out of the user-facing summary unless/until a later
+// materiality layer explicitly proves they change a conclusion.
+function isAiKnowledgeEligibleLinkageFieldName(fieldName: string): boolean {
+  return !isDirectIdentifierFieldName(fieldName);
+}
+
+function shouldSurfaceLinkageConflict(fieldName: string): boolean {
+  return isAiKnowledgeEligibleLinkageFieldName(fieldName);
+}
+
+function shouldSurfaceLinkageCoverageIssue(input: {
+  cohortFieldName: string;
+  flagFieldName: string;
+}): boolean {
+  return (
+    isAiKnowledgeEligibleLinkageFieldName(input.cohortFieldName) &&
+    isAiKnowledgeEligibleLinkageFieldName(input.flagFieldName)
+  );
+}
+
 // The only thing a direct-identifier field is ever allowed to report:
 // how many entries have any value on file for it, never which values.
 function summarizeFieldCompleteness(
@@ -455,12 +546,23 @@ function collectEvidenceRelevantFieldNames(
   const fieldNames = new Set<string>();
   for (const group of linkageResult?.groups ?? []) {
     for (const conflict of group.conflicts) {
+      if (!shouldSurfaceLinkageConflict(conflict.fieldName)) {
+        continue;
+      }
       fieldNames.add(conflict.fieldName);
     }
     for (const prevalence of computeCohortFlagPrevalences(
       group.entities,
       group.positiveStatusFieldDefinitions,
     )) {
+      if (
+        !shouldSurfaceLinkageCoverageIssue({
+          cohortFieldName: prevalence.cohortFieldName,
+          flagFieldName: prevalence.flagFieldName,
+        })
+      ) {
+        continue;
+      }
       fieldNames.add(prevalence.cohortFieldName);
       fieldNames.add(prevalence.flagFieldName);
     }
@@ -642,6 +744,9 @@ function buildLinkageContradictionDrafts(
   const drafts: ActivityAiKnowledgeDraft[] = [];
   for (const group of linkageResult.groups) {
     for (const conflict of group.conflicts) {
+      if (!shouldSurfaceLinkageConflict(conflict.fieldName)) {
+        continue;
+      }
       const competingValueSummary = conflict.competingValues
         .map(
           (competing) => `"${competing.value}" (${competing.sourceTableName})`,
@@ -687,6 +792,14 @@ function buildLinkageCoverageIssueDrafts(
 
     for (const prevalence of prevalences) {
       if (prevalence.flaggedCount === 0) {
+        continue;
+      }
+      if (
+        !shouldSurfaceLinkageCoverageIssue({
+          cohortFieldName: prevalence.cohortFieldName,
+          flagFieldName: prevalence.flagFieldName,
+        })
+      ) {
         continue;
       }
 
@@ -913,6 +1026,424 @@ function goalTextReferencesField(
     .some((word) => normalizedGoalText.includes(word));
 }
 
+function normalizeForGoalComparison(value: string): string {
+  return normalizeForTextMatch(value).replace(/\s+/g, " ");
+}
+
+function textsLikelyReferSameGoal(left: string, right: string): boolean {
+  const normalizedLeft = normalizeForGoalComparison(left);
+  const normalizedRight = normalizeForGoalComparison(right);
+  if (!normalizedLeft || !normalizedRight) {
+    return false;
+  }
+  return (
+    normalizedLeft.includes(normalizedRight) ||
+    normalizedRight.includes(normalizedLeft)
+  );
+}
+
+function classifyOutcomeEvaluationMode(
+  goalText: string,
+): AiKnowledgeOutcomeAssessmentInput["evaluationMode"] {
+  if (extractGoalTargetNumber(goalText) !== null) {
+    return "numeric_target";
+  }
+
+  const normalizedGoalText = normalizeForGoalComparison(goalText);
+  if (
+    DIRECTIONAL_GOAL_KEYWORDS.some((keyword) =>
+      normalizedGoalText.includes(keyword),
+    )
+  ) {
+    return "directional_change";
+  }
+
+  return "condition";
+}
+
+function formatOutcomeAssessmentIndicatorEvidence(
+  indicator: AiKnowledgeIndicatorInput,
+  language: "de" | "en",
+): string {
+  const quantityText =
+    indicator.denominator !== null
+      ? `${indicator.value} ${language === "de" ? "von" : "of"} ${indicator.denominator}`
+      : `${indicator.value}`;
+  if (indicator.target !== null) {
+    const verdictText =
+      indicator.metGoal === "true"
+        ? language === "de"
+          ? "erreicht"
+          : "achieved"
+        : indicator.metGoal === "partial"
+          ? language === "de"
+            ? "teilweise erreicht"
+            : "partly achieved"
+          : indicator.metGoal === "false"
+            ? language === "de"
+              ? "nicht erreicht"
+              : "not achieved"
+            : language === "de"
+              ? "noch nicht zielbezogen einordenbar"
+              : "not yet classifiable against the target";
+    return language === "de"
+      ? `${indicator.label}: ${quantityText}, verglichen mit dem Ziel ${indicator.target} ${verdictText}`
+      : `${indicator.label}: ${quantityText}, compared with the target ${indicator.target} this is ${verdictText}`;
+  }
+
+  return language === "de"
+    ? `${indicator.label}: ${quantityText}`
+    : `${indicator.label}: ${quantityText}`;
+}
+
+function formatOutcomeAssessmentCoverageEvidence(
+  issue: AiKnowledgeCoverageIssueInput,
+  language: "de" | "en",
+): string {
+  void language;
+  return issue.summaryText;
+}
+
+function formatOutcomeAssessmentContradictionEvidence(
+  contradiction: AiKnowledgeContradictionInput,
+  language: "de" | "en",
+): string {
+  void language;
+  return contradiction.summaryText;
+}
+
+function formatOutcomeAssessmentGoalAlignmentEvidence(
+  goalSummary: string,
+  gapExplanation: string | null,
+): string {
+  return gapExplanation?.trim() || goalSummary;
+}
+
+function isSemanticAssessmentRelevantToGoal(
+  goalText: string,
+  assessment: LinkageSemanticAssessmentRecord,
+): boolean {
+  const normalizedGoalText = normalizeForGoalComparison(goalText);
+  if (assessment.concept === "suitability") {
+    return (
+      normalizedGoalText.includes("eign") ||
+      normalizedGoalText.includes("geeignet")
+    );
+  }
+  if (assessment.concept === "safeguarding") {
+    return (
+      normalizedGoalText.includes("sicher") ||
+      normalizedGoalText.includes("safeguard") ||
+      normalizedGoalText.includes("bedenk") ||
+      normalizedGoalText.includes("klaer") ||
+      normalizedGoalText.includes("schulungsbeginn")
+    );
+  }
+  if (assessment.concept === "background_check") {
+    return (
+      normalizedGoalText.includes("fuehrungszeugnis") ||
+      normalizedGoalText.includes("background")
+    );
+  }
+  return false;
+}
+
+function buildSemanticAssessmentEvidence(
+  assessment: LinkageSemanticAssessmentRecord,
+  language: "de" | "en",
+): { supporting: string[]; limiting: string[] } {
+  const resolvedValue = normalizeForGoalComparison(
+    assessment.resolvedValue ?? "",
+  );
+
+  if (assessment.concept === "suitability") {
+    if (
+      assessment.outcome === "progression" &&
+      resolvedValue.includes("geeignet")
+    ) {
+      return {
+        supporting: [
+          language === "de"
+            ? "Für einen verknüpften Fall zeigt sich ein dokumentierter Verlauf von offener Prüfung zu einer späteren Einstufung als geeignet."
+            : "For one linked case, the evidence shows a documented path from open review to a later classification as suitable.",
+        ],
+        limiting: [],
+      };
+    }
+    if (resolvedValue.includes("nicht geeignet")) {
+      return {
+        supporting: [],
+        limiting: [
+          language === "de"
+            ? "Für einen verknüpften Fall endet die dokumentierte Eignungsprüfung nicht bei einer positiven Auswahlentscheidung."
+            : "For one linked case, the documented suitability review does not end in a positive selection decision.",
+        ],
+      };
+    }
+  }
+
+  if (assessment.concept === "safeguarding") {
+    if (assessment.outcome === "progression" && resolvedValue === "ok") {
+      return {
+        supporting: [
+          language === "de"
+            ? "Für einen verknüpften Fall zeigen die Quellen einen dokumentierten Verlauf von einem identifizierten Sicherheitsanliegen zu einem späteren Status \"ok\"."
+            : 'For one linked case, the sources show a documented path from an identified safeguarding concern to a later "ok" status.',
+        ],
+        limiting: [],
+      };
+    }
+    if (
+      assessment.outcome === "progression" &&
+      (resolvedValue.includes("rueckfrage noetig") ||
+        resolvedValue.includes("unbekannt") ||
+        resolvedValue.includes("offen") ||
+        resolvedValue.includes("ausstehend") ||
+        resolvedValue.includes("pending"))
+    ) {
+      return {
+        supporting: [
+          language === "de"
+            ? "Für einen verknüpften Fall zeigen die Quellen, dass ein Sicherheitsanliegen erkannt und weiterverfolgt wurde."
+            : "For one linked case, the sources show that a safeguarding concern was identified and followed up.",
+        ],
+        limiting: [
+          language === "de"
+            ? `Der jüngste dokumentierte Status in diesem Fall bleibt jedoch "${assessment.resolvedValue}".`
+            : `However, the latest documented status in that case still remains "${assessment.resolvedValue}".`,
+        ],
+      };
+    }
+  }
+
+  if (
+    assessment.outcome === "true_conflict" ||
+    assessment.outcome === "insufficient_context"
+  ) {
+    return {
+      supporting: [],
+      limiting: [
+        language === "de"
+          ? "Verknüpfte Quellen lassen sich für mindestens einen Fall nicht eindeutig zu einem belastbaren Prozessstand zusammenführen."
+          : "For at least one linked case, the sources cannot be combined into a single reliable process state.",
+      ],
+    };
+  }
+
+  return { supporting: [], limiting: [] };
+}
+
+function buildOutcomeAssessmentInputs(input: {
+  activity: { outcome: string | null };
+  results: InterpretationResultPersistenceRecord[];
+  indicators: AiKnowledgeIndicatorInput[];
+  contradictions: AiKnowledgeContradictionInput[];
+  coverageIssues: AiKnowledgeCoverageIssueInput[];
+  distributions: AiKnowledgeDistributionInput[];
+  semanticAssessments: LinkageSemanticAssessmentRecord[];
+  language: "de" | "en";
+}): AiKnowledgeOutcomeAssessmentInput[] {
+  const statements = input.activity.outcome
+    ? splitGoalTextIntoStatements(input.activity.outcome)
+    : [];
+  if (statements.length === 0) {
+    return [];
+  }
+
+  const allOutcomeFindings = input.results.flatMap((result) =>
+    result.qualitativeFindings.filter(
+      (finding) =>
+        isIncludedInAiKnowledge(finding.status) &&
+        finding.outcomeAnchorType === "activity_outcome",
+    ),
+  );
+  const allGoalAlignmentEntries = input.results.flatMap(
+    (result) => result.goalAlignment,
+  );
+
+  return statements.map((goalText) => {
+    const evaluationMode = classifyOutcomeEvaluationMode(goalText);
+    const supportingEvidence = new Set<string>();
+    const limitingEvidence = new Set<string>();
+
+    const matchedIndicators = input.indicators.filter((indicator) =>
+      goalTextReferencesField(goalText, [], indicator.label),
+    );
+    const matchedDistributions = input.distributions.filter((distribution) =>
+      goalTextReferencesField(goalText, [], distribution.label),
+    );
+    const matchedCoverageIssues = input.coverageIssues.filter(
+      (issue) => goalTextReferencesField(goalText, [], issue.summaryText),
+    );
+    const matchedContradictions = input.contradictions.filter((contradiction) =>
+      goalTextReferencesField(goalText, [], contradiction.summaryText),
+    );
+    const matchedOutcomeFindings = allOutcomeFindings.filter((finding) =>
+      Boolean(
+        finding.outcomeReference &&
+          textsLikelyReferSameGoal(finding.outcomeReference, goalText),
+      ),
+    );
+    const matchedGoalAlignmentEntries = allGoalAlignmentEntries.filter((entry) =>
+      textsLikelyReferSameGoal(entry.goalSummary, goalText),
+    );
+    const matchedSemanticAssessments = input.semanticAssessments.filter(
+      (assessment) => isSemanticAssessmentRelevantToGoal(goalText, assessment),
+    );
+
+    const useAllOutcomeSideEvidenceAsFallback = statements.length === 1;
+    const relevantDistributions =
+      matchedDistributions.length > 0 || !useAllOutcomeSideEvidenceAsFallback
+        ? matchedDistributions
+        : input.distributions;
+    const relevantCoverageIssues =
+      matchedCoverageIssues.length > 0 || !useAllOutcomeSideEvidenceAsFallback
+        ? matchedCoverageIssues
+        : input.coverageIssues;
+    const relevantContradictions =
+      matchedContradictions.length > 0 || !useAllOutcomeSideEvidenceAsFallback
+        ? matchedContradictions
+        : input.contradictions;
+    const relevantOutcomeFindings =
+      matchedOutcomeFindings.length > 0 || !useAllOutcomeSideEvidenceAsFallback
+        ? matchedOutcomeFindings
+        : allOutcomeFindings;
+    const relevantGoalAlignmentEntries =
+      matchedGoalAlignmentEntries.length > 0 ||
+      !useAllOutcomeSideEvidenceAsFallback
+        ? matchedGoalAlignmentEntries
+        : allGoalAlignmentEntries;
+    const relevantSemanticAssessments =
+      matchedSemanticAssessments.length > 0 ||
+      !useAllOutcomeSideEvidenceAsFallback
+        ? matchedSemanticAssessments
+        : input.semanticAssessments;
+
+    for (const indicator of matchedIndicators) {
+      const text = formatOutcomeAssessmentIndicatorEvidence(
+        indicator,
+        input.language,
+      );
+      if (indicator.metGoal === "false") {
+        limitingEvidence.add(text);
+      } else {
+        supportingEvidence.add(text);
+      }
+    }
+
+    for (const distribution of relevantDistributions) {
+      supportingEvidence.add(`${distribution.label}: ${distribution.summaryText}`);
+    }
+
+    for (const finding of relevantOutcomeFindings) {
+      if (
+        finding.category === "outcome_support" ||
+        finding.category === "enabler" ||
+        finding.relationToEvidence === "reinforces"
+      ) {
+        supportingEvidence.add(finding.summary);
+      } else if (
+        finding.category === "outcome_complication" ||
+        finding.category === "outcome_contradiction" ||
+        finding.category === "barrier" ||
+        finding.category === "unintended_effect" ||
+        finding.relationToEvidence === "contradicts" ||
+        finding.relationToEvidence === "complicates"
+      ) {
+        limitingEvidence.add(finding.summary);
+      }
+    }
+
+    for (const entry of relevantGoalAlignmentEntries) {
+      const evidenceText = formatOutcomeAssessmentGoalAlignmentEvidence(
+        entry.goalSummary,
+        entry.gapExplanation,
+      );
+      if (entry.isSupportedByData) {
+        supportingEvidence.add(evidenceText);
+      } else {
+        limitingEvidence.add(evidenceText);
+      }
+    }
+
+    for (const assessment of relevantSemanticAssessments) {
+      const evidence = buildSemanticAssessmentEvidence(
+        assessment,
+        input.language,
+      );
+      for (const text of evidence.supporting) {
+        supportingEvidence.add(text);
+      }
+      for (const text of evidence.limiting) {
+        limitingEvidence.add(text);
+      }
+    }
+
+    for (const contradiction of relevantContradictions) {
+      limitingEvidence.add(
+        formatOutcomeAssessmentContradictionEvidence(
+          contradiction,
+          input.language,
+        ),
+      );
+    }
+
+    for (const coverageIssue of relevantCoverageIssues) {
+      limitingEvidence.add(
+        formatOutcomeAssessmentCoverageEvidence(
+          coverageIssue,
+          input.language,
+        ),
+      );
+    }
+
+    const supportingList = [...supportingEvidence];
+    const limitingList = [...limitingEvidence];
+    const hasEvidence = supportingList.length > 0 || limitingList.length > 0;
+    const assessmentStatus: AiKnowledgeOutcomeAssessmentInput["assessmentStatus"] =
+      evaluationMode === "numeric_target"
+        ? (() => {
+            const targetedIndicators = matchedIndicators.filter(
+              (indicator) => indicator.target !== null,
+            );
+            if (targetedIndicators.length === 0) {
+              return hasEvidence ? "partially_supported" : "insufficient_evidence";
+            }
+            if (
+              targetedIndicators.some((indicator) => indicator.metGoal === "false")
+            ) {
+              return "not_achieved";
+            }
+            if (
+              targetedIndicators.some((indicator) => indicator.metGoal === "partial")
+            ) {
+              return "partially_supported";
+            }
+            if (
+              targetedIndicators.every((indicator) => indicator.metGoal === "true")
+            ) {
+              return "achieved";
+            }
+            return hasEvidence ? "partially_supported" : "insufficient_evidence";
+          })()
+        : !hasEvidence
+          ? "insufficient_evidence"
+          : supportingList.length > 0 && limitingList.length === 0
+            ? "achieved"
+            : supportingList.length === 0 && limitingList.length > 0
+              ? "not_achieved"
+              : "partially_supported";
+
+    return {
+      goalText,
+      evaluationMode,
+      assessmentStatus,
+      supportingEvidence: supportingList.slice(0, 4),
+      limitingEvidence: limitingList.slice(0, 4),
+    };
+  });
+}
+
 // Once a field is confirmed matched to a goal's own wording, this decides
 // what the resulting verdict actually is. A goal with an explicit numeric
 // target ("65 geeignete Mentor:innen") reuses computeGoalGap's existing
@@ -945,25 +1476,17 @@ function classifyMatchedStatusFieldVerdict(
   };
 }
 
-// Whether a computed metric becomes a visible "indicator" is an LLM
-// selection step (ia_python_service's quantitative/mixed synthesis picks
-// at most 6 metric keys per activity) — and that step runs at an
-// effectively elevated sampling temperature for reasoning-tier models
-// (OpenAI does not support temperature=0 for them), so selection is not
-// reliably consistent run to run even on identical input. A compliance
-// field's positive-status count/ratio is exactly the kind of fact that
-// must never depend on that coin flip, so it's built here unconditionally
-// from the deterministic metric ia_backend already always computes
-// (buildPrimaryStatusMetricsAndCandidates), independent of whether the
-// LLM happened to pick it this run.
+// Deliberately returns no per-file "mandatory status" indicators today.
+// ia_backend still computes these deterministic metrics, and they remain
+// available in deterministic_analyses for drill-down/debugging, but
+// activity-level AI knowledge is now goal-led rather than metric-led:
+// without an explicit, validated goal association, a positive-status ratio
+// must not be promoted into the top-level activity summary input at all.
 //
-// Only covers uploads that never joined with anything — an upload
-// participating in a linkage group has its mandatory status indicator
-// computed by buildMandatoryStatusIndicatorInputsFromLinkage instead,
-// against the joined table, for the exact same reason Fix #1 moved
-// distributions off per-file analysis: a per-file denominator for a joined
-// upload can silently disagree with every other joined field's entity
-// count in the same summary.
+// The linkage-sourced path below can still surface a status field when the
+// activity's own goal wording explicitly names that field or its confirmed
+// positive value, because that path has the extra metadata needed to make
+// a safe, deterministic match. This per-file path does not.
 function buildMandatoryStatusIndicatorInputs(
   analysesByInterpretationResultId: ReadonlyMap<
     string,
@@ -973,73 +1496,11 @@ function buildMandatoryStatusIndicatorInputs(
   linkageResult: ActivityEvidenceLinkageResultPersistenceRecord | null,
   uploadIdsCoveredByLinkage: ReadonlySet<string>,
 ): AiKnowledgeIndicatorInput[] {
-  const inputs: AiKnowledgeIndicatorInput[] = [];
-
-  for (const [
-    interpretationResultId,
-    analysis,
-  ] of analysesByInterpretationResultId) {
-    if (uploadIdsCoveredByLinkage.has(analysis.uploadMetadataId)) {
-      continue;
-    }
-
-    const result = results.find(
-      (candidate) => candidate.id === interpretationResultId,
-    );
-    const alreadySelectedMetricKeys = new Set(
-      (result?.indicators ?? [])
-        .map(
-          (indicator) =>
-            indicator.computedValue?.components?.deterministicAnalysisMetricKey,
-        )
-        .filter(
-          (metricKey): metricKey is string => typeof metricKey === "string",
-        ),
-    );
-
-    for (const metric of analysis.metrics) {
-      if (
-        metric.kind !== "ratio" ||
-        !metric.metricKey.endsWith("::positive_status_ratio") ||
-        alreadySelectedMetricKeys.has(metric.metricKey)
-      ) {
-        continue;
-      }
-
-      const numeratorCount = metric.components.numeratorCount;
-      const denominatorCount = metric.components.denominatorCount;
-      if (
-        typeof numeratorCount !== "number" ||
-        typeof denominatorCount !== "number"
-      ) {
-        continue;
-      }
-
-      inputs.push({
-        label: resolveDistributionLabel(
-          metric.sourceColumns[0] ?? metric.label,
-          analysis.uploadMetadataId,
-          results,
-        ),
-        value: numeratorCount,
-        denominator: denominatorCount,
-        denominatorBasis: computeIndicatorDenominatorBasis(
-          linkageResult,
-          analysis.uploadMetadataId,
-          denominatorCount,
-        ),
-        // Deliberately not goal-matched here (unlike the linkage-sourced
-        // path below): a per-file metric's components carry no confirmed
-        // positiveStatusValues text to match against a goal's wording, and
-        // guessing from the label alone risks the same misattribution this
-        // whole mechanism exists to avoid.
-        target: null,
-        metGoal: "unverifiable",
-      });
-    }
-  }
-
-  return inputs;
+  void analysesByInterpretationResultId;
+  void results;
+  void linkageResult;
+  void uploadIdsCoveredByLinkage;
+  return [];
 }
 
 // The goal-to-column mapping itself (design doc §4.4, §15.2(G)): closes
@@ -1115,12 +1576,14 @@ function buildMandatoryStatusIndicatorInputsFromLinkage(
           label,
         ),
       );
-      if (matchedGoalText) {
-        goalMappedFieldNames.add(definition.fieldName);
+      if (!matchedGoalText) {
+        continue;
       }
-      const { target, metGoal } = matchedGoalText
-        ? classifyMatchedStatusFieldVerdict(matchedGoalText, positiveCount)
-        : { target: null, metGoal: "unverifiable" as const };
+      goalMappedFieldNames.add(definition.fieldName);
+      const { target, metGoal } = classifyMatchedStatusFieldVerdict(
+        matchedGoalText,
+        positiveCount,
+      );
 
       inputs.push({
         label,
@@ -1145,6 +1608,8 @@ function buildMandatoryStatusIndicatorInputsFromLinkage(
 // or silently narrowed to two.
 function buildAiKnowledgeContradictionInputs(
   linkageResult: ActivityEvidenceLinkageResultPersistenceRecord | null,
+  results: InterpretationResultPersistenceRecord[],
+  language: "de" | "en",
 ): AiKnowledgeContradictionInput[] {
   if (!linkageResult) {
     return [];
@@ -1153,18 +1618,24 @@ function buildAiKnowledgeContradictionInputs(
   const inputs: AiKnowledgeContradictionInput[] = [];
   for (const group of linkageResult.groups) {
     for (const conflict of group.conflicts) {
+      if (!shouldSurfaceLinkageConflict(conflict.fieldName)) {
+        continue;
+      }
       const [firstValue, ...competingValues] = conflict.competingValues;
       if (!firstValue) {
         continue;
       }
       for (const competingValue of competingValues) {
+        const fieldLabel = resolveLinkedFieldLabel(
+          group,
+          conflict.fieldName,
+          results,
+        );
         inputs.push({
-          entityName: conflict.entityKey,
-          fieldOrTopic: conflict.fieldName,
-          valueA: firstValue.value,
-          sourceA: firstValue.sourceTableName,
-          valueB: competingValue.value,
-          sourceB: competingValue.sourceTableName,
+          summaryText:
+            language === "de"
+              ? `Für einen verknüpften Fall liegen widersprüchliche Angaben zu ${fieldLabel} vor.`
+              : `For one linked case, the sources contain conflicting information about ${fieldLabel}.`,
         });
       }
     }
@@ -1175,6 +1646,8 @@ function buildAiKnowledgeContradictionInputs(
 
 function buildAiKnowledgeCoverageIssueInputs(
   linkageResult: ActivityEvidenceLinkageResultPersistenceRecord | null,
+  results: InterpretationResultPersistenceRecord[],
+  language: "de" | "en",
 ): AiKnowledgeCoverageIssueInput[] {
   if (!linkageResult) {
     return [];
@@ -1191,13 +1664,30 @@ function buildAiKnowledgeCoverageIssueInputs(
       if (prevalence.flaggedCount === 0) {
         continue;
       }
+      if (
+        !shouldSurfaceLinkageCoverageIssue({
+          cohortFieldName: prevalence.cohortFieldName,
+          flagFieldName: prevalence.flagFieldName,
+        })
+      ) {
+        continue;
+      }
 
+      const cohortLabel = resolveLinkedFieldLabel(
+        group,
+        prevalence.cohortFieldName,
+        results,
+      );
+      const flagLabel = resolveLinkedFieldLabel(
+        group,
+        prevalence.flagFieldName,
+        results,
+      );
       inputs.push({
-        cohortLabel: `${prevalence.cohortFieldName}: ${prevalence.cohortValueLabel}`,
-        cohortSize: prevalence.cohortSize,
-        flagLabel: prevalence.flagFieldName,
-        flagCount: prevalence.flaggedCount,
-        flagShare: prevalence.ratio,
+        summaryText:
+          language === "de"
+            ? `${prevalence.flaggedCount} von ${prevalence.cohortSize} Einträgen mit ${cohortLabel} "${prevalence.cohortValueLabel}" haben bei ${flagLabel} noch einen offenen oder ungeklärten Stand (${formatPercentOrCount(prevalence.flaggedCount, prevalence.ratio, language)}).`
+            : `${prevalence.flaggedCount} of ${prevalence.cohortSize} entries with ${cohortLabel} "${prevalence.cohortValueLabel}" still have an open or unresolved status for ${flagLabel} (${formatPercentOrCount(prevalence.flaggedCount, prevalence.ratio, language)}).`,
       });
     }
   }
@@ -1434,18 +1924,21 @@ export class InterpretationService {
     contradictions?: AiKnowledgeContradictionInput[];
     coverageIssues?: AiKnowledgeCoverageIssueInput[];
     distributions?: AiKnowledgeDistributionInput[];
+    outcomeAssessments?: AiKnowledgeOutcomeAssessmentInput[];
   }): Promise<string> {
     const indicators = input.indicators ?? [];
     const contradictions = input.contradictions ?? [];
     const coverageIssues = input.coverageIssues ?? [];
     const distributions = input.distributions ?? [];
+    const outcomeAssessments = input.outcomeAssessments ?? [];
 
     if (
       input.insights.length === 0 &&
       indicators.length === 0 &&
       contradictions.length === 0 &&
       coverageIssues.length === 0 &&
-      distributions.length === 0
+      distributions.length === 0 &&
+      outcomeAssessments.length === 0
     ) {
       return "";
     }
@@ -1469,6 +1962,7 @@ export class InterpretationService {
           contradictions,
           coverageIssues,
           distributions,
+          outcomeAssessments,
         });
       await this.projectLlmTokenLedgerService.recordUsage(
         input.projectId,
@@ -1597,8 +2091,16 @@ export class InterpretationService {
       ),
       ...mandatoryLinkageIndicators.inputs,
     ];
-    const contradictions = buildAiKnowledgeContradictionInputs(linkageResult);
-    const coverageIssues = buildAiKnowledgeCoverageIssueInputs(linkageResult);
+    const contradictions = buildAiKnowledgeContradictionInputs(
+      linkageResult,
+      input.results,
+      input.language,
+    );
+    const coverageIssues = buildAiKnowledgeCoverageIssueInputs(
+      linkageResult,
+      input.results,
+      input.language,
+    );
     const relevantFieldNames = new Set([
       ...collectEvidenceRelevantFieldNames(linkageResult),
       ...mandatoryLinkageIndicators.goalMappedFieldNames,
@@ -1611,6 +2113,20 @@ export class InterpretationService {
       relevantFieldNames,
       input.language,
     );
+    const semanticAssessments =
+      linkageResult?.groups.flatMap(
+        (group) => group.semanticAssessments ?? [],
+      ) ?? [];
+    const outcomeAssessments = buildOutcomeAssessmentInputs({
+      activity: input.activity,
+      results: input.results,
+      indicators,
+      contradictions,
+      coverageIssues,
+      distributions,
+      semanticAssessments,
+      language: input.language,
+    });
 
     // Once any of indicators/contradictions/coverageIssues/distributions is
     // non-empty, ia_python_service switches to the structured prompt, which
@@ -1647,6 +2163,7 @@ export class InterpretationService {
       contradictions,
       coverageIssues,
       distributions,
+      outcomeAssessments,
     });
 
     return {
