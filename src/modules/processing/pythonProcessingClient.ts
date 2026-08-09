@@ -1,3 +1,4 @@
+import { z } from "zod";
 import { AppError } from "../../shared/errors/appError.js";
 import type {
   LlmUsageSummary,
@@ -62,84 +63,6 @@ interface PythonDatasetInterpretationResponse {
   acceptedAt: string;
 }
 
-interface AiKnowledgeSummaryInsightInput {
-  text: string;
-  isGoalRelevant: boolean;
-  activityName?: string | null;
-}
-
-interface AiKnowledgeSummaryActivityGoalsInput {
-  activityType: string | null;
-  objectives: string | null;
-  output: string | null;
-  outcome: string | null;
-}
-
-interface AiKnowledgeSummaryProjectGoalsInput {
-  projectGoal: string | null;
-  impactModel: StartDatasetInterpretationProjectImpactModel | null;
-  successIndicators: string | null;
-}
-
-// Cross-evidence-linkage-design.md §9: computed once in
-// interpretationService.ts from data that already exists (per-upload
-// InterpretationIndicator.computedValue, LinkageConflictRecord,
-// LinkageCohortFlagPrevalence) — never invented here. Presence of any of
-// these three is what flips ia_python_service onto the structured prompt.
-export interface AiKnowledgeIndicatorInput {
-  label: string;
-  value: number;
-  denominator: number | null;
-  // Mirrors ia_python_service's EvidenceCatalogMetricEntry.deduplicationConfidence
-  // (analytics/models.py) — "not_deduplicated_across_sources" means this
-  // indicator's denominator came from one file's raw rows while other
-  // indicators for the same activity may be computed against the
-  // cross-file deduplicated entity count, so the two are not directly
-  // comparable even though they look like the same kind of number.
-  denominatorBasis:
-    "deduplicated" | "not_deduplicated_across_sources" | "not_applicable";
-  target: number | null;
-  metGoal: "true" | "false" | "partial" | "unverifiable";
-}
-
-export interface AiKnowledgeOutcomeAssessmentInput {
-  goalText: string;
-  evaluationMode:
-    | "numeric_target"
-    | "condition"
-    | "directional_change"
-    | "evidence_only";
-  assessmentStatus:
-    | "achieved"
-    | "partially_supported"
-    | "not_achieved"
-    | "insufficient_evidence";
-  supportingEvidence: string[];
-  limitingEvidence: string[];
-}
-
-// A full category breakdown for one status/categorical field (e.g. every
-// value of a "Führungszeugnis status" column, not just its collapsed
-// positive count) — built once in interpretationService.ts from a
-// deterministic distribution ia_backend already always computes, and
-// already formatted into plain-language, target-language text there
-// (reusing summarizeTopEntries/formatCountOrPercent) so this never has to
-// be re-derived downstream. Sent as its own guaranteed field for the same
-// reason contradictions/coverage issues are: the full breakdown must never
-// depend on whether the LLM narration happened to have room to mention it.
-export interface AiKnowledgeDistributionInput {
-  label: string;
-  summaryText: string;
-}
-
-export interface AiKnowledgeContradictionInput {
-  summaryText: string;
-}
-
-export interface AiKnowledgeCoverageIssueInput {
-  summaryText: string;
-}
-
 export interface ConcernTaggingEntityInput {
   entityKey: string;
   text: string;
@@ -162,26 +85,290 @@ interface ConcernTaggingOutput {
   llmUsage?: LlmUsageSummary | null;
 }
 
-interface GenerateAiKnowledgeSummaryInput {
-  scope: "activity" | "project";
-  subjectName: string;
-  insights: AiKnowledgeSummaryInsightInput[];
-  interpretedEvidenceCount: number;
-  acknowledgedActivityCount?: number;
-  language: "de" | "en";
-  activityGoals?: AiKnowledgeSummaryActivityGoalsInput | null;
-  projectGoals?: AiKnowledgeSummaryProjectGoalsInput | null;
-  indicators?: AiKnowledgeIndicatorInput[];
-  outcomeAssessments?: AiKnowledgeOutcomeAssessmentInput[];
-  contradictions?: AiKnowledgeContradictionInput[];
-  coverageIssues?: AiKnowledgeCoverageIssueInput[];
-  distributions?: AiKnowledgeDistributionInput[];
+export interface ActivityAnalysisV2GoalInput {
+  goalId: string;
+  goalType: "output" | "outcome";
+  goalText: string;
+  targetNumber: number | null;
 }
 
-interface GenerateAiKnowledgeSummaryResponse {
-  summaryText: string;
+export interface ActivityAnalysisV2EvidenceColumnInput {
+  name: string;
+  role:
+    | "identifier"
+    | "primary_status"
+    | "primary_date"
+    | "measure"
+    | "subgroup"
+    | "free_text"
+    | "other"
+    | null;
+  inferredType:
+    | "identifier"
+    | "numeric"
+    | "date"
+    | "categorical"
+    | "free_text"
+    | "boolean"
+    | "unknown"
+    | null;
+}
+
+export interface ActivityAnalysisV2EvidenceTableInput {
+  uploadMetadataId: string;
+  originalFileName: string;
+  evidenceModality: string | null;
+  tableName: string;
+  rowCount: number;
+  identifierColumn: string | null;
+  identifierHandling:
+    | "assume_unique"
+    | "allow_duplicate_rows_as_events"
+    | "deduplicate_by_identifier"
+    | "manual_review_required"
+    | null;
+  primaryStatusColumn: string | null;
+  primaryDateColumn: string | null;
+  columns: ActivityAnalysisV2EvidenceColumnInput[];
+}
+
+export interface ActivityAnalysisV2PlanToolRequest {
+  goalId: string;
+  alias?: string | null;
+  toolName:
+    | "describe_evidence"
+    | "create_cohort"
+    | "filter_result"
+    | "join_tables"
+    | "anti_join"
+    | "derive_numeric_column"
+    | "compare_columns"
+    | "profile_column"
+    | "count_rows"
+    | "count_distinct"
+    | "count_distinct_keys"
+    | "group_count"
+    | "crosstab_count"
+    | "group_aggregate"
+    | "aggregate_numeric"
+    | "intersection_count"
+    | "intersection_set"
+    | "union_count"
+    | "union_set"
+    | "difference_set"
+    | "first_event"
+    | "last_event"
+    | "date_difference"
+    | "event_gap"
+    | "days_since_last_event"
+    | "period_change"
+    | "paired_change"
+    | "time_bucket_count"
+    | "calculate_ratio"
+    | "calculate_difference"
+    | "calculate_percent_change"
+    | "calculate_sum"
+    | "calculate_product"
+    | "compare_target";
+  arguments: Record<string, unknown>;
+}
+
+export interface ActivityAnalysisV2GoalPlan {
+  goalId: string;
+  goalType: "output" | "outcome";
+  goalText: string;
+  evaluationMode:
+    "numeric_target" | "condition" | "directional_change" | "evidence_only";
+  status: "planned" | "requires_clarification" | "requires_capability";
+  rationale: string;
+  plannedToolNames: ActivityAnalysisV2PlanToolRequest["toolName"][];
+  missingCapabilities?: Array<{
+    kind: "deterministic_calculation";
+    name: string;
+    reason: string;
+  }>;
+}
+
+export interface ActivityAnalysisV2ClarificationAnswerInput {
+  questionId: string;
+  goalId: string | null;
+  prompt: string;
+  answeredValue: string;
+  questionCode:
+    | "normalization_merge"
+    | "row_grain"
+    | "duplicate_identifier_resolution"
+    | "primary_status_field"
+    | "positive_status_values"
+    | "primary_date_field"
+    | null;
+}
+
+export interface ActivityAnalysisV2ClarificationQuestionDraft {
+  goalId?: string | null;
+  prompt: string;
+  kind: "single_choice" | "free_text" | "merge_confirmation";
+  questionDomain: "preparation" | "interpretation";
+  options: string[] | null;
+  recommendedOption: string | null;
+  recommendedConfidence: number | null;
+  isBlocking: boolean;
+  questionCode:
+    | "normalization_merge"
+    | "row_grain"
+    | "duplicate_identifier_resolution"
+    | "primary_status_field"
+    | "positive_status_values"
+    | "primary_date_field"
+    | null;
+  targetTableName: string | null;
+  targetColumnName: string | null;
+}
+
+export interface ActivityAnalysisV2PlanValidation {
+  status: "passed" | "failed";
+  issues: string[];
+}
+
+interface ActivityAnalysisV2PlanRequest {
+  activityId: string;
+  activityName: string;
+  language: "de" | "en";
+  goals: ActivityAnalysisV2GoalInput[];
+  evidenceTables: ActivityAnalysisV2EvidenceTableInput[];
+  clarificationAnswers?: ActivityAnalysisV2ClarificationAnswerInput[];
+  runLimits: {
+    maxToolCalls: number;
+    maxLlmIterations: number;
+    timeoutMs: number;
+    maxEvidenceItems: number;
+  };
+}
+
+interface ActivityAnalysisV2PlanResponse {
+  goalPlans: ActivityAnalysisV2GoalPlan[];
+  toolRequests: ActivityAnalysisV2PlanToolRequest[];
+  clarificationQuestions?: ActivityAnalysisV2ClarificationQuestionDraft[];
+  limitations: string[];
+  validation: ActivityAnalysisV2PlanValidation;
   llmUsage?: LlmUsageSummary | null;
 }
+
+// Runtime validation of the Python service's V2 plan response. TypeScript
+// types alone are a compile-time hint about the *sender's* code, not a
+// guarantee about what's actually on the wire — this is the boundary check
+// CLAUDE.md requires for cross-service input. Deliberately loose on
+// `arguments`/`llmUsage` internals: the deterministic tool executor already
+// validates each tool's specific arguments at execution time and fails
+// loudly per-tool, and `llmUsage` is cost/diagnostic metadata, not grounded
+// analytical output. `toolName` is validated against the full enum here
+// because the executor's dispatch has no catch-all for an unrecognized
+// name — without this, a hallucinated tool name would silently produce
+// zero calculations instead of a clear error.
+const activityAnalysisV2ToolNameSchema = z.enum([
+  "describe_evidence",
+  "create_cohort",
+  "filter_result",
+  "join_tables",
+  "anti_join",
+  "derive_numeric_column",
+  "compare_columns",
+  "profile_column",
+  "count_rows",
+  "count_distinct",
+  "count_distinct_keys",
+  "group_count",
+  "crosstab_count",
+  "group_aggregate",
+  "aggregate_numeric",
+  "intersection_count",
+  "intersection_set",
+  "union_count",
+  "union_set",
+  "difference_set",
+  "first_event",
+  "last_event",
+  "date_difference",
+  "event_gap",
+  "days_since_last_event",
+  "period_change",
+  "paired_change",
+  "time_bucket_count",
+  "calculate_ratio",
+  "calculate_difference",
+  "calculate_percent_change",
+  "calculate_sum",
+  "calculate_product",
+  "compare_target",
+]);
+
+const activityAnalysisV2GoalPlanSchema = z.object({
+  goalId: z.string(),
+  goalType: z.enum(["output", "outcome"]),
+  goalText: z.string(),
+  evaluationMode: z.enum([
+    "numeric_target",
+    "condition",
+    "directional_change",
+    "evidence_only",
+  ]),
+  status: z.enum(["planned", "requires_clarification", "requires_capability"]),
+  rationale: z.string(),
+  plannedToolNames: z.array(activityAnalysisV2ToolNameSchema),
+  missingCapabilities: z
+    .array(
+      z.object({
+        kind: z.literal("deterministic_calculation"),
+        name: z.string(),
+        reason: z.string(),
+      }),
+    )
+    .optional(),
+});
+
+const activityAnalysisV2PlanToolRequestSchema = z.object({
+  goalId: z.string(),
+  alias: z.string().nullable().optional(),
+  toolName: activityAnalysisV2ToolNameSchema,
+  arguments: z.record(z.string(), z.unknown()),
+});
+
+const activityAnalysisV2ClarificationQuestionDraftSchema = z.object({
+  goalId: z.string().nullable().optional(),
+  prompt: z.string(),
+  kind: z.enum(["single_choice", "free_text", "merge_confirmation"]),
+  questionDomain: z.enum(["preparation", "interpretation"]),
+  options: z.array(z.string()).nullable(),
+  recommendedOption: z.string().nullable(),
+  recommendedConfidence: z.number().nullable(),
+  isBlocking: z.boolean(),
+  questionCode: z
+    .enum([
+      "normalization_merge",
+      "row_grain",
+      "duplicate_identifier_resolution",
+      "primary_status_field",
+      "positive_status_values",
+      "primary_date_field",
+    ])
+    .nullable(),
+  targetTableName: z.string().nullable(),
+  targetColumnName: z.string().nullable(),
+});
+
+const activityAnalysisV2PlanResponseSchema = z.object({
+  goalPlans: z.array(activityAnalysisV2GoalPlanSchema),
+  toolRequests: z.array(activityAnalysisV2PlanToolRequestSchema),
+  clarificationQuestions: z
+    .array(activityAnalysisV2ClarificationQuestionDraftSchema)
+    .optional(),
+  limitations: z.array(z.string()),
+  validation: z.object({
+    status: z.enum(["passed", "failed"]),
+    issues: z.array(z.string()),
+  }),
+  llmUsage: z.unknown().nullable().optional(),
+});
 
 interface QuantitativePreparedDatasetColumn {
   name: string;
@@ -737,32 +924,9 @@ export class PythonProcessingClient {
     return response.json() as Promise<QuantitativeInterpretationSynthesisResponse>;
   }
 
-  async generateAiKnowledgeSummary(
-    input: GenerateAiKnowledgeSummaryInput,
-  ): Promise<GenerateAiKnowledgeSummaryResponse> {
-    const response = await this.request(
-      "/internal/interpretation/ai-knowledge-summary",
-      {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          ...this.authHeaders(),
-        },
-        body: JSON.stringify(input),
-      },
-      "The Python processing service could not summarize the AI knowledge.",
-      "python_processing_ai_knowledge_summary_unavailable",
-      "The Python processing service timed out while summarizing the AI knowledge.",
-      "python_processing_ai_knowledge_summary_timeout",
-      this.llmTimeoutMs,
-    );
-
-    return response.json() as Promise<GenerateAiKnowledgeSummaryResponse>;
-  }
-
-  // Same class of call as generateAiKnowledgeSummary — an LLM classifying
-  // free text against an activity-authored instruction — so it gets the
-  // same extended timeout rather than the generic lightweight-call budget.
+  // An LLM classifying free text against an activity-authored instruction,
+  // so it gets the extended timeout rather than the generic
+  // lightweight-call budget.
   async runConcernTagging(
     input: ConcernTaggingInput,
   ): Promise<ConcernTaggingOutput> {
@@ -784,5 +948,39 @@ export class PythonProcessingClient {
     );
 
     return response.json() as Promise<ConcernTaggingOutput>;
+  }
+
+  async planActivityAnalysisV2(
+    input: ActivityAnalysisV2PlanRequest,
+  ): Promise<ActivityAnalysisV2PlanResponse> {
+    const response = await this.request(
+      "/internal/interpretation/activity-analysis-v2-plan",
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          ...this.authHeaders(),
+        },
+        body: JSON.stringify(input),
+      },
+      "The Python processing service could not plan the ActivityAnalystV2 analysis.",
+      "python_processing_activity_analysis_v2_plan_unavailable",
+      "The Python processing service timed out while planning the ActivityAnalystV2 analysis.",
+      "python_processing_activity_analysis_v2_plan_timeout",
+      this.llmTimeoutMs,
+    );
+
+    const payload = await response.json();
+    const parsed = activityAnalysisV2PlanResponseSchema.safeParse(payload);
+    if (!parsed.success) {
+      throw new AppError(
+        "The Python processing service returned a malformed ActivityAnalystV2 plan.",
+        502,
+        "python_processing_activity_analysis_v2_plan_malformed",
+        parsed.error.flatten(),
+      );
+    }
+
+    return parsed.data as ActivityAnalysisV2PlanResponse;
   }
 }

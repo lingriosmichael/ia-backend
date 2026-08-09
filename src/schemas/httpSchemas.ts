@@ -71,6 +71,10 @@ export const idParamSchema = z.object({
   token: z.string().min(1).optional(),
 });
 
+export const analysisRunListQuerySchema = z.object({
+  limit: z.coerce.number().int().min(1).max(50).optional(),
+});
+
 export const registerSchema = z.object({
   fullName: z.string().trim().min(2).max(120),
   email: z.string().trim().email(),

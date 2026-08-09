@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { PythonProcessingClient } from "./pythonProcessingClient.js";
+import { AppError } from "../../shared/errors/appError.js";
 
 const MIXED_SYNTHESIS_INPUT = {
   datasetProfile: null,
@@ -173,15 +174,140 @@ test("runConcernTagging posts to the concern-tagging endpoint and returns the pa
   assert.equal(result.results[1]?.flagged, true);
 });
 
-test("generateAiKnowledgeSummary uses the extended LLM timeout budget", async (t) => {
+test("planActivityAnalysisV2 posts to the dedicated planner endpoint and uses the extended LLM timeout budget", async (t) => {
   let capturedTimeoutMs: number | null = null;
+  let capturedUrl = "";
+  let capturedBody: unknown;
   t.mock.method(AbortSignal, "timeout", (delay: number) => {
     capturedTimeoutMs = delay;
     return new AbortController().signal;
   });
+  t.mock.method(globalThis, "fetch", async (url: string, init: RequestInit) => {
+    capturedUrl = url;
+    capturedBody = JSON.parse(init.body as string);
+    return jsonResponse({
+      goalPlans: [],
+      toolRequests: [],
+      limitations: [],
+      validation: {
+        status: "passed",
+        issues: [],
+      },
+    });
+  });
+
+  const client = new PythonProcessingClient(
+    "https://python.example",
+    "secret",
+    30_000,
+    120_000,
+  );
+
+  const result = await client.planActivityAnalysisV2({
+    activityId: "activity-1",
+    activityName: "Mentor:innengewinnung und Auswahl",
+    language: "de",
+    goals: [
+      {
+        goalId: "output_1",
+        goalType: "output",
+        goalText: "Mindestens 70 Bewerbungen sammeln",
+        targetNumber: 70,
+      },
+    ],
+    evidenceTables: [
+      {
+        uploadMetadataId: "upload-1",
+        originalFileName: "bewerbungen.csv",
+        evidenceModality: "structured_quantitative",
+        tableName: "bewerbungen",
+        rowCount: 75,
+        identifierColumn: "bewerbungs_id",
+        identifierHandling: "deduplicate_by_identifier",
+        primaryStatusColumn: "status",
+        primaryDateColumn: null,
+        columns: [
+          {
+            name: "bewerbungs_id",
+            role: "identifier",
+            inferredType: "identifier",
+          },
+        ],
+      },
+    ],
+    runLimits: {
+      maxToolCalls: 8,
+      maxLlmIterations: 2,
+      timeoutMs: 30_000,
+      maxEvidenceItems: 10,
+    },
+  });
+
+  assert.equal(
+    capturedUrl,
+    "https://python.example/internal/interpretation/activity-analysis-v2-plan",
+  );
+  assert.deepEqual(capturedBody, {
+    activityId: "activity-1",
+    activityName: "Mentor:innengewinnung und Auswahl",
+    language: "de",
+    goals: [
+      {
+        goalId: "output_1",
+        goalType: "output",
+        goalText: "Mindestens 70 Bewerbungen sammeln",
+        targetNumber: 70,
+      },
+    ],
+    evidenceTables: [
+      {
+        uploadMetadataId: "upload-1",
+        originalFileName: "bewerbungen.csv",
+        evidenceModality: "structured_quantitative",
+        tableName: "bewerbungen",
+        rowCount: 75,
+        identifierColumn: "bewerbungs_id",
+        identifierHandling: "deduplicate_by_identifier",
+        primaryStatusColumn: "status",
+        primaryDateColumn: null,
+        columns: [
+          {
+            name: "bewerbungs_id",
+            role: "identifier",
+            inferredType: "identifier",
+          },
+        ],
+      },
+    ],
+    runLimits: {
+      maxToolCalls: 8,
+      maxLlmIterations: 2,
+      timeoutMs: 30_000,
+      maxEvidenceItems: 10,
+    },
+  });
+  assert.equal(capturedTimeoutMs, 120_000);
+  assert.equal(result.validation.status, "passed");
+});
+
+test("planActivityAnalysisV2 rejects a malformed plan response instead of trusting it", async (t) => {
+  t.mock.method(AbortSignal, "timeout", () => new AbortController().signal);
   t.mock.method(globalThis, "fetch", async () =>
     jsonResponse({
-      summaryText: "## Wirkung\nSummary text.",
+      goalPlans: [],
+      // toolRequests[0].toolName is not a real tool — a hallucinated or
+      // corrupted planner response must be rejected here rather than
+      // reaching the deterministic tool executor, which has no catch-all
+      // for an unrecognized tool name.
+      toolRequests: [
+        {
+          goalId: "output_1",
+          toolName: "definitely_not_a_real_tool",
+          arguments: {},
+        },
+      ],
+      limitations: [],
+      validation: { status: "passed", issues: [] },
     }),
   );
 
@@ -192,20 +318,35 @@ test("generateAiKnowledgeSummary uses the extended LLM timeout budget", async (t
     120_000,
   );
 
-  const result = await client.generateAiKnowledgeSummary({
-    scope: "activity",
-    subjectName: "Mentor recruitment",
-    insights: [],
-    interpretedEvidenceCount: 3,
-    language: "de",
-    indicators: [],
-    contradictions: [],
-    coverageIssues: [],
-    distributions: [],
-    activityGoals: null,
-    projectGoals: null,
-  });
-
-  assert.equal(capturedTimeoutMs, 120_000);
-  assert.equal(result.summaryText, "## Wirkung\nSummary text.");
+  await assert.rejects(
+    () =>
+      client.planActivityAnalysisV2({
+        activityId: "activity-1",
+        activityName: "Mentor:innengewinnung und Auswahl",
+        language: "de",
+        goals: [
+          {
+            goalId: "output_1",
+            goalType: "output",
+            goalText: "Mindestens 70 Bewerbungen sammeln",
+            targetNumber: 70,
+          },
+        ],
+        evidenceTables: [],
+        runLimits: {
+          maxToolCalls: 8,
+          maxLlmIterations: 2,
+          timeoutMs: 30_000,
+          maxEvidenceItems: 10,
+        },
+      }),
+    (error: unknown) => {
+      assert.ok(error instanceof AppError);
+      assert.equal(
+        error.code,
+        "python_processing_activity_analysis_v2_plan_malformed",
+      );
+      return true;
+    },
+  );
 });

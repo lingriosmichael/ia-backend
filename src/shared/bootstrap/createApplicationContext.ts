@@ -35,11 +35,15 @@ import { InvitationController } from "../../modules/invitation/invitationControl
 import { MongoInvitationRepository } from "../../modules/invitation/invitationMongoRepository.js";
 import { InvitationService } from "../../modules/invitation/invitationService.js";
 import { InterpretationArtifactService } from "../../modules/interpretation/interpretationArtifactService.js";
+import { ActivityAnalysisV2Service } from "../../modules/interpretation/activityAnalysisV2Service.js";
+import { MongoActivityAnalysisRunV2Repository } from "../../modules/interpretation/activityAnalysisRunV2MongoRepository.js";
+import { ActivityAnalysisV2ToolExecutor } from "../../modules/interpretation/activityAnalysisV2ToolExecutor.js";
 import { InterpretationController } from "../../modules/interpretation/interpretationController.js";
 import { MongoDeterministicAnalysisRepository } from "../../modules/interpretation/deterministicAnalysisMongoRepository.js";
 import { MongoDatasetPreparationRepository } from "../../modules/interpretation/datasetPreparationMongoRepository.js";
 import { DatasetPreparationService } from "../../modules/interpretation/datasetPreparationService.js";
 import { DeterministicAnalysisService } from "../../modules/interpretation/deterministicAnalysisService.js";
+import { CurrentActivityEvidenceLoader } from "../../modules/interpretation/currentActivityEvidenceLoader.js";
 import { MongoActivityEvidenceLinkageResultRepository } from "../../modules/linkage/activityEvidenceLinkageResultMongoRepository.js";
 import { EvidenceLinkageReconciliationService } from "../../modules/linkage/evidenceLinkageReconciliationService.js";
 import { MongoInterpretationResultRepository } from "../../modules/interpretation/interpretationResultMongoRepository.js";
@@ -96,6 +100,8 @@ export function createApplicationContext(
   const datasetPreparationRepository = new MongoDatasetPreparationRepository();
   const deterministicAnalysisRepository =
     new MongoDeterministicAnalysisRepository();
+  const activityAnalysisRunV2Repository =
+    new MongoActivityAnalysisRunV2Repository();
   const activityEvidenceLinkageResultRepository =
     new MongoActivityEvidenceLinkageResultRepository();
   const projectKnowledgeModelRepository =
@@ -139,6 +145,7 @@ export function createApplicationContext(
     analyticsDashboardPreferenceRepository,
     analyticsDashboardEventRepository,
     activityEvidenceLinkageResultRepository,
+    activityAnalysisRunV2Repository,
   );
   const authorizationService = new AuthorizationService(
     organizationRepository,
@@ -303,6 +310,25 @@ export function createApplicationContext(
     evidenceLinkageReconciliationService,
     activityEvidenceLinkageResultRepository,
   );
+  const currentActivityEvidenceLoader = new CurrentActivityEvidenceLoader(
+    uploadMetadataRepository,
+    privacySafeRepresentationRepository,
+  );
+  const activityAnalysisV2ToolExecutor = new ActivityAnalysisV2ToolExecutor(
+    interpretationResultRepository,
+    datasetPreparationRepository,
+  );
+  const activityAnalysisV2Service = new ActivityAnalysisV2Service(
+    authorizationService,
+    activityRepository,
+    currentActivityEvidenceLoader,
+    activityAnalysisRunV2Repository,
+    activityAnalysisV2ToolExecutor,
+    interpretationResultRepository,
+    datasetPreparationService,
+    pythonProcessingClient,
+    logger,
+  );
   const dashboardCatalogAssemblerService = new DashboardCatalogAssemblerService(
     projectKnowledgeModelRepository,
     knowledgeEntityRepository,
@@ -388,6 +414,7 @@ export function createApplicationContext(
     privacyReviewController: new PrivacyReviewController(privacyReviewService),
     interpretationController: new InterpretationController(
       interpretationService,
+      activityAnalysisV2Service,
     ),
     analyticsController: new AnalyticsController(
       analyticsExecutionService,

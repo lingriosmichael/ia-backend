@@ -1,5 +1,8 @@
 import type {
   ActivityAiKnowledgeInsightSourceType,
+  InterpretationQuestionCode,
+  InterpretationQuestionDomain,
+  InterpretationQuestionKind,
   ActivityStatus,
 } from "../../shared/contracts.js";
 
@@ -19,6 +22,24 @@ export interface ActivityAiKnowledgeSnapshotPersistenceRecord {
   insights: ActivityAiKnowledgeInsightPersistenceRecord[];
 }
 
+export interface ActivityAnalysisV2ClarificationAnswerPersistenceRecord {
+  questionId: string;
+  goalId: string | null;
+  prompt: string;
+  kind: InterpretationQuestionKind;
+  questionDomain: InterpretationQuestionDomain;
+  options: string[] | null;
+  recommendedOption: string | null;
+  recommendedConfidence: number | null;
+  isBlocking: boolean;
+  questionCode: InterpretationQuestionCode | null;
+  targetTableName: string | null;
+  targetColumnName: string | null;
+  answeredValue: string;
+  answeredById: string;
+  answeredAt: Date;
+}
+
 export interface ActivityPersistenceRecord {
   id: string;
   projectId: string;
@@ -36,6 +57,7 @@ export interface ActivityPersistenceRecord {
   interpretationAcknowledgedAt: Date | null;
   interpretationAcknowledgedById: string | null;
   aiKnowledgeSnapshot?: ActivityAiKnowledgeSnapshotPersistenceRecord | null;
+  activityAnalysisV2ClarificationAnswers?: ActivityAnalysisV2ClarificationAnswerPersistenceRecord[];
   createdAt: Date;
   updatedAt: Date;
 }
@@ -71,4 +93,5 @@ export interface ActivityUpdateInput {
   interpretationAcknowledgedAt?: Date | null;
   interpretationAcknowledgedById?: string | null;
   aiKnowledgeSnapshot?: ActivityAiKnowledgeSnapshotPersistenceRecord | null;
+  activityAnalysisV2ClarificationAnswers?: ActivityAnalysisV2ClarificationAnswerPersistenceRecord[];
 }

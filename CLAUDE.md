@@ -23,6 +23,19 @@ truthful map, not an aspiration.)
 start:analytics-worker`) — not reachable through any HTTP route, so grep
   here if async job processing looks like it "isn't doing anything"
 
+The suffix list above is a baseline, not a rule every file must fit. Some
+modules — most notably `interpretation/`, which hosts the `ActivityAnalystV2`
+deterministic tool-execution engine — also contain plain logic/type files
+named for what they do rather than a persistence/HTTP role (e.g.
+`activityAnalysisV2ToolTypes.ts`, `activityAnalysisV2CoreRowTools.ts`,
+`activityAnalysisV2Assessment.ts`, `currentActivityEvidenceLoader.ts`).
+That's fine as long as each one still has a single, obvious responsibility.
+For the full activity-analysis pipeline (upload → privacy review →
+interpretation → dataset preparation → deterministic analysis →
+`ActivityAnalystV2`) across all three services, see
+`CURRENT_ANALYSIS_PIPELINE.md` at the workspace root — it's the canonical
+map, not this file.
+
 ## Layering rule
 
 Routes → controllers → services → repositories. Controllers never call

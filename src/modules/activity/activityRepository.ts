@@ -1,5 +1,6 @@
 import type { DatabaseSession } from "../../shared/database/databaseClient.js";
 import type {
+  ActivityAnalysisV2ClarificationAnswerPersistenceRecord,
   ActivityCreateInput,
   ActivityPersistenceRecord,
   ActivityUpdateInput,
@@ -17,6 +18,17 @@ export interface ActivityRepository {
   update(
     activityId: string,
     input: ActivityUpdateInput,
+    session: DatabaseSession,
+  ): Promise<ActivityPersistenceRecord>;
+  /**
+   * Atomically replaces the clarification answer for `answer.questionId`
+   * (or appends it if none exists yet) without reading and rewriting the
+   * whole answers array. Concurrent calls for different question ids must
+   * not be able to clobber each other's answers.
+   */
+  upsertClarificationAnswer(
+    activityId: string,
+    answer: ActivityAnalysisV2ClarificationAnswerPersistenceRecord,
     session: DatabaseSession,
   ): Promise<ActivityPersistenceRecord>;
   listByProject(

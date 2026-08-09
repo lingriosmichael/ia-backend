@@ -19,13 +19,11 @@ import type { ActivityEvidenceLinkageResultPersistenceRecord } from "./activityE
 
 /**
  * Builds and persists the joined entity table for an activity (§4 Tier
- * A/B/C resolution + §6 joined entity table), reusing the same evidence
- * loader and candidate detection as EvidenceLinkageDetectionService so both
- * always operate on identical join-key proposals.
+ * A/B/C resolution + §6 joined entity table).
  *
  * Persists a record (with `groups: []` if nothing was linkable) whenever
  * the activity has 2+ uploads with completed interpretation — the record's
- * mere existence is what lets `InterpretationService.generateActivityAiKnowledge`
+ * mere existence is what lets `InterpretationService.getActivityWorkflowStage`
  * (§11's gate, in the absence of any real backend lifecycle state to hook
  * into — see the design doc's correction note) tell "reconciliation ran and
  * found nothing to join" apart from "reconciliation hasn't run yet." Only

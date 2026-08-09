@@ -6,6 +6,7 @@ import type { AnalyticsResultRepository } from "../analytics/analyticsResultRepo
 import type { DeterministicAnalysisRepository } from "../interpretation/deterministicAnalysisRepository.js";
 import type { InterpretationResultRepository } from "../interpretation/interpretationResultRepository.js";
 import type { DatasetPreparationRepository } from "../interpretation/datasetPreparationRepository.js";
+import type { ActivityAnalysisRunV2Repository } from "../interpretation/activityAnalysisRunV2Repository.js";
 import type { KnowledgeEntityRepository } from "../knowledge/knowledgeEntityRepository.js";
 import type { KnowledgeIndicatorRepository } from "../knowledge/knowledgeIndicatorRepository.js";
 import type { ProjectKnowledgeModelRepository } from "../knowledge/projectKnowledgeModelRepository.js";
@@ -30,6 +31,7 @@ export class ProcessingResourceCleanupService {
     private readonly analyticsDashboardPreferenceRepository: AnalyticsDashboardPreferenceRepository,
     private readonly analyticsDashboardEventRepository: AnalyticsDashboardEventRepository,
     private readonly activityEvidenceLinkageResultRepository: ActivityEvidenceLinkageResultRepository,
+    private readonly activityAnalysisRunV2Repository: ActivityAnalysisRunV2Repository,
   ) {}
 
   async deleteByProjectId(
@@ -69,6 +71,10 @@ export class ProcessingResourceCleanupService {
         projectId,
         session,
       ),
+      this.activityAnalysisRunV2Repository.deleteByProjectId(
+        projectId,
+        session,
+      ),
     ]);
   }
 
@@ -100,6 +106,10 @@ export class ProcessingResourceCleanupService {
         session,
       ),
       this.activityEvidenceLinkageResultRepository.deleteByActivityId(
+        activityId,
+        session,
+      ),
+      this.activityAnalysisRunV2Repository.deleteByActivityId(
         activityId,
         session,
       ),

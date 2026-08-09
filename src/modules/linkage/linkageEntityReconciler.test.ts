@@ -304,7 +304,9 @@ test("treats an open-to-suitable suitability update as progression rather than a
     ["assessment", "assessment"],
   );
 
-  const entity = group.entities.find((candidate) => candidate.entityKey === "b001");
+  const entity = group.entities.find(
+    (candidate) => candidate.entityKey === "b001",
+  );
   assert.equal(
     entity?.fields.find((field) => field.fieldName === "empfehlung")?.value,
     "geeignet",

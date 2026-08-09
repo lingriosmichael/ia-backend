@@ -50,7 +50,7 @@ interface NumericColumnAnalysis {
   values: number[];
 }
 
-interface AnalysisRowContext {
+export interface AnalysisRowContext {
   rawRows: Record<string, unknown>[];
   analysisRows: Record<string, unknown>[];
   grain: Exclude<DeterministicAnalysisMetricGrain, "source">;
@@ -101,7 +101,7 @@ function toMonthKey(value: unknown): string | null {
   return `${year}-${month}`;
 }
 
-function toCategoryValue(value: unknown): string | null {
+export function toCategoryValue(value: unknown): string | null {
   if (value === null || value === undefined) {
     return null;
   }
@@ -118,7 +118,7 @@ function toCategoryValue(value: unknown): string | null {
   return normalized.length > 0 ? normalized : null;
 }
 
-function toNumericValue(value: unknown): number | null {
+export function toNumericValue(value: unknown): number | null {
   if (typeof value === "number" && Number.isFinite(value)) {
     return value;
   }
@@ -190,7 +190,9 @@ function mergeRowsForIdentifier(
     [...rows].sort(
       (left, right) =>
         countMeaningfulValues(right) - countMeaningfulValues(left),
-    )[0] ?? rows[0] ?? {};
+    )[0] ??
+    rows[0] ??
+    {};
   const merged = { ...representative };
   const allKeys = new Set(rows.flatMap((row) => Object.keys(row)));
 
@@ -220,7 +222,7 @@ function mergeRowsForIdentifier(
   return merged;
 }
 
-function resolveAnalysisRowContext(
+export function resolveAnalysisRowContext(
   table: PreparedDatasetTable,
   rawRows: Record<string, unknown>[],
 ): AnalysisRowContext {
@@ -292,9 +294,10 @@ function withMetricMetadata(
     grain: overrides.grain ?? rowContext.grain,
     numerator: overrides.numerator ?? metric.numerator ?? null,
     denominator:
-      overrides.denominator ?? metric.denominator ?? rowContext.analysisRowCount,
-    denominatorType:
-      overrides.denominatorType ?? rowContext.denominatorType,
+      overrides.denominator ??
+      metric.denominator ??
+      rowContext.analysisRowCount,
+    denominatorType: overrides.denominatorType ?? rowContext.denominatorType,
     identifierColumn: rowContext.identifierColumn,
   };
 }
@@ -317,8 +320,7 @@ function withCandidateIndicatorMetadata(
       overrides.denominator ??
       indicator.denominator ??
       rowContext.analysisRowCount,
-    denominatorType:
-      overrides.denominatorType ?? rowContext.denominatorType,
+    denominatorType: overrides.denominatorType ?? rowContext.denominatorType,
     identifierColumn: rowContext.identifierColumn,
   };
 }
@@ -825,7 +827,7 @@ function buildCategoricalValueMetricsAndCandidates(
             description: countMetric.description,
             tableName: table.name,
             formula: countMetric.formula,
-        value: countMetric.value,
+            value: countMetric.value,
             unit: countMetric.unit,
             sourceColumns: countMetric.sourceColumns,
             groundingNote:
@@ -1151,8 +1153,8 @@ function buildPrimaryStatusMetricsAndCandidates(
           label: `Positive ${table.primaryStatusColumn}`,
           description: countMetric.description,
           tableName: table.name,
-      formula: countMetric.formula,
-      value: countMetric.value,
+          formula: countMetric.formula,
+          value: countMetric.value,
           unit: countMetric.unit,
           sourceColumns: countMetric.sourceColumns,
           groundingNote:
@@ -1198,8 +1200,8 @@ function buildPrimaryStatusMetricsAndCandidates(
           label: `Positive ${table.primaryStatusColumn} rate`,
           description: ratioMetric.description,
           tableName: table.name,
-      formula: ratioMetric.formula,
-      value: ratioMetric.value,
+          formula: ratioMetric.formula,
+          value: ratioMetric.value,
           unit: ratioMetric.unit,
           sourceColumns: ratioMetric.sourceColumns,
           groundingNote:
@@ -1263,7 +1265,9 @@ function buildBaseMetricsAndCandidates(
         ? `Distinct ${rowContext.identifierColumn} records in ${table.name} after identifier-based resolution`
         : `Total rows in ${table.name}`,
     tableName: table.name,
-    sourceColumns: rowContext.identifierColumn ? [rowContext.identifierColumn] : [],
+    sourceColumns: rowContext.identifierColumn
+      ? [rowContext.identifierColumn]
+      : [],
     kind: "count",
     formula:
       rowContext.grain === "entity" && rowContext.identifierColumn

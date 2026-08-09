@@ -40,6 +40,30 @@ const activityAiKnowledgeSnapshotSchema = new Schema(
   },
 );
 
+const activityAnalysisV2ClarificationAnswerSchema = new Schema(
+  {
+    questionId: { type: String, required: true },
+    goalId: { type: String, default: null },
+    prompt: { type: String, required: true },
+    kind: { type: String, required: true },
+    questionDomain: { type: String, required: true },
+    options: { type: [String], default: null },
+    recommendedOption: { type: String, default: null },
+    recommendedConfidence: { type: Number, default: null },
+    isBlocking: { type: Boolean, required: true },
+    questionCode: { type: String, default: null },
+    targetTableName: { type: String, default: null },
+    targetColumnName: { type: String, default: null },
+    answeredValue: { type: String, required: true },
+    answeredById: { type: String, required: true },
+    answeredAt: { type: Date, required: true },
+  },
+  {
+    _id: false,
+    id: false,
+  },
+);
+
 const activitySchema = new Schema(
   {
     _id: { type: String, required: true },
@@ -63,6 +87,10 @@ const activitySchema = new Schema(
     aiKnowledgeSnapshot: {
       type: activityAiKnowledgeSnapshotSchema,
       default: null,
+    },
+    activityAnalysisV2ClarificationAnswers: {
+      type: [activityAnalysisV2ClarificationAnswerSchema],
+      default: [],
     },
     interpretationAcknowledgedAt: { type: Date, default: null },
     interpretationAcknowledgedById: { type: String, default: null },

@@ -312,9 +312,6 @@ export function mapActivity(
     interpretationAcknowledgedById: activity.interpretationAcknowledgedById,
     interpretationAcknowledgedByName:
       activity.interpretationAcknowledgedByName ?? null,
-    aiKnowledgeGeneratedAt: activity.aiKnowledgeSnapshot?.generatedAt
-      ? toIso(activity.aiKnowledgeSnapshot.generatedAt)
-      : null,
     createdAt: toIso(activity.createdAt),
     updatedAt: toIso(activity.updatedAt),
   };

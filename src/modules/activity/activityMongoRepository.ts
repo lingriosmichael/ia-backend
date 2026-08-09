@@ -12,6 +12,7 @@ import {
 import type { ActivityRepository } from "./activityRepository.js";
 import type {
   ActivityCreateInput,
+  ActivityAnalysisV2ClarificationAnswerPersistenceRecord,
   ActivityPersistenceRecord,
   ActivityUpdateInput,
 } from "./activityPersistence.js";
@@ -22,6 +23,27 @@ function toActivityRecord(
   if (!document) {
     return null;
   }
+
+  const clarificationAnswers: ActivityAnalysisV2ClarificationAnswerPersistenceRecord[] =
+    (document.activityAnalysisV2ClarificationAnswers ?? []).map((answer) => ({
+      questionId: answer.questionId,
+      goalId: answer.goalId ?? null,
+      prompt: answer.prompt,
+      kind: answer.kind as ActivityAnalysisV2ClarificationAnswerPersistenceRecord["kind"],
+      questionDomain:
+        answer.questionDomain as ActivityAnalysisV2ClarificationAnswerPersistenceRecord["questionDomain"],
+      options: answer.options ? [...answer.options] : null,
+      recommendedOption: answer.recommendedOption ?? null,
+      recommendedConfidence: answer.recommendedConfidence ?? null,
+      isBlocking: answer.isBlocking,
+      questionCode:
+        answer.questionCode as ActivityAnalysisV2ClarificationAnswerPersistenceRecord["questionCode"],
+      targetTableName: answer.targetTableName ?? null,
+      targetColumnName: answer.targetColumnName ?? null,
+      answeredValue: answer.answeredValue,
+      answeredById: answer.answeredById,
+      answeredAt: answer.answeredAt,
+    }));
 
   return {
     id: document._id.toString(),
@@ -60,6 +82,7 @@ function toActivityRecord(
           ),
         }
       : null,
+    activityAnalysisV2ClarificationAnswers: clarificationAnswers,
     createdAt: document.createdAt,
     updatedAt: document.updatedAt,
   };
@@ -105,6 +128,50 @@ export class MongoActivityRepository implements ActivityRepository {
         activityId,
         {
           $set: input,
+        },
+        {
+          returnDocument: "after",
+        },
+      ),
+      session,
+    ).exec();
+
+    const record = toActivityRecord(document);
+
+    if (!record) {
+      throw new AppError("Activity not found.", 404, "activity_not_found");
+    }
+
+    return record;
+  }
+
+  async upsertClarificationAnswer(
+    activityId: string,
+    answer: ActivityAnalysisV2ClarificationAnswerPersistenceRecord,
+    session: DatabaseSession,
+  ): Promise<ActivityPersistenceRecord> {
+    // Two atomic array operators (pull, then push) instead of a
+    // read-modify-write of the whole array: concurrent answers to different
+    // questions never race on a full-array $set and clobber each other.
+    await applyMongoSession(
+      ActivityMongoModel.updateOne(
+        { _id: activityId },
+        {
+          $pull: {
+            activityAnalysisV2ClarificationAnswers: {
+              questionId: answer.questionId,
+            },
+          },
+        },
+      ),
+      session,
+    ).exec();
+
+    const document = await applyMongoSession(
+      ActivityMongoModel.findByIdAndUpdate(
+        activityId,
+        {
+          $push: { activityAnalysisV2ClarificationAnswers: answer },
         },
         {
           returnDocument: "after",

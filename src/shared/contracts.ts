@@ -189,7 +189,6 @@ export interface ActivitySummary {
   interpretationAcknowledgedAt: string | null;
   interpretationAcknowledgedById: string | null;
   interpretationAcknowledgedByName: string | null;
-  aiKnowledgeGeneratedAt?: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -710,6 +709,7 @@ export interface InterpretationQualitativeFinding {
 
 export interface InterpretationQuestion {
   id: string;
+  goalId?: string | null;
   prompt: string;
   kind: InterpretationQuestionKind;
   questionDomain: InterpretationQuestionDomain;
@@ -1317,6 +1317,225 @@ export interface ActivityAiKnowledgeRecord {
   generatedAt: string | null;
   summaryText: string;
   insights: ActivityAiKnowledgeInsight[];
+}
+
+export type ActivityAnalysisRunV2Status =
+  "collected" | "running" | "needs_clarification" | "completed" | "failed";
+
+export type ActivityAnalysisRunV2ValidationStatus =
+  "not_run" | "passed" | "failed";
+
+export const activityAnalysisV2ToolNameValues = [
+  "describe_evidence",
+  "create_cohort",
+  "filter_result",
+  "join_tables",
+  "anti_join",
+  "derive_numeric_column",
+  "compare_columns",
+  "profile_column",
+  "count_rows",
+  "count_distinct",
+  "count_distinct_keys",
+  "group_count",
+  "crosstab_count",
+  "group_aggregate",
+  "aggregate_numeric",
+  "intersection_count",
+  "intersection_set",
+  "union_count",
+  "union_set",
+  "difference_set",
+  "first_event",
+  "last_event",
+  "date_difference",
+  "event_gap",
+  "days_since_last_event",
+  "period_change",
+  "paired_change",
+  "time_bucket_count",
+  "calculate_ratio",
+  "calculate_difference",
+  "calculate_percent_change",
+  "calculate_sum",
+  "calculate_product",
+  "compare_target",
+] as const;
+export type ActivityAnalysisV2ToolName =
+  (typeof activityAnalysisV2ToolNameValues)[number];
+
+export type ActivityAnalysisV2ToolCallStatus = "succeeded" | "failed";
+
+export interface ActivityAnalysisV2ToolCallRecord {
+  toolCallId: string;
+  toolName: ActivityAnalysisV2ToolName;
+  arguments: Record<string, unknown>;
+  calculationIds: string[];
+  status: ActivityAnalysisV2ToolCallStatus;
+  errorMessage: string | null;
+  startedAt: string;
+  completedAt: string;
+  durationMs: number;
+}
+
+export interface ActivityAnalysisV2CalculationRecord {
+  calculationId: string;
+  toolName: ActivityAnalysisV2ToolName;
+  label: string;
+  description: string;
+  formula: string | null;
+  value: number | string | boolean | null;
+  unit: string | null;
+  sourceUploadMetadataIds: string[];
+  sourceTableNames: string[];
+  sourceColumns: string[];
+  grain?: DeterministicAnalysisMetricGrain;
+  numerator?: number | null;
+  denominator?: number | null;
+  denominatorType?: DeterministicAnalysisDenominatorType;
+  identifierColumn?: string | null;
+  result: Record<string, unknown>;
+}
+
+export interface ActivityAnalysisV2MissingCapability {
+  kind: "deterministic_calculation";
+  name: string;
+  reason: string;
+}
+
+export type ActivityAnalysisV2GoalAssessmentStatus =
+  | "achieved"
+  | "not_achieved"
+  | "evidence_compiled"
+  | "requires_clarification"
+  | "requires_capability";
+
+export interface ActivityAnalysisV2GoalAssessmentRecord {
+  goalId: string;
+  goalType: "output" | "outcome";
+  goalText: string;
+  evaluationMode:
+    "numeric_target" | "condition" | "directional_change" | "evidence_only";
+  plannerStatus: "planned" | "requires_clarification" | "requires_capability";
+  assessmentStatus: ActivityAnalysisV2GoalAssessmentStatus;
+  rationale: string;
+  findingText: string;
+  missingCapabilities: ActivityAnalysisV2MissingCapability[];
+  supportingCalculationIds: string[];
+  measuredValue: number | null;
+  targetValue: number | null;
+  comparison: "at_least" | "at_most" | "equal" | null;
+  achieved: boolean | null;
+}
+
+export interface ActivityAssessmentV2 {
+  goalAssessments: ActivityAnalysisV2GoalAssessmentRecord[];
+  limitations: string[];
+}
+
+export interface ActivityAnalysisV2Diagnostics {
+  goalCount: number;
+  outputGoalCount: number;
+  outcomeGoalCount: number;
+  evidenceCount: number;
+  plannedToolRequestCount: number;
+  executedToolCallCount: number;
+  calculationCount: number;
+  validationIssueCount: number;
+  renderedSummarySectionCount: number;
+  renderedSummaryCharacterCount: number;
+  goalStatusCounts: {
+    achieved: number;
+    notAchieved: number;
+    evidenceCompiled: number;
+    requiresClarification: number;
+    requiresCapability: number;
+  };
+}
+
+export type ActivityAnalysisV2ShadowComparisonStatus =
+  "shadow_ready" | "review_recommended" | "v1_missing" | "v2_invalid";
+
+export interface ActivityAnalysisV2ShadowComparison {
+  status: ActivityAnalysisV2ShadowComparisonStatus;
+  notes: string[];
+  v1GeneratedAt: string | null;
+  v1InterpretedEvidenceCount: number | null;
+  v1TotalEvidenceCount: number | null;
+  v1InsightCount: number | null;
+  v2GoalAssessmentCount: number;
+  noOutcomeSectionOmitted: boolean;
+}
+
+export type ActivityAnalysisV2CutoverStatus = "eligible" | "not_eligible";
+
+export interface ActivityAnalysisV2CutoverCriterion {
+  key:
+    | "validation_passed"
+    | "all_goals_assessed"
+    | "summary_rendered"
+    | "shadow_comparison_clear"
+    | "no_outcome_section_omitted";
+  passed: boolean;
+  detail: string;
+}
+
+export interface ActivityAnalysisV2CutoverReadiness {
+  status: ActivityAnalysisV2CutoverStatus;
+  criteria: ActivityAnalysisV2CutoverCriterion[];
+}
+
+export interface ActivityAnalysisRunV2GoalsSnapshot {
+  activityType: string | null;
+  objectives: string | null;
+  output: string | null;
+  outcome: string | null;
+}
+
+export interface ActivityAnalysisRunV2EvidenceItem {
+  uploadMetadataId: string;
+  privacySafeRepresentationId: string;
+  logicalEvidenceId: string;
+  versionNumber: number;
+  originalFileName: string;
+  evidenceModality: string | null;
+  uploadedAt: string;
+}
+
+export interface ActivityAnalysisRunV2RunLimits {
+  maxToolCalls: number;
+  maxLlmIterations: number;
+  timeoutMs: number;
+  maxEvidenceItems: number;
+}
+
+export interface ActivityAnalysisRunV2Validation {
+  status: ActivityAnalysisRunV2ValidationStatus;
+  issues: string[];
+}
+
+export interface ActivityAnalysisRunV2Record {
+  analysisRunId: string;
+  activityId: string;
+  projectId: string;
+  activityName: string;
+  phase: string;
+  status: ActivityAnalysisRunV2Status;
+  goalsSnapshot: ActivityAnalysisRunV2GoalsSnapshot;
+  evidence: ActivityAnalysisRunV2EvidenceItem[];
+  runLimits: ActivityAnalysisRunV2RunLimits;
+  clarificationQuestions: InterpretationQuestion[];
+  toolCallTrace: ActivityAnalysisV2ToolCallRecord[];
+  calculations: ActivityAnalysisV2CalculationRecord[];
+  assessment: ActivityAssessmentV2 | null;
+  diagnostics: ActivityAnalysisV2Diagnostics;
+  shadowComparison: ActivityAnalysisV2ShadowComparison;
+  cutoverReadiness: ActivityAnalysisV2CutoverReadiness;
+  validation: ActivityAnalysisRunV2Validation;
+  renderedSummary: string | null;
+  errorMessage: string | null;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface AnswerInterpretationQuestionRequest {

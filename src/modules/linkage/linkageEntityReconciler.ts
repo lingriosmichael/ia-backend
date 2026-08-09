@@ -152,8 +152,7 @@ function mergeRowIntoEntities(
       continue;
     }
 
-    const observations =
-      entity.fieldObservationsByName.get(column.name) ?? [];
+    const observations = entity.fieldObservationsByName.get(column.name) ?? [];
     const observation: LinkageEntityFieldValue = {
       fieldName: column.name,
       value,
@@ -166,13 +165,17 @@ function mergeRowIntoEntities(
       observations.some(
         (existing) =>
           existing.value === observation.value &&
-          existing.sourceUploadMetadataId === observation.sourceUploadMetadataId &&
+          existing.sourceUploadMetadataId ===
+            observation.sourceUploadMetadataId &&
           existing.sourceTableName === observation.sourceTableName,
       )
     ) {
       continue;
     }
-    entity.fieldObservationsByName.set(column.name, [...observations, observation]);
+    entity.fieldObservationsByName.set(column.name, [
+      ...observations,
+      observation,
+    ]);
   }
 }
 
@@ -351,14 +354,18 @@ function chooseResolvedObservation(
     if (rightRank !== leftRank) {
       return rightRank - leftRank;
     }
-    const leftRoleRank = semanticSourceRolePriority(inferSemanticSourceRole(left));
+    const leftRoleRank = semanticSourceRolePriority(
+      inferSemanticSourceRole(left),
+    );
     const rightRoleRank = semanticSourceRolePriority(
       inferSemanticSourceRole(right),
     );
     if (rightRoleRank !== leftRoleRank) {
       return rightRoleRank - leftRoleRank;
     }
-    return left.sourceUploadMetadataId.localeCompare(right.sourceUploadMetadataId);
+    return left.sourceUploadMetadataId.localeCompare(
+      right.sourceUploadMetadataId,
+    );
   })[0] as LinkageEntityFieldValue;
 }
 
@@ -405,7 +412,10 @@ function classifySuitabilityAssessmentOutcome(
   stateKeys: Set<string>,
 ): { outcome: LinkageSemanticAssessmentOutcome; rationale: string } | null {
   if (stateKeys.size === 1) {
-    return { outcome: "consistent", rationale: "every linked source reports the same suitability state" };
+    return {
+      outcome: "consistent",
+      rationale: "every linked source reports the same suitability state",
+    };
   }
   if (stateKeys.has("accepted") && stateKeys.has("rejected")) {
     return {
@@ -414,8 +424,17 @@ function classifySuitabilityAssessmentOutcome(
         "linked sources record incompatible terminal suitability decisions",
     };
   }
-  const allowedProgressionStates = ["open", "conditional", "accepted", "rejected"];
-  if ([...stateKeys].every((stateKey) => allowedProgressionStates.includes(stateKey))) {
+  const allowedProgressionStates = [
+    "open",
+    "conditional",
+    "accepted",
+    "rejected",
+  ];
+  if (
+    [...stateKeys].every((stateKey) =>
+      allowedProgressionStates.includes(stateKey),
+    )
+  ) {
     return {
       outcome: "progression",
       rationale:
@@ -433,9 +452,15 @@ function classifySafeguardingAssessmentOutcome(
   stateKeys: Set<string>,
 ): { outcome: LinkageSemanticAssessmentOutcome; rationale: string } | null {
   if (stateKeys.size === 1) {
-    return { outcome: "consistent", rationale: "every linked source reports the same safeguarding state" };
+    return {
+      outcome: "consistent",
+      rationale: "every linked source reports the same safeguarding state",
+    };
   }
-  if (stateKeys.has("clear") && (stateKeys.has("identified") || stateKeys.has("pending_review"))) {
+  if (
+    stateKeys.has("clear") &&
+    (stateKeys.has("identified") || stateKeys.has("pending_review"))
+  ) {
     return {
       outcome: "insufficient_context",
       rationale:
@@ -481,7 +506,10 @@ function classifySemanticAssessment(
   if (observations.length < 2) {
     return null;
   }
-  const stateByObservation = new Map<LinkageEntityFieldValue, SemanticStateResolution>();
+  const stateByObservation = new Map<
+    LinkageEntityFieldValue,
+    SemanticStateResolution
+  >();
   for (const observation of observations) {
     const state = classifySemanticState(concept, observation);
     if (state) {
@@ -532,8 +560,8 @@ function finalizeEntityField(
   const semanticAssessment = concept
     ? classifySemanticAssessment(entityKey, concept, observations)
     : null;
-  const hasDisagreement = new Set(observations.map((observation) => observation.value))
-    .size > 1;
+  const hasDisagreement =
+    new Set(observations.map((observation) => observation.value)).size > 1;
 
   if (!hasDisagreement) {
     return {
@@ -549,9 +577,10 @@ function finalizeEntityField(
       semanticAssessment.outcome === "consistent" ||
       semanticAssessment.outcome === "superseded")
   ) {
-    const resolvedObservation = observations.find(
-      (observation) => observation.value === semanticAssessment.resolvedValue,
-    ) ?? (observations[0] as LinkageEntityFieldValue);
+    const resolvedObservation =
+      observations.find(
+        (observation) => observation.value === semanticAssessment.resolvedValue,
+      ) ?? (observations[0] as LinkageEntityFieldValue);
     return {
       resolvedField: resolvedObservation,
       conflict: null,
@@ -578,7 +607,10 @@ function buildCrossFieldSemanticAssessments(
 ): LinkageSemanticAssessmentRecord[] {
   const assessments: LinkageSemanticAssessmentRecord[] = [];
   const safeguardingObservations = Array.from(fieldObservationsByName.entries())
-    .filter(([fieldName]) => inferSemanticConceptForFieldName(fieldName) === "safeguarding")
+    .filter(
+      ([fieldName]) =>
+        inferSemanticConceptForFieldName(fieldName) === "safeguarding",
+    )
     .flatMap(([, observations]) => observations);
 
   const safeguardingFieldCount = new Set(

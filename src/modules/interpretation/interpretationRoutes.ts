@@ -31,12 +31,16 @@ export async function registerInterpretationRoutes(
     controller.startForActivity.bind(controller),
   );
 
+  // Deprecated compatibility endpoint. Canonical activity analysis lives at
+  // `/activities/:activityId/analysis-v2`.
   app.get(
     "/activities/:activityId/ai-knowledge",
     { preHandler: authenticate },
     controller.getActivityAiKnowledge.bind(controller),
   );
 
+  // Deprecated compatibility endpoint. Runs V2 and returns the legacy
+  // response shape for older clients.
   app.post(
     "/activities/:activityId/ai-knowledge",
     {
@@ -46,6 +50,8 @@ export async function registerInterpretationRoutes(
     controller.generateActivityAiKnowledge.bind(controller),
   );
 
+  // Deprecated compatibility endpoint. Runs V2 and returns the legacy
+  // response shape for older clients.
   app.put(
     "/activities/:activityId/ai-knowledge",
     {
@@ -53,6 +59,46 @@ export async function registerInterpretationRoutes(
       config: processingKickoffRateLimitConfig,
     },
     controller.regenerateActivityAiKnowledge.bind(controller),
+  );
+
+  app.post(
+    "/activities/:activityId/analysis-v2",
+    {
+      preHandler: authenticate,
+      config: processingKickoffRateLimitConfig,
+    },
+    controller.previewActivityAnalysisV2.bind(controller),
+  );
+
+  app.get(
+    "/activities/:activityId/analysis-v2",
+    { preHandler: authenticate },
+    controller.getLatestActivityAnalysisV2.bind(controller),
+  );
+
+  app.patch(
+    "/activities/:activityId/analysis-v2/questions/:questionId",
+    {
+      preHandler: authenticate,
+      // Answering a clarification question triggers the same
+      // previewActivityAnalysis pipeline as POST .../analysis-v2 (plan +
+      // deterministic execution), so it needs the same rate limit — this
+      // route was previously unguarded despite being equally expensive.
+      config: processingKickoffRateLimitConfig,
+    },
+    controller.answerActivityAnalysisV2Question.bind(controller),
+  );
+
+  app.get(
+    "/activities/:activityId/analysis-v2/runs",
+    { preHandler: authenticate },
+    controller.listActivityAnalysisV2Runs.bind(controller),
+  );
+
+  app.get(
+    "/projects/:projectId/analysis-v2/runs",
+    { preHandler: authenticate },
+    controller.listProjectAnalysisV2Runs.bind(controller),
   );
 
   app.get(
