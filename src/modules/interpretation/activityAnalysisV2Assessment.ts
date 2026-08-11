@@ -203,42 +203,8 @@ function buildGoalFindingText(input: {
   };
 }
 
-function renderActivityAssessmentSummary(
-  assessment: ActivityAssessmentV2,
-  language: "de" | "en",
-): string {
-  const outputs = assessment.goalAssessments.filter(
-    (goalAssessment) => goalAssessment.goalType === "output",
-  );
-  const outcomes = assessment.goalAssessments.filter(
-    (goalAssessment) => goalAssessment.goalType === "outcome",
-  );
-
-  const sections: string[] = [];
-  if (outputs.length > 0) {
-    sections.push(
-      [
-        language === "de" ? "Ergebnisse" : "Outputs",
-        ...outputs.map((goalAssessment) => goalAssessment.findingText),
-      ].join("\n\n"),
-    );
-  }
-
-  if (outcomes.length > 0) {
-    sections.push(
-      [
-        language === "de" ? "Wirkung" : "Outcomes",
-        ...outcomes.map((goalAssessment) => goalAssessment.findingText),
-      ].join("\n\n"),
-    );
-  }
-
-  return sections.join("\n\n");
-}
-
 function validateActivityAssessmentV2(
   assessment: ActivityAssessmentV2,
-  renderedSummary: string | null,
 ): ActivityAnalysisRunV2Validation {
   const issues: string[] = [];
   const goalIds = new Set<string>();
@@ -272,10 +238,6 @@ function validateActivityAssessmentV2(
         `Goal ${goalAssessment.goalId} has an incomplete target comparison assessment.`,
       );
     }
-  }
-
-  if (renderedSummary && /\{\{[^}]+\}\}/.test(renderedSummary)) {
-    issues.push("Rendered V2 summary still contains unresolved placeholders.");
   }
 
   return {
@@ -369,14 +331,7 @@ export function buildActivityAssessmentV2(
     ),
   };
 
-  const renderedSummary = renderActivityAssessmentSummary(
-    assessment,
-    input.language,
-  ).trim();
-  const validation = validateActivityAssessmentV2(
-    assessment,
-    renderedSummary || null,
-  );
+  const validation = validateActivityAssessmentV2(assessment);
 
   return {
     assessment,
@@ -387,9 +342,6 @@ export function buildActivityAssessmentV2(
           : "passed",
       issues: [...issues, ...validation.issues],
     },
-    renderedSummary:
-      validation.status === "passed" && issues.length === 0
-        ? renderedSummary || null
-        : null,
+    renderedSummary: null,
   };
 }

@@ -116,6 +116,22 @@ export class ProcessingResourceCleanupService {
     ]);
   }
 
+  async deleteActivityAggregateStateByActivityId(
+    activityId: string,
+    session: DatabaseSession,
+  ): Promise<void> {
+    await Promise.all([
+      this.activityEvidenceLinkageResultRepository.deleteByActivityId(
+        activityId,
+        session,
+      ),
+      this.activityAnalysisRunV2Repository.deleteByActivityId(
+        activityId,
+        session,
+      ),
+    ]);
+  }
+
   async deleteByUploadMetadataId(
     uploadMetadataId: string,
     session: DatabaseSession,

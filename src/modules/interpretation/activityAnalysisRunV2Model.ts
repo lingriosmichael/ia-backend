@@ -21,6 +21,7 @@ const activityAnalysisRunV2Schema = new Schema(
     diagnostics: { type: Schema.Types.Mixed, required: true },
     shadowComparison: { type: Schema.Types.Mixed, required: true },
     renderedSummary: { type: String, default: null },
+    recommendationText: { type: String, default: null },
     validation: { type: Schema.Types.Mixed, required: true },
     errorMessage: { type: String, default: null },
   },

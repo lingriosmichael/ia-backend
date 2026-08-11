@@ -13,7 +13,15 @@ const activityEvidenceLinkageResultSchema = new Schema(
       unique: true,
       index: true,
     },
+    status: {
+      type: String,
+      enum: ["needs_review", "resolved"],
+      required: true,
+      default: "resolved",
+    },
     groups: { type: [Schema.Types.Mixed], default: [] },
+    proposals: { type: [Schema.Types.Mixed], default: [] },
+    proposalDecisions: { type: [Schema.Types.Mixed], default: [] },
   },
   {
     collection: "activity_evidence_linkage_results",

@@ -9,10 +9,12 @@ import type {
   InterpretationQuestion,
 } from "../../shared/contracts.js";
 import type { AuthorizationService } from "../../shared/auth/authorizationService.js";
-import { extractGoalTargetNumber } from "../linkage/linkageIndicatorCalculations.js";
 import {
   PythonProcessingClient,
+  type ActivityAnalysisV2EvidenceTableInput,
   type ActivityAnalysisV2ClarificationQuestionDraft,
+  type ActivityAnalysisV2GoalInput,
+  type ActivityAnalysisV2PlanResponse,
 } from "../processing/pythonProcessingClient.js";
 import type { ActivityRepository } from "../activity/activityRepository.js";
 import type {
@@ -49,10 +51,15 @@ import type { InterpretationResultRepository } from "./interpretationResultRepos
 //   can reasonably need 6+ tool calls per goal.
 // - maxLlmIterations 4 -> 5: total planner attempts (1 initial + up to 4
 //   grounding-retry attempts) before falling back to a failed run.
-// - timeoutMs 30_000 -> 150_000: must exceed PYTHON_ANALYTICS_TIMEOUT_MS
-//   (120_000 by default, see .env.example) plus headroom for the backend's
-//   own deterministic tool execution; 30s was already shorter than the
-//   Python planning call alone is allowed to take.
+// - timeoutMs 30_000 -> 150_000: sized for one Python planning call
+//   (PYTHON_ANALYTICS_TIMEOUT_MS, 120_000 by default, see .env.example)
+//   plus headroom for the backend's own deterministic tool execution; 30s
+//   was already shorter than the Python planning call alone is allowed to
+//   take. The auto-clarification replan loop below can issue one further
+//   planning call, which is why MAX_BACKEND_AUTO_CLARIFICATION_REPLANS is
+//   capped at 1 and the loop checks remaining budget before attempting it
+//   — without both of those, a run could stack several full-length Python
+//   calls and blow well past this budget before the check below ever runs.
 // - maxEvidenceItems 25 -> 40: keeps a hard ceiling on worst-case cost
 //   while covering larger real activities; excess evidence is dropped
 //   oldest-first (see previewActivityAnalysis) rather than causing a
@@ -63,6 +70,179 @@ const PHASE_1_RUN_LIMITS: ActivityAnalysisRunV2RunLimits = {
   timeoutMs: 150_000,
   maxEvidenceItems: 40,
 };
+
+const PLANNER_CLARIFICATION_CONFIDENCE_THRESHOLD = 0.8;
+// Each replan is a full additional Python planning call, bounded by
+// PHASE_1_RUN_LIMITS.timeoutMs alongside the initial call (see the comment
+// there). Keep this at 1 so the loop's worst case is two calls, not four.
+const MAX_BACKEND_AUTO_CLARIFICATION_REPLANS = 1;
+
+type PlannerClarificationAnswer = {
+  questionId: string;
+  goalId: string | null;
+  prompt: string;
+  answeredValue: string;
+  questionCode:
+    | "normalization_merge"
+    | "row_grain"
+    | "duplicate_identifier_resolution"
+    | "primary_status_field"
+    | "positive_status_values"
+    | "primary_date_field"
+    | null;
+  targetTableName: string | null;
+  targetColumnName: string | null;
+};
+
+type ClarificationAnswerDraftInput = {
+  goalId: string | null;
+  prompt: string;
+  answeredValue: string;
+  questionCode:
+    | "normalization_merge"
+    | "row_grain"
+    | "duplicate_identifier_resolution"
+    | "primary_status_field"
+    | "positive_status_values"
+    | "primary_date_field"
+    | null;
+  targetTableName?: string | null;
+  targetColumnName?: string | null;
+};
+
+function buildPlannerClarificationAnswer(
+  input: ClarificationAnswerDraftInput,
+): PlannerClarificationAnswer {
+  return {
+    questionId: buildClarificationQuestionId({
+      goalId: input.goalId,
+      prompt: input.prompt,
+      questionCode: input.questionCode,
+      targetTableName: input.targetTableName ?? null,
+      targetColumnName: input.targetColumnName ?? null,
+    }),
+    goalId: input.goalId,
+    prompt: input.prompt,
+    answeredValue: input.answeredValue,
+    questionCode: input.questionCode,
+    targetTableName: input.targetTableName ?? null,
+    targetColumnName: input.targetColumnName ?? null,
+  };
+}
+
+function mergePlannerClarificationAnswers(
+  ...groups: PlannerClarificationAnswer[][]
+): PlannerClarificationAnswer[] {
+  const merged = new Map<string, PlannerClarificationAnswer>();
+  for (const group of groups) {
+    for (const answer of group) {
+      merged.set(answer.questionId, answer);
+    }
+  }
+  return [...merged.values()];
+}
+
+function extractPlannerErrorLogContext(error: unknown): Record<string, unknown> {
+  if (!(error instanceof AppError)) {
+    return {
+      errorMessage:
+        error instanceof Error
+          ? error.message
+          : "Unknown planner failure before a plan was produced.",
+    };
+  }
+
+  const details =
+    error.details && typeof error.details === "object"
+      ? (error.details as Record<string, unknown>)
+      : null;
+
+  return {
+    errorCode: error.code,
+    errorStatusCode: error.statusCode,
+    errorMessage: error.message,
+    upstreamStatus:
+      typeof details?.upstreamStatus === "number"
+        ? details.upstreamStatus
+        : undefined,
+    upstreamStatusText:
+      typeof details?.upstreamStatusText === "string"
+        ? details.upstreamStatusText
+        : undefined,
+    upstreamBodyPreview:
+      typeof details?.upstreamBody === "string"
+        ? details.upstreamBody
+        : undefined,
+    requestUrl:
+      typeof details?.url === "string" ? details.url : undefined,
+    requestPath:
+      typeof details?.path === "string" ? details.path : undefined,
+    requestMethod:
+      typeof details?.method === "string" ? details.method : undefined,
+    requestTimeoutMs:
+      typeof details?.timeoutMs === "number" ? details.timeoutMs : undefined,
+  };
+}
+
+function extractGoalTargetNumberForActivityAnalysisV2(
+  goalText: string,
+): number | null {
+  const match = goalText.match(
+    /(\d+(?:[.,]\d+)?)(\s*%|\s*(?:prozent|percent))?/i,
+  );
+  if (!match) {
+    return null;
+  }
+
+  const parsed = Number((match[1] ?? "").replace(",", "."));
+  if (!Number.isFinite(parsed)) {
+    return null;
+  }
+
+  const percentSuffix = match[2];
+  if (percentSuffix) {
+    return parsed / 100;
+  }
+
+  return parsed;
+}
+
+function isActionableLimitation(limitation: string): boolean {
+  const normalized = limitation.trim().toLowerCase();
+  if (normalized.length === 0) {
+    return false;
+  }
+  if (
+    normalized.startsWith("planner model version:") ||
+    normalized.startsWith("planning retries used:")
+  ) {
+    return false;
+  }
+  return true;
+}
+
+function buildRecommendationPolicy(
+  assessment: NonNullable<ActivityAnalysisRunV2PersistenceRecord["assessment"]>,
+): {
+  recommendationPolicy: "required" | "optional";
+  actionableLimitations: string[];
+} {
+  const actionableLimitations = assessment.limitations.filter(
+    isActionableLimitation,
+  );
+  const hasNonAchievedOrUnresolvedGoal = assessment.goalAssessments.some(
+    (goalAssessment) => goalAssessment.assessmentStatus !== "achieved",
+  );
+
+  return {
+    recommendationPolicy:
+      hasNonAchievedOrUnresolvedGoal || actionableLimitations.length > 0
+        ? "required"
+        : "optional",
+    actionableLimitations,
+  };
+}
+
 
 function mapActivityAnalysisRunV2Record(
   run: ActivityAnalysisRunV2PersistenceRecord,
@@ -142,6 +322,7 @@ function mapActivityAnalysisRunV2Record(
       issues: [...run.validation.issues],
     },
     renderedSummary: run.renderedSummary,
+    recommendationText: run.recommendationText,
     errorMessage: run.errorMessage,
     createdAt: run.createdAt.toISOString(),
     updatedAt: run.updatedAt.toISOString(),
@@ -157,7 +338,7 @@ function splitGoalText(goalText: string | null): string[] {
     .split(/\r?\n/)
     .map((line) => line.trim())
     .filter((line) => line.length > 0)
-    .map((line) => line.replace(/^[-*•\d.)\s]+/, "").trim())
+    .map((line) => line.replace(/^(?:[-*•]+|\d+[.)])\s+/, "").trim())
     .filter((line) => line.length > 0);
 }
 
@@ -247,15 +428,25 @@ export class ActivityAnalysisV2Service {
     }));
   }
 
+  // A question is only ever omitted here if it's in resolvedQuestionIds —
+  // i.e. the backend actually merged an answer for it into a replan this
+  // run (see autoResolvedQuestionIds in previewActivityAnalysis). A high
+  // recommendedConfidence is not by itself proof that happened: the replan
+  // loop is bounded by both an attempt cap and a wall-clock budget, so a
+  // high-confidence question can still be sitting unresolved in the
+  // planner's final response if the loop gave up before reaching it.
+  // Filtering on confidence alone previously hid exactly those cases from
+  // the user instead of surfacing them.
   private buildClarificationQuestions(
     drafts: ActivityAnalysisV2ClarificationQuestionDraft[],
     existingAnswers: ActivityAnalysisV2ClarificationAnswerPersistenceRecord[],
+    resolvedQuestionIds: ReadonlySet<string>,
   ): InterpretationQuestion[] {
     const answerByQuestionId = new Map(
       existingAnswers.map((answer) => [answer.questionId, answer]),
     );
 
-    return (drafts ?? []).map((draft) => {
+    return (drafts ?? []).flatMap((draft) => {
       const questionId = buildClarificationQuestionId({
         goalId: draft.goalId ?? null,
         prompt: draft.prompt,
@@ -263,44 +454,65 @@ export class ActivityAnalysisV2Service {
         targetTableName: draft.targetTableName ?? null,
         targetColumnName: draft.targetColumnName ?? null,
       });
+
+      if (resolvedQuestionIds.has(questionId)) {
+        return [];
+      }
+
       const answered = answerByQuestionId.get(questionId) ?? null;
-      return {
-        id: questionId,
-        goalId: draft.goalId ?? null,
-        prompt: draft.prompt,
-        kind: draft.kind,
-        questionDomain: draft.questionDomain,
-        options: draft.options ?? null,
-        recommendedOption: draft.recommendedOption ?? null,
-        recommendedConfidence: draft.recommendedConfidence ?? null,
-        isBlocking: draft.isBlocking,
-        questionCode: draft.questionCode ?? null,
-        targetTableName: draft.targetTableName ?? null,
-        targetColumnName: draft.targetColumnName ?? null,
-        status: answered ? "answered" : "pending",
-        answeredValue: answered?.answeredValue ?? null,
-        answeredById: answered?.answeredById ?? null,
-        answeredAt: answered?.answeredAt.toISOString() ?? null,
-      };
+      return [
+        {
+          id: questionId,
+          goalId: draft.goalId ?? null,
+          prompt: draft.prompt,
+          kind: draft.kind,
+          questionDomain: draft.questionDomain,
+          options: draft.options ?? null,
+          recommendedOption: draft.recommendedOption ?? null,
+          recommendedConfidence: draft.recommendedConfidence ?? null,
+          isBlocking: draft.isBlocking,
+          questionCode: draft.questionCode ?? null,
+          targetTableName: draft.targetTableName ?? null,
+          targetColumnName: draft.targetColumnName ?? null,
+          status: answered ? ("answered" as const) : ("pending" as const),
+          answeredValue: answered?.answeredValue ?? null,
+          answeredById: answered?.answeredById ?? null,
+          answeredAt: answered?.answeredAt.toISOString() ?? null,
+        },
+      ];
+    });
+  }
+
+  private buildAutoResolvedPlannerClarificationAnswers(
+    drafts: ActivityAnalysisV2ClarificationQuestionDraft[],
+  ): PlannerClarificationAnswer[] {
+    return (drafts ?? []).flatMap((draft) => {
+      const recommendedOption = draft.recommendedOption?.trim();
+      if (
+        !recommendedOption ||
+        typeof draft.recommendedConfidence !== "number" ||
+        draft.recommendedConfidence <
+          PLANNER_CLARIFICATION_CONFIDENCE_THRESHOLD
+      ) {
+        return [];
+      }
+
+      return [
+        buildPlannerClarificationAnswer({
+          goalId: draft.goalId ?? null,
+          prompt: draft.prompt,
+          answeredValue: recommendedOption,
+          questionCode: draft.questionCode ?? null,
+          targetTableName: draft.targetTableName ?? null,
+          targetColumnName: draft.targetColumnName ?? null,
+        }),
+      ];
     });
   }
 
   private buildPlannerClarificationAnswers(
     activity: ActivityPersistenceRecord,
-  ): Array<{
-    questionId: string;
-    goalId: string | null;
-    prompt: string;
-    answeredValue: string;
-    questionCode:
-      | "normalization_merge"
-      | "row_grain"
-      | "duplicate_identifier_resolution"
-      | "primary_status_field"
-      | "positive_status_values"
-      | "primary_date_field"
-      | null;
-  }> {
+  ): PlannerClarificationAnswer[] {
     return (activity.activityAnalysisV2ClarificationAnswers ?? []).map(
       (answer) => ({
         questionId: answer.questionId,
@@ -308,8 +520,99 @@ export class ActivityAnalysisV2Service {
         prompt: answer.prompt,
         answeredValue: answer.answeredValue,
         questionCode: answer.questionCode ?? null,
+        targetTableName: answer.targetTableName ?? null,
+        targetColumnName: answer.targetColumnName ?? null,
       }),
     );
+  }
+
+  private async generateNarrativeTexts(input: {
+    activityId: string;
+    activityName: string;
+    language: "de" | "en";
+    assessment: NonNullable<ActivityAnalysisRunV2PersistenceRecord["assessment"]>;
+    calculations: ActivityAnalysisRunV2PersistenceRecord["calculations"];
+  }): Promise<{
+    renderedSummary: string;
+    recommendationText: string | null;
+  }> {
+    try {
+      const { recommendationPolicy, actionableLimitations } =
+        buildRecommendationPolicy(
+        input.assessment,
+      );
+      const response =
+        await this.pythonProcessingClient.generateActivityAnalysisV2Recommendation(
+          {
+            activityId: input.activityId,
+            activityName: input.activityName,
+            language: input.language,
+            recommendationPolicy,
+            goalAssessments: input.assessment.goalAssessments.map(
+              (goalAssessment) => ({
+                goalId: goalAssessment.goalId,
+                goalType: goalAssessment.goalType,
+                goalText: goalAssessment.goalText,
+                assessmentStatus: goalAssessment.assessmentStatus,
+                findingText: goalAssessment.findingText,
+                measuredValue: goalAssessment.measuredValue,
+                targetValue: goalAssessment.targetValue,
+                comparison: goalAssessment.comparison,
+                achieved: goalAssessment.achieved,
+              }),
+            ),
+            limitations: actionableLimitations,
+            calculations: input.calculations.map((calculation) => ({
+              calculationId: calculation.calculationId,
+              toolName: calculation.toolName,
+              label: calculation.label,
+              description: calculation.description,
+              value: calculation.value,
+              unit: calculation.unit,
+              sourceTableNames: calculation.sourceTableNames,
+              sourceColumns: calculation.sourceColumns,
+              grain: calculation.grain,
+              numerator: calculation.numerator ?? null,
+              denominator: calculation.denominator ?? null,
+              denominatorType: calculation.denominatorType,
+              identifierColumn: calculation.identifierColumn ?? null,
+              result: calculation.result,
+            })),
+          },
+        );
+      const renderedSummary = response.summaryText.trim();
+      const recommendationText = response.recommendationText.trim();
+      if (renderedSummary.length === 0) {
+        throw new AppError(
+          "The Python processing service returned an empty ActivityAnalystV2 summary.",
+          502,
+          "python_processing_activity_analysis_v2_summary_empty",
+        );
+      }
+      if (
+        recommendationPolicy === "required" &&
+        recommendationText.length === 0
+      ) {
+        throw new AppError(
+          "The Python processing service returned an empty ActivityAnalystV2 recommendation.",
+          502,
+          "python_processing_activity_analysis_v2_recommendation_empty",
+        );
+      }
+      return {
+        renderedSummary,
+        recommendationText: recommendationText.length > 0 ? recommendationText : null,
+      };
+    } catch (error) {
+      this.logger.warn(
+        {
+          activityId: input.activityId,
+          ...extractPlannerErrorLogContext(error),
+        },
+        "ActivityAnalystV2 narrative generation failed",
+      );
+      throw error;
+    }
   }
 
   /**
@@ -341,23 +644,18 @@ export class ActivityAnalysisV2Service {
   private buildGoals(activity: {
     output: string | null;
     outcome: string | null;
-  }): Array<{
-    goalId: string;
-    goalType: "output" | "outcome";
-    goalText: string;
-    targetNumber: number | null;
-  }> {
+  }): ActivityAnalysisV2GoalInput[] {
     const outputs = splitGoalText(activity.output).map((goalText, index) => ({
       goalId: `output_${index + 1}`,
       goalType: "output" as const,
       goalText,
-      targetNumber: extractGoalTargetNumber(goalText),
+      targetNumber: extractGoalTargetNumberForActivityAnalysisV2(goalText),
     }));
     const outcomes = splitGoalText(activity.outcome).map((goalText, index) => ({
       goalId: `outcome_${index + 1}`,
       goalType: "outcome" as const,
       goalText,
-      targetNumber: extractGoalTargetNumber(goalText),
+      targetNumber: extractGoalTargetNumberForActivityAnalysisV2(goalText),
     }));
     return [...outputs, ...outcomes];
   }
@@ -515,21 +813,79 @@ export class ActivityAnalysisV2Service {
     });
     const persistedClarificationAnswers =
       activity.activityAnalysisV2ClarificationAnswers ?? [];
+    let plannerClarificationAnswers = this.buildPlannerClarificationAnswers(
+      activity,
+    );
 
-    let plannerResponse: Awaited<
-      ReturnType<typeof this.pythonProcessingClient.planActivityAnalysisV2>
-    >;
-    try {
-      plannerResponse =
-        await this.pythonProcessingClient.planActivityAnalysisV2({
+    const planWithClarificationAnswers = async () =>
+      this.pythonProcessingClient.planActivityAnalysisV2({
           activityId: activity.id,
           activityName: activity.name,
           language,
           goals,
           evidenceTables,
-          clarificationAnswers: this.buildPlannerClarificationAnswers(activity),
+          clarificationAnswers: plannerClarificationAnswers,
           runLimits: PHASE_1_RUN_LIMITS,
         });
+
+    let plannerResponse: Awaited<
+      ReturnType<typeof this.pythonProcessingClient.planActivityAnalysisV2>
+    >;
+    // Tracks only the questions the backend actually merged into a replan
+    // this run, as opposed to every high-confidence question the planner
+    // ever surfaced. buildClarificationQuestions uses this — not
+    // recommendedConfidence — to decide what to hide from a human, so a
+    // question the loop gave up on (replan cap or time budget) still
+    // reaches the user instead of silently vanishing. See the comment on
+    // buildClarificationQuestions for why confidence alone isn't a safe
+    // signal that a question was actually resolved.
+    const autoResolvedQuestionIds = new Set<string>();
+    try {
+      plannerResponse = await planWithClarificationAnswers();
+      for (
+        let autoResolvedPass = 0;
+        autoResolvedPass < MAX_BACKEND_AUTO_CLARIFICATION_REPLANS;
+        autoResolvedPass += 1
+      ) {
+        const autoResolvedAnswers =
+          this.buildAutoResolvedPlannerClarificationAnswers(
+            plannerResponse.clarificationQuestions ?? [],
+          ).filter(
+            (answer) =>
+              !plannerClarificationAnswers.some(
+                (existing) => existing.questionId === answer.questionId,
+              ),
+          );
+
+        if (autoResolvedAnswers.length === 0) {
+          break;
+        }
+
+        // A replan call can itself take up to the Python service's full
+        // analytics timeout. Only attempt one if the run still has that
+        // much budget left — otherwise this would blow past
+        // PHASE_1_RUN_LIMITS.timeoutMs anyway, just later, after wasting
+        // another full call's worth of wall-clock time first. Falling
+        // through here leaves plannerResponse (and its unresolved
+        // clarification questions) as-is; the timeout check right after
+        // this loop still catches a genuine first-call overrun.
+        const remainingBudgetMs =
+          PHASE_1_RUN_LIMITS.timeoutMs - (Date.now() - runStartedAt);
+        if (
+          remainingBudgetMs <= this.pythonProcessingClient.analyticsTimeoutMs
+        ) {
+          break;
+        }
+
+        for (const answer of autoResolvedAnswers) {
+          autoResolvedQuestionIds.add(answer.questionId);
+        }
+        plannerClarificationAnswers = mergePlannerClarificationAnswers(
+          plannerClarificationAnswers,
+          autoResolvedAnswers,
+        );
+        plannerResponse = await planWithClarificationAnswers();
+      }
     } catch (error) {
       const failedValidation = {
         status: "failed" as const,
@@ -580,6 +936,7 @@ export class ActivityAnalysisV2Service {
           diagnostics,
           shadowComparison,
           renderedSummary: null,
+          recommendationText: null,
           validation: failedValidation,
           errorMessage:
             error instanceof Error
@@ -589,7 +946,7 @@ export class ActivityAnalysisV2Service {
         databaseSession,
       );
       this.logger.error(
-        { activityId: activity.id, error },
+        { activityId: activity.id, ...extractPlannerErrorLogContext(error) },
         "ActivityAnalystV2 planner call failed before a plan was produced",
       );
       return mapActivityAnalysisRunV2Record(failedRun);
@@ -598,6 +955,7 @@ export class ActivityAnalysisV2Service {
     const clarificationQuestions = this.buildClarificationQuestions(
       plannerResponse.clarificationQuestions ?? [],
       persistedClarificationAnswers,
+      autoResolvedQuestionIds,
     );
     const evidenceRecords = this.buildEvidenceSnapshotRecords(evidenceSnapshot);
 
@@ -648,6 +1006,7 @@ export class ActivityAnalysisV2Service {
           diagnostics,
           shadowComparison,
           renderedSummary: null,
+          recommendationText: null,
           validation: timeoutValidation,
           errorMessage: timeoutMessage,
         },
@@ -703,6 +1062,7 @@ export class ActivityAnalysisV2Service {
           diagnostics,
           shadowComparison,
           renderedSummary: null,
+          recommendationText: null,
           validation: plannerResponse.validation,
           errorMessage: "ActivityAnalystV2 planner returned an invalid plan.",
         },
@@ -767,6 +1127,7 @@ export class ActivityAnalysisV2Service {
           diagnostics,
           shadowComparison,
           renderedSummary: null,
+          recommendationText: null,
           validation: pausedValidation,
           errorMessage: null,
         },
@@ -806,6 +1167,13 @@ export class ActivityAnalysisV2Service {
         calculations: execution.calculations,
         limitations: plannerResponse.limitations,
       });
+      const narrative = await this.generateNarrativeTexts({
+        activityId: activity.id,
+        activityName: activity.name,
+        language,
+        assessment: assessmentResult.assessment,
+        calculations: execution.calculations,
+      });
       const diagnostics = buildActivityAnalysisV2Diagnostics({
         goals,
         evidenceCount: evidenceSnapshot.evidence.length,
@@ -813,14 +1181,14 @@ export class ActivityAnalysisV2Service {
         executedToolCallCount: execution.toolCallTrace.length,
         calculationCount: execution.calculations.length,
         validation: assessmentResult.validation,
-        renderedSummary: assessmentResult.renderedSummary,
+        renderedSummary: narrative.renderedSummary,
         assessment: assessmentResult.assessment,
       });
       const shadowComparison = buildActivityAnalysisV2ShadowComparison({
         hasOutcomeGoals: goals.some((goal) => goal.goalType === "outcome"),
         currentEvidenceCount: evidenceSnapshot.evidence.length,
         validation: assessmentResult.validation,
-        renderedSummary: assessmentResult.renderedSummary,
+        renderedSummary: narrative.renderedSummary,
         assessment: assessmentResult.assessment,
         v1Snapshot: activity.aiKnowledgeSnapshot ?? null,
       });
@@ -846,7 +1214,8 @@ export class ActivityAnalysisV2Service {
           assessment: assessmentResult.assessment,
           diagnostics,
           shadowComparison,
-          renderedSummary: assessmentResult.renderedSummary,
+          renderedSummary: narrative.renderedSummary,
+          recommendationText: narrative.recommendationText,
           validation: assessmentResult.validation,
           errorMessage: null,
         },
@@ -925,6 +1294,7 @@ export class ActivityAnalysisV2Service {
           diagnostics,
           shadowComparison,
           renderedSummary: null,
+          recommendationText: null,
           validation: failedValidation,
           errorMessage:
             error instanceof Error

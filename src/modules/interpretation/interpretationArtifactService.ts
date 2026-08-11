@@ -74,6 +74,10 @@ const interpretationQuestionCodes: readonly InterpretationQuestionCode[] = [
   "primary_date_field",
 ];
 
+const DEFERRED_TO_ACTIVITY_ANALYSIS_V2_QUESTION_CODES = new Set<
+  InterpretationQuestionCode
+>(["primary_status_field", "positive_status_values", "primary_date_field"]);
+
 const interpretationWarningSeverities: readonly InterpretationWarningSeverity[] =
   ["info", "warning"];
 
@@ -636,23 +640,40 @@ function mapQualitativeFindings(
 }
 
 function mapQuestions(value: unknown): InterpretationQuestionCreateInput[] {
-  return readRecordArray(value).map((entry) => ({
-    prompt: readString(entry.prompt, "Can you confirm this interpretation?"),
-    kind: readQuestionKind(entry.kind),
-    questionDomain: readQuestionDomain(entry.questionDomain),
-    options: Array.isArray(entry.options)
-      ? readStringArray(entry.options)
-      : null,
-    recommendedOption: readNullableString(entry.recommendedOption),
-    recommendedConfidence: readNullableNumber(entry.recommendedConfidence),
-    isBlocking: readBoolean(
-      entry.isBlocking,
-      readQuestionKind(entry.kind) !== "free_text",
-    ),
-    questionCode: readQuestionCode(entry.questionCode),
-    targetTableName: readNullableString(entry.targetTableName),
-    targetColumnName: readNullableString(entry.targetColumnName),
-  }));
+  return readRecordArray(value).flatMap((entry) => {
+    const questionCode = readQuestionCode(entry.questionCode);
+    if (
+      questionCode &&
+      DEFERRED_TO_ACTIVITY_ANALYSIS_V2_QUESTION_CODES.has(questionCode)
+    ) {
+      return [];
+    }
+
+    return [
+      {
+        prompt: readString(
+          entry.prompt,
+          "Can you confirm this interpretation?",
+        ),
+        kind: readQuestionKind(entry.kind),
+        questionDomain: readQuestionDomain(entry.questionDomain),
+        options: Array.isArray(entry.options)
+          ? readStringArray(entry.options)
+          : null,
+        recommendedOption: readNullableString(entry.recommendedOption),
+        recommendedConfidence: readNullableNumber(
+          entry.recommendedConfidence,
+        ),
+        isBlocking: readBoolean(
+          entry.isBlocking,
+          readQuestionKind(entry.kind) !== "free_text",
+        ),
+        questionCode,
+        targetTableName: readNullableString(entry.targetTableName),
+        targetColumnName: readNullableString(entry.targetColumnName),
+      },
+    ];
+  });
 }
 
 function mapWarnings(value: unknown): InterpretationWarningCreateInput[] {

@@ -75,6 +75,7 @@ test("a single compare_target result produces a grounded achieved/not_achieved v
   assert.equal(goalAssessment.measuredValue, 70);
   assert.equal(goalAssessment.targetValue, 65);
   assert.equal(result.validation.status, "passed");
+  assert.equal(result.renderedSummary, null);
 });
 
 test("two compare_target results for the same goal fail validation instead of silently using only the first", () => {
@@ -106,6 +107,7 @@ test("two compare_target results for the same goal fail validation instead of si
   assert.notEqual(goalAssessment.assessmentStatus, "not_achieved");
   assert.equal(goalAssessment.achieved, null);
   assert.equal(result.validation.status, "failed");
+  assert.equal(result.renderedSummary, null);
   assert.ok(
     result.validation.issues.some((issue) =>
       issue.includes("expected at most one"),

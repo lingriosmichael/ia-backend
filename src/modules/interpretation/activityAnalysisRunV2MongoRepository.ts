@@ -45,6 +45,7 @@ function toActivityAnalysisRunV2Record(
     shadowComparison:
       document.shadowComparison as ActivityAnalysisRunV2PersistenceRecord["shadowComparison"],
     renderedSummary: document.renderedSummary ?? null,
+    recommendationText: document.recommendationText ?? null,
     validation:
       document.validation as ActivityAnalysisRunV2PersistenceRecord["validation"],
     errorMessage: document.errorMessage ?? null,

@@ -6,6 +6,7 @@ import {
   analysisRunListQuerySchema,
   answerInterpretationQuestionSchema,
   idParamSchema,
+  linkageProposalDecisionSchema,
   startInterpretationSchema,
 } from "../../schemas/httpSchemas.js";
 import { ActivityAnalysisV2Service } from "./activityAnalysisV2Service.js";
@@ -189,6 +190,32 @@ export class InterpretationController {
       auth.userId,
       params.activityId!,
     );
+    return successResponse(response);
+  }
+
+  async getActivityLinkageReview(request: FastifyRequest) {
+    const auth = requireAuthenticatedUser(request);
+
+    const params = idParamSchema.parse(request.params);
+    const response = await this.interpretationService.getActivityLinkageReview(
+      auth.userId,
+      params.activityId!,
+    );
+    return successResponse(response);
+  }
+
+  async reviewActivityLinkageProposal(request: FastifyRequest) {
+    const auth = requireAuthenticatedUser(request);
+
+    const params = idParamSchema.parse(request.params);
+    const payload = linkageProposalDecisionSchema.parse(request.body);
+    const response =
+      await this.interpretationService.reviewActivityLinkageProposal(
+        auth.userId,
+        params.activityId!,
+        payload.proposalId,
+        payload.decision,
+      );
     return successResponse(response);
   }
 

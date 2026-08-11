@@ -94,6 +94,7 @@ test("upload create clears acknowledgment and invalidates project derived state 
       calls.push("clearAcknowledgment");
       assert.equal(input.interpretationAcknowledgedAt, null);
       assert.equal(input.interpretationAcknowledgedById, null);
+      assert.deepEqual(input.activityAnalysisV2ClarificationAnswers, []);
       return {
         id: "activity-1",
         projectId: "project-1",
@@ -107,6 +108,12 @@ test("upload create clears acknowledgment and invalidates project derived state 
     },
   } as unknown as ProjectDerivedStateInvalidationService;
 
+  const processingResourceCleanupService = {
+    deleteActivityAggregateStateByActivityId: async (activityId: string) => {
+      calls.push(`clearActivityAggregate:${activityId}`);
+    },
+  } as unknown as ProcessingResourceCleanupService;
+
   const service = new UploadMetadataService(
     uploadMetadataRepository,
     activityService,
@@ -119,7 +126,7 @@ test("upload create clears acknowledgment and invalidates project derived state 
     {} as TransactionManager,
     activityRepository,
     {} as ProcessingJobRepository,
-    {} as ProcessingResourceCleanupService,
+    processingResourceCleanupService,
     projectDerivedStateInvalidationService,
     { error: () => undefined } as never,
   );
@@ -133,6 +140,7 @@ test("upload create clears acknowledgment and invalidates project derived state 
   assert.deepEqual(calls, [
     "createUpload",
     "clearAcknowledgment",
+    "clearActivityAggregate:activity-1",
     "invalidate:project-1",
   ]);
 });
@@ -176,6 +184,7 @@ test("upload delete clears acknowledgment and invalidates project derived state 
       calls.push("clearAcknowledgment");
       assert.equal(input.interpretationAcknowledgedAt, null);
       assert.equal(input.interpretationAcknowledgedById, null);
+      assert.deepEqual(input.activityAnalysisV2ClarificationAnswers, []);
       return {
         id: "activity-1",
         projectId: "project-1",
@@ -197,6 +206,9 @@ test("upload delete clears acknowledgment and invalidates project derived state 
   } as unknown as ProcessingJobRepository;
 
   const processingResourceCleanupService = {
+    deleteActivityAggregateStateByActivityId: async (activityId: string) => {
+      calls.push(`clearActivityAggregate:${activityId}`);
+    },
     deleteByUploadMetadataId: async () => {
       calls.push("cleanupProcessing");
     },
@@ -241,8 +253,9 @@ test("upload delete clears acknowledgment and invalidates project derived state 
   assert.deepEqual(calls.slice(0, 3), [
     "beginTransaction",
     "clearAcknowledgment",
-    "invalidate:project-1",
+    "clearActivityAggregate:activity-1",
   ]);
+  assert.ok(calls.includes("invalidate:project-1"));
   assert.ok(calls.includes("cleanupProcessing"));
   assert.ok(calls.includes("deleteJobs"));
   assert.ok(calls.includes("deleteUpload"));
@@ -285,6 +298,7 @@ test("upload delete does not remove stored files when transactional cleanup fail
       deleteByUploadMetadataId: async () => 0,
     } as unknown as ProcessingJobRepository,
     {
+      deleteActivityAggregateStateByActivityId: async () => undefined,
       deleteByUploadMetadataId: async () => {
         throw new Error("cleanup failed");
       },
@@ -332,6 +346,7 @@ test("upload delete still succeeds when best-effort stored file cleanup fails", 
       deleteByUploadMetadataId: async () => 0,
     } as unknown as ProcessingJobRepository,
     {
+      deleteActivityAggregateStateByActivityId: async () => undefined,
       deleteByUploadMetadataId: async () => 0,
     } as unknown as ProcessingResourceCleanupService,
     {
@@ -638,6 +653,9 @@ test("cleanupDerivedWorkbookSheetUploads removes derived uploads, jobs, processi
       },
     } as unknown as ProcessingJobRepository,
     {
+      deleteActivityAggregateStateByActivityId: async (activityId: string) => {
+        calls.push(`clearActivityAggregate:${activityId}`);
+      },
       deleteByUploadMetadataId: async (uploadMetadataId: string) => {
         calls.push(`cleanupProcessing:${uploadMetadataId}`);
       },
@@ -660,6 +678,7 @@ test("cleanupDerivedWorkbookSheetUploads removes derived uploads, jobs, processi
   ]);
   assert.deepEqual(calls, [
     "beginTransaction",
+    "clearActivityAggregate:activity-1",
     "cleanupProcessing:derived-upload-1",
     "deleteJobs:derived-upload-1",
     "deleteUpload:derived-upload-1",

@@ -75,6 +75,16 @@ export const analysisRunListQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(50).optional(),
 });
 
+export const linkageProposalDecisionSchema = z.object({
+  // proposalId is a synthesized composite key (matchBasis + both columns'
+  // uploadMetadataId:tableName:columnName) with no fixed upper bound, so it
+  // travels in the body rather than the URL — as a path param it can exceed
+  // Fastify's default find-my-way maxParamLength (100 chars) and get
+  // rejected by the router before any handler or CORS header runs.
+  proposalId: z.string().min(1),
+  decision: z.enum(["accept", "reject"]),
+});
+
 export const registerSchema = z.object({
   fullName: z.string().trim().min(2).max(120),
   email: z.string().trim().email(),

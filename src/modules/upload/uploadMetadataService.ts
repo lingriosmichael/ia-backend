@@ -1,5 +1,6 @@
 import type { FastifyBaseLogger } from "fastify";
 import { databaseSession } from "../../shared/database/databaseClient.js";
+import type { DatabaseSession } from "../../shared/database/databaseClient.js";
 import { isMongoDuplicateKeyError } from "../../shared/database/mongoErrors.js";
 import type { TransactionManager } from "../../shared/database/transactionManager.js";
 import type { UploadMetadataRecord } from "../../shared/contracts.js";
@@ -40,6 +41,30 @@ export class UploadMetadataService {
     private readonly projectDerivedStateInvalidationService: ProjectDerivedStateInvalidationService,
     private readonly logger: FastifyBaseLogger,
   ) {}
+
+  private async invalidateActivityAggregateAnalysisState(input: {
+    activityId: string;
+    projectId: string;
+    session: DatabaseSession;
+  }) {
+    const clearedActivityState = await clearActivityAiKnowledgeStateIfPresent(
+      this.activityRepository,
+      input.activityId,
+      input.session,
+    );
+
+    await this.processingResourceCleanupService.deleteActivityAggregateStateByActivityId(
+      input.activityId,
+      input.session,
+    );
+
+    if (clearedActivityState.clearedAcknowledgment) {
+      await this.projectDerivedStateInvalidationService.invalidateProject(
+        input.projectId,
+        input.session,
+      );
+    }
+  }
 
   async listByActivity(userId: string, activityId: string) {
     await this.activityService.getById(userId, activityId);
@@ -189,18 +214,11 @@ export class UploadMetadataService {
     }
 
     if (activityId && activityWithAuthorizationContext) {
-      const clearedActivityState = await clearActivityAiKnowledgeStateIfPresent(
-        this.activityRepository,
+      await this.invalidateActivityAggregateAnalysisState({
         activityId,
-        databaseSession,
-      );
-
-      if (clearedActivityState.clearedAcknowledgment) {
-        await this.projectDerivedStateInvalidationService.invalidateProject(
-          authorizedProject.id,
-          databaseSession,
-        );
-      }
+        projectId: authorizedProject.id,
+        session: databaseSession,
+      });
     }
 
     return this.mapRecordWithUploaderName(record);
@@ -319,19 +337,11 @@ export class UploadMetadataService {
             session,
           );
 
-          const clearedActivityState =
-            await clearActivityAiKnowledgeStateIfPresent(
-              this.activityRepository,
-              sourceActivityId,
-              session,
-            );
-
-          if (clearedActivityState.clearedAcknowledgment) {
-            await this.projectDerivedStateInvalidationService.invalidateProject(
-              sourceWorkbookUpload.projectId,
-              session,
-            );
-          }
+          await this.invalidateActivityAggregateAnalysisState({
+            activityId: sourceActivityId,
+            projectId: sourceWorkbookUpload.projectId,
+            session,
+          });
 
           return {
             record: uploadedRecord,
@@ -489,26 +499,11 @@ export class UploadMetadataService {
 
     await this.transactionManager.runInTransaction(async (session) => {
       if (record.activityId) {
-        const activity = await this.activityRepository.findById(
-          record.activityId,
+        await this.invalidateActivityAggregateAnalysisState({
+          activityId: record.activityId,
+          projectId: record.projectId,
           session,
-        );
-
-        if (activity) {
-          const clearedActivityState =
-            await clearActivityAiKnowledgeStateIfPresent(
-              this.activityRepository,
-              record.activityId,
-              session,
-            );
-
-          if (clearedActivityState.clearedAcknowledgment) {
-            await this.projectDerivedStateInvalidationService.invalidateProject(
-              record.projectId,
-              session,
-            );
-          }
-        }
+        });
       }
 
       await this.processingResourceCleanupService.deleteByUploadMetadataId(
@@ -604,26 +599,11 @@ export class UploadMetadataService {
 
     await this.transactionManager.runInTransaction(async (session) => {
       if (firstDerivedUpload.activityId) {
-        const activity = await this.activityRepository.findById(
-          firstDerivedUpload.activityId,
+        await this.invalidateActivityAggregateAnalysisState({
+          activityId: firstDerivedUpload.activityId,
+          projectId: firstDerivedUpload.projectId,
           session,
-        );
-
-        if (activity) {
-          const clearedActivityState =
-            await clearActivityAiKnowledgeStateIfPresent(
-              this.activityRepository,
-              firstDerivedUpload.activityId,
-              session,
-            );
-
-          if (clearedActivityState.clearedAcknowledgment) {
-            await this.projectDerivedStateInvalidationService.invalidateProject(
-              firstDerivedUpload.projectId,
-              session,
-            );
-          }
-        }
+        });
       }
 
       for (const derivedUpload of derivedUploads) {

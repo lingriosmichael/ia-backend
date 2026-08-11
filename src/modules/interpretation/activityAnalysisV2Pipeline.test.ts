@@ -117,6 +117,10 @@ function createFixture(options: {
   plannerResponse: Awaited<
     ReturnType<PythonProcessingClient["planActivityAnalysisV2"]>
   >;
+  narrativeResponse?: {
+    summaryText: string;
+    recommendationText: string;
+  };
 }) {
   const uploadRecords = options.uploads.map((upload) => ({
     id: upload.id,
@@ -207,6 +211,7 @@ function createFixture(options: {
         diagnostics: input.diagnostics,
         shadowComparison: input.shadowComparison,
         renderedSummary: input.renderedSummary,
+        recommendationText: input.recommendationText,
         validation: input.validation,
         errorMessage: input.errorMessage,
         createdAt: NOW,
@@ -283,6 +288,15 @@ function createFixture(options: {
       plannerInputs.push(input);
       return options.plannerResponse;
     },
+    generateActivityAnalysisV2Recommendation: async () => ({
+      summaryText:
+        options.narrativeResponse?.summaryText ??
+        "Die aktuelle Evidenz zeigt, dass die Aktivität anhand der verfügbaren Daten nachvollziehbar eingeordnet werden kann.",
+      recommendationText:
+        options.narrativeResponse?.recommendationText ??
+        "Die offenen Fälle sollten gezielt geklärt werden, damit die Aktivität auf belastbarer Evidenz weitergeführt werden kann.",
+      llmUsage: null,
+    }),
   } as unknown as PythonProcessingClient;
 
   const logger = {
@@ -363,6 +377,12 @@ test("full V2 pipeline counts recruitment applications from the real recruitment
     activityOutput:
       "Mindestens 70 Bewerbungen von interessierten Mentor:innen sammeln",
     activityOutcome: null,
+    narrativeResponse: {
+      summaryText:
+        "Die aktuelle Evidenz zeigt, dass das Bewerbungsziel erreicht wurde.",
+      recommendationText:
+        "Die Auswahlentscheidungen sollten jetzt auf die noch offenen und bedingten Fälle fokussiert werden.",
+    },
     plannerResponse: {
       goalPlans: [
         {
@@ -444,7 +464,7 @@ test("full V2 pipeline counts recruitment applications from the real recruitment
   );
   assert.equal(
     record.renderedSummary,
-    "Ergebnisse\n\nMindestens 70 Bewerbungen von interessierten Mentor:innen sammeln: Gemessener Wert 75 bei Ziel 70. Dieses Ziel ist erreicht.",
+    "Die aktuelle Evidenz zeigt, dass das Bewerbungsziel erreicht wurde.",
   );
   assert.equal(record.renderedSummary?.includes("Wirkung"), false);
   assert.equal(fixture.createdRuns.length, 1);
@@ -546,6 +566,12 @@ test("full V2 pipeline uses the real training fixtures for cross-file cohort cal
       "Mindestens 80 % der Teilnehmenden nehmen an beiden Schulungstagen teil",
     activityOutcome:
       "Die Mentor:innen fühlen sich nach der Schulung sicher genug für den Programmstart",
+    narrativeResponse: {
+      summaryText:
+        "Die Teilnahmequote liegt über dem Ziel. Für die angestrebte Wirkung fehlen in diesem Fixture jedoch belastbare Kompetenz- oder Sicherheitsindikatoren.",
+      recommendationText:
+        "Für die Wirkungsbewertung sollten zusätzlich belastbare Kompetenz- oder Sicherheitsnachweise erhoben werden.",
+    },
     plannerResponse: {
       goalPlans: [
         {
@@ -672,7 +698,7 @@ test("full V2 pipeline uses the real training fixtures for cross-file cohort cal
   );
   assert.equal(
     record.renderedSummary,
-    "Ergebnisse\n\nMindestens 80 % der Teilnehmenden nehmen an beiden Schulungstagen teil: Gemessener Wert 0,85 bei Ziel 0,8. Dieses Ziel ist erreicht.\n\nWirkung\n\nDie Mentor:innen fühlen sich nach der Schulung sicher genug für den Programmstart: Für dieses Ziel ist noch keine belastbare deterministische Bewertung möglich. In diesem Fixture liegen nur Anwesenheitsdaten vor, keine belastbaren Kompetenz- oder Sicherheitsindikatoren.",
+    "Die Teilnahmequote liegt über dem Ziel. Für die angestrebte Wirkung fehlen in diesem Fixture jedoch belastbare Kompetenz- oder Sicherheitsindikatoren.",
   );
 });
 

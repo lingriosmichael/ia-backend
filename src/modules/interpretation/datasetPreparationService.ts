@@ -23,9 +23,6 @@ const PREPARATION_QUESTION_CODES = new Set<InterpretationQuestionCode>([
   "normalization_merge",
   "row_grain",
   "duplicate_identifier_resolution",
-  "primary_status_field",
-  "positive_status_values",
-  "primary_date_field",
 ]);
 
 function isPreparationQuestionCode(

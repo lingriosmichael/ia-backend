@@ -56,6 +56,7 @@ export interface ActivityAnalysisRunV2PersistenceRecord {
   diagnostics: ActivityAnalysisV2Diagnostics;
   shadowComparison: ActivityAnalysisV2ShadowComparison;
   renderedSummary: string | null;
+  recommendationText: string | null;
   validation: ActivityAnalysisRunV2ValidationPersistenceRecord;
   errorMessage: string | null;
   createdAt: Date;
@@ -79,6 +80,7 @@ export interface ActivityAnalysisRunV2CreateInput {
   diagnostics: ActivityAnalysisV2Diagnostics;
   shadowComparison: ActivityAnalysisV2ShadowComparison;
   renderedSummary: string | null;
+  recommendationText: string | null;
   validation: ActivityAnalysisRunV2ValidationPersistenceRecord;
   errorMessage: string | null;
 }

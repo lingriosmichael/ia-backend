@@ -22,6 +22,7 @@ import {
   disconnectMongoDatabase,
 } from "./shared/database/mongoose.js";
 import { registerErrorHandler } from "./shared/errors/errorHandler.js";
+import { isAllowedOrigin } from "./shared/http/originMatching.js";
 
 export async function buildApp(config: BackendConfig) {
   const isProduction = process.env.NODE_ENV === "production";
@@ -153,8 +154,20 @@ export async function buildApp(config: BackendConfig) {
   });
 
   await app.register(cors, {
-    origin: config.CORS_ORIGIN,
+    origin: (origin, callback) => {
+      if (!origin) {
+        callback(null, true);
+        return;
+      }
+
+      callback(null, isAllowedOrigin(origin, config));
+    },
     credentials: true,
+    // The linkage-review decision flow uses PATCH. Fastify CORS defaults are
+    // narrower than this app's actual REST surface, which can leave the
+    // browser stopping after a successful preflight OPTIONS without sending
+    // the real mutation request.
+    methods: ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
   });
 
   await app.register(multipart, {

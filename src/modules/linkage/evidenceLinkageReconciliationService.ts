@@ -1,6 +1,11 @@
 import { databaseSession } from "../../shared/database/databaseClient.js";
 import type { FastifyBaseLogger } from "fastify";
-import type { ActivityEvidenceLinkageGroup } from "../../shared/contracts.js";
+import { AppError } from "../../shared/errors/appError.js";
+import type {
+  ActivityEvidenceLinkageGroup,
+  ActivityEvidenceLinkageProposalDecision,
+  ActivityEvidenceLinkageProposalRecord,
+} from "../../shared/contracts.js";
 import type { UploadMetadataRepository } from "../upload/uploadMetadataRepository.js";
 import type { InterpretationResultRepository } from "../interpretation/interpretationResultRepository.js";
 import type { DatasetPreparationRepository } from "../interpretation/datasetPreparationRepository.js";
@@ -8,14 +13,52 @@ import type { PrivacySafeRepresentationRepository } from "../processing/privacyS
 import type { ActivityRepository } from "../activity/activityRepository.js";
 import type { PythonProcessingClient } from "../processing/pythonProcessingClient.js";
 import { loadLinkageEvidenceTablesForActivity } from "./linkageEvidenceLoader.js";
-import { computeLinkageCandidates } from "./linkageCandidateMatcher.js";
+import {
+  computeLinkageCandidates,
+  type LinkageCandidate,
+} from "./linkageCandidateMatcher.js";
 import { reconcileEvidenceLinkageGroups } from "./linkageEntityReconciler.js";
 import {
   buildConcernTaggingEntitiesForGroup,
   applyConcernTaggingResults,
 } from "./linkageConcernTagging.js";
 import type { ActivityEvidenceLinkageResultRepository } from "./activityEvidenceLinkageResultRepository.js";
-import type { ActivityEvidenceLinkageResultPersistenceRecord } from "./activityEvidenceLinkageResultPersistence.js";
+import type {
+  ActivityEvidenceLinkageProposalDecisionPersistenceRecord,
+  ActivityEvidenceLinkageResultPersistenceRecord,
+} from "./activityEvidenceLinkageResultPersistence.js";
+
+function getProposalId(candidate: LinkageCandidate): string {
+  const left = [
+    candidate.columnA.uploadMetadataId,
+    candidate.columnA.tableName,
+    candidate.columnA.columnName,
+  ].join(":");
+  const right = [
+    candidate.columnB.uploadMetadataId,
+    candidate.columnB.tableName,
+    candidate.columnB.columnName,
+  ].join(":");
+  const [first, second] = [left, right].sort((a, b) => a.localeCompare(b));
+  return `${candidate.matchBasis}|${first}|${second}`;
+}
+
+function toProposalRecord(
+  candidate: LinkageCandidate,
+): ActivityEvidenceLinkageProposalRecord {
+  return {
+    proposalId: getProposalId(candidate),
+    uploadMetadataIdA: candidate.columnA.uploadMetadataId,
+    uploadMetadataIdB: candidate.columnB.uploadMetadataId,
+    tableNameA: candidate.columnA.tableName,
+    tableNameB: candidate.columnB.tableName,
+    columnNameA: candidate.columnA.columnName,
+    columnNameB: candidate.columnB.columnName,
+    matchBasis: candidate.matchBasis,
+    confidence: candidate.confidence,
+    overlapRatio: candidate.overlapRatio,
+  };
+}
 
 /**
  * Builds and persists the joined entity table for an activity (§4 Tier
@@ -67,6 +110,11 @@ export class EvidenceLinkageReconciliationService {
       return null;
     }
 
+    const existingResult =
+      await this.activityEvidenceLinkageResultRepository.findByActivityId(
+        activityId,
+        databaseSession,
+      );
     const candidates = computeLinkageCandidates(tables);
     this.logger.info(
       { activityId, tableCount: tables.length, candidates },
@@ -75,7 +123,38 @@ export class EvidenceLinkageReconciliationService {
         : "evidence linkage: no candidate join columns found between any pair of uploads",
     );
 
-    const groups = reconcileEvidenceLinkageGroups(tables, candidates);
+    const currentWeakProposalIds = new Set(
+      candidates
+        .filter((candidate) => candidate.matchBasis === "name_like_column")
+        .map(getProposalId),
+    );
+    const proposalDecisions = (existingResult?.proposalDecisions ?? []).filter(
+      (decision) => currentWeakProposalIds.has(decision.proposalId),
+    );
+    const decisionByProposalId = new Map(
+      proposalDecisions.map((decision) => [decision.proposalId, decision]),
+    );
+    const autoCandidates = candidates.filter(
+      (candidate) => candidate.matchBasis === "identifier_column",
+    );
+    const acceptedWeakCandidates = candidates.filter(
+      (candidate) =>
+        candidate.matchBasis === "name_like_column" &&
+        decisionByProposalId.get(getProposalId(candidate))?.decision ===
+          "accept",
+    );
+    const pendingProposals = candidates
+      .filter(
+        (candidate) =>
+          candidate.matchBasis === "name_like_column" &&
+          !decisionByProposalId.has(getProposalId(candidate)),
+      )
+      .map(toProposalRecord);
+
+    const groups = reconcileEvidenceLinkageGroups(tables, [
+      ...autoCandidates,
+      ...acceptedWeakCandidates,
+    ]);
     const taggedGroups = await this.applyConcernTaggingIfConfigured(
       activityId,
       groups,
@@ -83,14 +162,24 @@ export class EvidenceLinkageReconciliationService {
 
     const result =
       await this.activityEvidenceLinkageResultRepository.upsertByActivityId(
-        { organizationId, projectId, activityId, groups: taggedGroups },
+        {
+          organizationId,
+          projectId,
+          activityId,
+          status: pendingProposals.length > 0 ? "needs_review" : "resolved",
+          groups: taggedGroups,
+          proposals: pendingProposals,
+          proposalDecisions,
+        },
         databaseSession,
       );
 
     this.logger.info(
       {
         activityId,
+        status: result.status,
         groupCount: taggedGroups.length,
+        pendingProposalCount: pendingProposals.length,
         entityCount: taggedGroups.reduce(
           (sum, group) => sum + group.entities.length,
           0,
@@ -109,6 +198,64 @@ export class EvidenceLinkageReconciliationService {
     );
 
     return result;
+  }
+
+  async reviewProposal(
+    activityId: string,
+    proposalId: string,
+    decision: ActivityEvidenceLinkageProposalDecision,
+  ): Promise<ActivityEvidenceLinkageResultPersistenceRecord> {
+    const current =
+      (await this.activityEvidenceLinkageResultRepository.findByActivityId(
+        activityId,
+        databaseSession,
+      )) ?? (await this.reconcileForActivity(activityId));
+
+    if (!current) {
+      throw new AppError(
+        "There is no linkage review available for this activity.",
+        404,
+        "activity_linkage_review_not_found",
+      );
+    }
+
+    const proposal = current.proposals.find(
+      (entry) => entry.proposalId === proposalId,
+    );
+    if (!proposal) {
+      throw new AppError(
+        "This linkage proposal was not found or has already been resolved.",
+        404,
+        "activity_linkage_proposal_not_found",
+      );
+    }
+
+    const nextProposalDecisions: ActivityEvidenceLinkageProposalDecisionPersistenceRecord[] =
+      [
+        ...current.proposalDecisions.filter(
+          (entry) => entry.proposalId !== proposalId,
+        ),
+        {
+          proposalId,
+          decision,
+          decidedAt: new Date(),
+        },
+      ];
+
+    await this.activityEvidenceLinkageResultRepository.upsertByActivityId(
+      {
+        organizationId: current.organizationId,
+        projectId: current.projectId,
+        activityId: current.activityId,
+        status: current.status,
+        groups: current.groups,
+        proposals: current.proposals,
+        proposalDecisions: nextProposalDecisions,
+      },
+      databaseSession,
+    );
+
+    return (await this.reconcileForActivity(activityId)) as ActivityEvidenceLinkageResultPersistenceRecord;
   }
 
   // Opt-in: an activity with no concernTaggingInstruction never calls the

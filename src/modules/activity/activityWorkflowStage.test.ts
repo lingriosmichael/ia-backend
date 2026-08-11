@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { computeActivityWorkflowStage } from "./activityWorkflowStage.js";
 import type { ActivityWorkflowStageInput } from "./activityWorkflowStage.js";
+import type { InterpretationQuestionCode } from "../../shared/contracts.js";
 
 const NOW = new Date("2026-01-01T00:00:00.000Z");
 const EARLIER = new Date("2025-12-01T00:00:00.000Z");
@@ -25,6 +26,7 @@ function makeResult(
       isBlocking?: boolean | null;
       kind: "single_choice" | "free_text" | "merge_confirmation";
       status: "pending" | "answered";
+      questionCode?: InterpretationQuestionCode | null;
     }>;
   }> = {},
 ) {
@@ -134,6 +136,26 @@ test("a non-blocking pending question does not trigger needs_clarification", () 
         makeResult({
           questions: [
             { isBlocking: false, kind: "free_text", status: "pending" },
+          ],
+        }),
+      ],
+    }),
+  );
+  assert.notEqual(stage, "needs_clarification");
+});
+
+test("a pending goal-grounding question does not block the interpretation workflow stage", () => {
+  const stage = computeActivityWorkflowStage(
+    makeInput({
+      results: [
+        makeResult({
+          questions: [
+            {
+              isBlocking: true,
+              kind: "free_text",
+              status: "pending",
+              questionCode: "positive_status_values",
+            },
           ],
         }),
       ],

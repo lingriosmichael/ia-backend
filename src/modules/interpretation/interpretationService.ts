@@ -8,6 +8,8 @@ import {
   mapProcessingJob,
 } from "../../shared/utils/mappers.js";
 import type {
+  ActivityEvidenceLinkageProposalDecision,
+  ActivityEvidenceLinkageResultRecord,
   ActivitySummary,
   ActivityWorkflowStageRecord,
   ProjectInterpretationOverview,
@@ -71,6 +73,30 @@ function getLatestJobByUploadMetadataId(
   }
 
   return latestJobByUploadId;
+}
+
+function mapActivityEvidenceLinkageResult(
+  record: import("../linkage/activityEvidenceLinkageResultPersistence.js").ActivityEvidenceLinkageResultPersistenceRecord | null,
+): ActivityEvidenceLinkageResultRecord | null {
+  if (!record) {
+    return null;
+  }
+
+  return {
+    id: record.id,
+    organizationId: record.organizationId,
+    projectId: record.projectId,
+    activityId: record.activityId,
+    status: record.status,
+    groups: record.groups,
+    proposals: record.proposals,
+    proposalDecisions: record.proposalDecisions.map((decision) => ({
+      ...decision,
+      decidedAt: decision.decidedAt.toISOString(),
+    })),
+    createdAt: record.createdAt.toISOString(),
+    updatedAt: record.updatedAt.toISOString(),
+  };
 }
 
 export class InterpretationService {
@@ -478,10 +504,43 @@ export class InterpretationService {
       uploadIds: uploads.map((upload) => upload.id),
       jobs,
       results,
-      hasLinkageResultIfApplicable: linkageResult !== null,
+      hasLinkageResultIfApplicable: linkageResult?.status === "resolved",
     });
 
     return { activityId, stage };
+  }
+
+  async getActivityLinkageReview(
+    userId: string,
+    activityId: string,
+  ): Promise<ActivityEvidenceLinkageResultRecord | null> {
+    await this.authorizationService.canViewActivity(userId, activityId);
+    const record =
+      await this.evidenceLinkageReconciliationService.reconcileForActivity(
+        activityId,
+      );
+    return mapActivityEvidenceLinkageResult(record);
+  }
+
+  async reviewActivityLinkageProposal(
+    userId: string,
+    activityId: string,
+    proposalId: string,
+    decision: ActivityEvidenceLinkageProposalDecision,
+  ): Promise<ActivityEvidenceLinkageResultRecord> {
+    const { activity } = await this.authorizationService.canEditActivity(
+      userId,
+      activityId,
+    );
+    const record = await this.evidenceLinkageReconciliationService.reviewProposal(
+      activity.id,
+      proposalId,
+      decision,
+    );
+
+    return mapActivityEvidenceLinkageResult(
+      record,
+    ) as ActivityEvidenceLinkageResultRecord;
   }
 
   async getById(userId: string, interpretationResultId: string) {

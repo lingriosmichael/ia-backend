@@ -29,15 +29,24 @@ export function registerErrorHandler(app: FastifyInstance) {
       // (bad login, not found, validation) but still worth a server-side
       // trace — a spike of failed logins or forbidden-access attempts
       // should be visible, not silent just because the client, not the
-      // server, was "at fault".
+      // server, was "at fault". The one exception is the analysis-v2
+      // bootstrap read: the webapp intentionally probes for an existing run
+      // before the user starts the pipeline, so that 404 is normal empty
+      // state, not an operational signal.
       const logPayload = {
         method: request.method,
         url: request.url,
         statusCode: error.statusCode,
         code: error.code,
       };
+      const isExpectedLatestActivityAnalysisMiss =
+        error.code === "activity_analysis_v2_not_found" &&
+        request.method === "GET" &&
+        /\/activities\/[^/]+\/analysis-v2$/.test(request.url);
       if (error.statusCode >= 500) {
         request.log.error({ ...logPayload, err: error }, "AppError");
+      } else if (isExpectedLatestActivityAnalysisMiss) {
+        // Intentionally silent: the frontend treats this as "no run yet".
       } else {
         request.log.warn(logPayload, "AppError");
       }

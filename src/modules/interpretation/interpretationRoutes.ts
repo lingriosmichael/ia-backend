@@ -108,6 +108,21 @@ export async function registerInterpretationRoutes(
   );
 
   app.get(
+    "/activities/:activityId/linkage-review",
+    { preHandler: authenticate },
+    controller.getActivityLinkageReview.bind(controller),
+  );
+
+  // proposalId is passed in the body, not the URL, because it's a
+  // synthesized composite key with no fixed length cap — see the comment
+  // on linkageProposalDecisionSchema.
+  app.post(
+    "/activities/:activityId/linkage-review/decisions",
+    { preHandler: authenticate },
+    controller.reviewActivityLinkageProposal.bind(controller),
+  );
+
+  app.get(
     "/interpretations/:interpretationResultId",
     { preHandler: authenticate },
     controller.getById.bind(controller),

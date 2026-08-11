@@ -208,12 +208,12 @@ test("syncs quantitative preparation answers into a persisted preparation artifa
 
   const quantitativeInput = requireCapturedInput(capturedInput);
   assert.equal(quantitativeInput.status, "awaiting_answers");
-  assert.equal(quantitativeInput.blockingQuestionCount, 3);
-  assert.equal(quantitativeInput.answeredBlockingQuestionCount, 2);
+  assert.equal(quantitativeInput.blockingQuestionCount, 2);
+  assert.equal(quantitativeInput.answeredBlockingQuestionCount, 1);
   assert.deepEqual(quantitativeInput.unansweredBlockingQuestionIds, [
     "question-3",
   ]);
-  assert.equal(quantitativeInput.decisions.length, 2);
+  assert.equal(quantitativeInput.decisions.length, 1);
   assert.equal(
     quantitativeInput.decisionSummary.rowGrains[0]?.tableName,
     "attendance",
@@ -238,7 +238,7 @@ test("syncs quantitative preparation answers into a persisted preparation artifa
     quantitativeInput.preparedDataset.tables[0]?.columns.find(
       (column) => column.name === "status",
     )?.positiveStatusValues,
-    ["completed"],
+    [],
   );
 });
 

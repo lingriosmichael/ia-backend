@@ -1183,6 +1183,29 @@ export interface LinkageCoverageDiffRecord {
   entityKeysOnlyInB: string[];
 }
 
+export type ActivityEvidenceLinkageStatus = "needs_review" | "resolved";
+
+export type ActivityEvidenceLinkageProposalDecision = "accept" | "reject";
+
+export interface ActivityEvidenceLinkageProposalRecord {
+  proposalId: string;
+  uploadMetadataIdA: string;
+  uploadMetadataIdB: string;
+  tableNameA: string;
+  tableNameB: string;
+  columnNameA: string;
+  columnNameB: string;
+  matchBasis: "identifier_column" | "name_like_column";
+  confidence: "high" | "medium";
+  overlapRatio: number;
+}
+
+export interface ActivityEvidenceLinkageProposalDecisionRecord {
+  proposalId: string;
+  decision: ActivityEvidenceLinkageProposalDecision;
+  decidedAt: string;
+}
+
 export interface LinkagePositiveStatusFieldDefinition {
   fieldName: string;
   positiveStatusValues: string[];
@@ -1206,7 +1229,10 @@ export interface ActivityEvidenceLinkageResultRecord {
   organizationId: string;
   projectId: string;
   activityId: string;
+  status: ActivityEvidenceLinkageStatus;
   groups: ActivityEvidenceLinkageGroup[];
+  proposals: ActivityEvidenceLinkageProposalRecord[];
+  proposalDecisions: ActivityEvidenceLinkageProposalDecisionRecord[];
   createdAt: string;
   updatedAt: string;
 }
@@ -1533,6 +1559,7 @@ export interface ActivityAnalysisRunV2Record {
   cutoverReadiness: ActivityAnalysisV2CutoverReadiness;
   validation: ActivityAnalysisRunV2Validation;
   renderedSummary: string | null;
+  recommendationText: string | null;
   errorMessage: string | null;
   createdAt: string;
   updatedAt: string;

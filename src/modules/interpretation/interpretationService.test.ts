@@ -830,6 +830,109 @@ test("getActivityWorkflowStage reports goal_review for a fully-interpreted multi
   assert.deepEqual(record, { activityId: "activity-1", stage: "goal_review" });
 });
 
+test("getActivityWorkflowStage keeps a multi-upload activity in goal_review while weak linkage proposals are still pending", async () => {
+  const deps = createDependencies({
+    buildForProject: async () => ({}),
+    activities: [
+      {
+        id: "activity-1",
+        projectId: "project-1",
+        name: "Activity",
+        objectives: "prepare mentors",
+        output: "Two orientation sessions run",
+        outcome: "strong attendance",
+        interpretationAcknowledgedAt: null,
+        aiKnowledgeSnapshot: null,
+      },
+    ],
+    uploads: [
+      {
+        id: "upload-1",
+        organizationId: "org-1",
+        projectId: "project-1",
+        activityId: "activity-1",
+        originalFileName: "upload-1.csv",
+      },
+      {
+        id: "upload-2",
+        organizationId: "org-1",
+        projectId: "project-1",
+        activityId: "activity-1",
+        originalFileName: "upload-2.csv",
+      },
+    ],
+    results: [
+      {
+        id: "result-1",
+        uploadMetadataId: "upload-1",
+        activityId: "activity-1",
+        updatedAt: NOW,
+        qualitativeFindings: [],
+        goalAlignment: [],
+        indicators: [],
+      },
+      {
+        id: "result-2",
+        uploadMetadataId: "upload-2",
+        activityId: "activity-1",
+        updatedAt: NOW,
+        qualitativeFindings: [],
+        goalAlignment: [],
+        indicators: [],
+      },
+    ],
+  });
+
+  deps.activityEvidenceLinkageResultRepository.findByActivityId = async () =>
+    ({
+      id: "linkage-1",
+      organizationId: "org-1",
+      projectId: "project-1",
+      activityId: "activity-1",
+      status: "needs_review",
+      groups: [],
+      proposals: [
+        {
+          proposalId: "name_like_column|upload-1:table:schule|upload-2:table:schule",
+          uploadMetadataIdA: "upload-1",
+          uploadMetadataIdB: "upload-2",
+          tableNameA: "table",
+          tableNameB: "table",
+          columnNameA: "schule",
+          columnNameB: "schule",
+          matchBasis: "name_like_column",
+          confidence: "medium",
+          overlapRatio: 1,
+        },
+      ],
+      proposalDecisions: [],
+      createdAt: NOW,
+      updatedAt: NOW,
+    }) as never;
+
+  const service = new InterpretationService(
+    deps.uploadMetadataRepository,
+    deps.privacySafeRepresentationRepository,
+    deps.interpretationResultRepository,
+    deps.processingJobRepository,
+    deps.activityRepository,
+    deps.authorizationService,
+    deps.pythonProcessingClient,
+    deps.logger,
+    deps.datasetPreparationService,
+    deps.deterministicAnalysisService,
+    deps.quantitativeInterpretationSynthesisService,
+    deps.projectKnowledgeBuilderService,
+    deps.projectLlmTokenLedgerService,
+    deps.evidenceLinkageReconciliationService,
+    deps.activityEvidenceLinkageResultRepository,
+  );
+
+  const record = await service.getActivityWorkflowStage("user-1", "activity-1");
+
+  assert.deepEqual(record, { activityId: "activity-1", stage: "goal_review" });
+});
+
 test("getActivityWorkflowStage reports no_evidence without querying jobs or results", async () => {
   const deps = createDependencies({
     buildForProject: async () => ({}),

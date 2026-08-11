@@ -3,6 +3,7 @@ import { AppError } from "../errors/appError.js";
 import { AuthService } from "../../modules/auth/authService.js";
 import type { BackendConfig } from "../config/env.js";
 import { readSessionCookieToken } from "./sessionCookie.js";
+import { isAllowedOrigin } from "../http/originMatching.js";
 
 type AuthenticationToken = {
   value: string;
@@ -65,7 +66,7 @@ function assertSameOriginForCookieAuth(
     return;
   }
 
-  if (requestOrigin(request) !== config.CORS_ORIGIN) {
+  if (!isAllowedOrigin(requestOrigin(request), config)) {
     throw new AppError(
       "Cross-site request rejected.",
       403,

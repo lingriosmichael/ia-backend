@@ -175,6 +175,7 @@ function makeIdentifierRows(ids: string[]): Record<string, unknown>[] {
 
 interface UpsertCapture {
   input: ActivityEvidenceLinkageResultUpsertInput | null;
+  record: ActivityEvidenceLinkageResultPersistenceRecord | null;
   deletedActivityIds: string[];
 }
 
@@ -195,7 +196,12 @@ function makeService(options: {
 }) {
   const capture: UpsertCapture & {
     concernTaggingRequests: unknown[];
-  } = { input: null, deletedActivityIds: [], concernTaggingRequests: [] };
+  } = {
+    input: null,
+    record: null,
+    deletedActivityIds: [],
+    concernTaggingRequests: [],
+  };
 
   const uploadMetadataRepository = {
     listByActivityIds: async () => options.uploadIds.map(makeUpload),
@@ -219,15 +225,18 @@ function makeService(options: {
       input: ActivityEvidenceLinkageResultUpsertInput,
     ) => {
       capture.input = input;
-      return {
+      capture.record = {
         id: "linkage-result-1",
         ...input,
         createdAt: NOW,
         updatedAt: NOW,
       } as ActivityEvidenceLinkageResultPersistenceRecord;
+      return capture.record;
     },
+    findByActivityId: async () => capture.record,
     deleteByActivityId: async (activityId: string) => {
       capture.deletedActivityIds.push(activityId);
+      capture.record = null;
       return 1;
     },
   } as unknown as ActivityEvidenceLinkageResultRepository;
@@ -341,6 +350,90 @@ test("persists an empty-groups record (not a delete) when two fully-interpreted 
   assert.ok(capture.input);
   assert.deepEqual(capture.input.groups, []);
   assert.equal(capture.deletedActivityIds.length, 0);
+});
+
+test("stores name-like linkage matches as review proposals instead of auto-joining them", async () => {
+  const columns = [makeColumn("schule", "subgroup")];
+  const rowsA = [
+    { schule: "Theodor-Heuss-Oberschule" },
+    { schule: "Ernst-Reuter-Schule" },
+    { schule: "Sophie-Scholl-Gymnasium" },
+    { schule: "Anna-Seghers-Schule" },
+    { schule: "Käthe-Kollwitz-Schule" },
+  ];
+  const rowsB = [...rowsA];
+
+  const { service, capture } = makeService({
+    uploadIds: ["upload-a", "upload-b"],
+    results: [
+      makeResult("result-a", "upload-a", "psr-a"),
+      makeResult("result-b", "upload-b", "psr-b"),
+    ],
+    preparations: [
+      makePreparation("prep-a", "result-a", "schultermine", columns),
+      makePreparation("prep-b", "result-b", "anmeldungen", columns),
+    ],
+    privacySafeRepresentationsById: new Map([
+      ["psr-a", makePrivacySafeRepresentation("psr-a", "schultermine", rowsA)],
+      ["psr-b", makePrivacySafeRepresentation("psr-b", "anmeldungen", rowsB)],
+    ]),
+  });
+
+  const result = await service.reconcileForActivity(ACTIVITY_ID);
+
+  assert.ok(result);
+  assert.equal(result.status, "needs_review");
+  assert.ok(capture.input);
+  assert.deepEqual(capture.input.groups, []);
+  assert.equal(capture.input.proposals.length, 1);
+  assert.equal(capture.input.proposals[0]?.columnNameA, "schule");
+  assert.equal(capture.input.proposals[0]?.columnNameB, "schule");
+  assert.deepEqual(capture.input.proposalDecisions, []);
+});
+
+test("rejecting a weak linkage proposal resolves the activity with separate files", async () => {
+  const columns = [makeColumn("schule", "subgroup")];
+  const rowsA = [
+    { schule: "Theodor-Heuss-Oberschule" },
+    { schule: "Ernst-Reuter-Schule" },
+    { schule: "Sophie-Scholl-Gymnasium" },
+    { schule: "Anna-Seghers-Schule" },
+    { schule: "Käthe-Kollwitz-Schule" },
+  ];
+  const rowsB = [...rowsA];
+
+  const { service } = makeService({
+    uploadIds: ["upload-a", "upload-b"],
+    results: [
+      makeResult("result-a", "upload-a", "psr-a"),
+      makeResult("result-b", "upload-b", "psr-b"),
+    ],
+    preparations: [
+      makePreparation("prep-a", "result-a", "schultermine", columns),
+      makePreparation("prep-b", "result-b", "anmeldungen", columns),
+    ],
+    privacySafeRepresentationsById: new Map([
+      ["psr-a", makePrivacySafeRepresentation("psr-a", "schultermine", rowsA)],
+      ["psr-b", makePrivacySafeRepresentation("psr-b", "anmeldungen", rowsB)],
+    ]),
+  });
+
+  const initial = await service.reconcileForActivity(ACTIVITY_ID);
+  const proposalId = initial?.proposals[0]?.proposalId;
+
+  assert.ok(proposalId);
+
+  const resolved = await service.reviewProposal(
+    ACTIVITY_ID,
+    proposalId,
+    "reject",
+  );
+
+  assert.equal(resolved.status, "resolved");
+  assert.deepEqual(resolved.groups, []);
+  assert.deepEqual(resolved.proposals, []);
+  assert.equal(resolved.proposalDecisions.length, 1);
+  assert.equal(resolved.proposalDecisions[0]?.decision, "reject");
 });
 
 test("concern tagging is skipped entirely, no LLM call, when the activity has no concernTaggingInstruction configured", async () => {

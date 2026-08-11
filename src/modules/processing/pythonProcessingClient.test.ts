@@ -350,3 +350,54 @@ test("planActivityAnalysisV2 rejects a malformed plan response instead of trusti
     },
   );
 });
+
+test("planActivityAnalysisV2 preserves upstream failure details for debugging", async (t) => {
+  t.mock.method(globalThis, "fetch", async () => {
+    return new Response('{"detail":"Not Found"}', {
+      status: 404,
+      statusText: "Not Found",
+      headers: { "content-type": "application/json" },
+    });
+  });
+
+  const client = new PythonProcessingClient(
+    "https://python.example",
+    "secret",
+    30_000,
+    120_000,
+  );
+
+  await assert.rejects(
+    () =>
+      client.planActivityAnalysisV2({
+        activityId: "activity-1",
+        activityName: "Mentor:innengewinnung und Auswahl",
+        language: "de",
+        goals: [],
+        evidenceTables: [],
+        runLimits: {
+          maxToolCalls: 8,
+          maxLlmIterations: 2,
+          timeoutMs: 30_000,
+          maxEvidenceItems: 10,
+        },
+      }),
+    (error: unknown) => {
+      assert.ok(error instanceof AppError);
+      assert.equal(
+        error.code,
+        "python_processing_activity_analysis_v2_plan_unavailable",
+      );
+      assert.deepEqual(error.details, {
+        url: "https://python.example/internal/interpretation/activity-analysis-v2-plan",
+        path: "/internal/interpretation/activity-analysis-v2-plan",
+        method: "POST",
+        timeoutMs: 120_000,
+        upstreamStatus: 404,
+        upstreamStatusText: "Not Found",
+        upstreamBody: '{"detail":"Not Found"}',
+      });
+      return true;
+    },
+  );
+});

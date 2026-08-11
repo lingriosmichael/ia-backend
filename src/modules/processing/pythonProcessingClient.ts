@@ -202,6 +202,8 @@ export interface ActivityAnalysisV2ClarificationAnswerInput {
     | "positive_status_values"
     | "primary_date_field"
     | null;
+  targetTableName?: string | null;
+  targetColumnName?: string | null;
 }
 
 export interface ActivityAnalysisV2ClarificationQuestionDraft {
@@ -245,12 +247,28 @@ interface ActivityAnalysisV2PlanRequest {
   };
 }
 
-interface ActivityAnalysisV2PlanResponse {
+export interface ActivityAnalysisV2PlanResponse {
   goalPlans: ActivityAnalysisV2GoalPlan[];
   toolRequests: ActivityAnalysisV2PlanToolRequest[];
   clarificationQuestions?: ActivityAnalysisV2ClarificationQuestionDraft[];
   limitations: string[];
   validation: ActivityAnalysisV2PlanValidation;
+  llmUsage?: LlmUsageSummary | null;
+}
+
+export interface ActivityAnalysisV2RecommendationRequest {
+  activityId: string;
+  activityName: string;
+  language: "de" | "en";
+  recommendationPolicy: "required" | "optional";
+  goalAssessments: Record<string, unknown>[];
+  limitations: string[];
+  calculations: Record<string, unknown>[];
+}
+
+export interface ActivityAnalysisV2RecommendationResponse {
+  summaryText: string;
+  recommendationText: string;
   llmUsage?: LlmUsageSummary | null;
 }
 
@@ -367,6 +385,12 @@ const activityAnalysisV2PlanResponseSchema = z.object({
     status: z.enum(["passed", "failed"]),
     issues: z.array(z.string()),
   }),
+  llmUsage: z.unknown().nullable().optional(),
+});
+
+const activityAnalysisV2RecommendationResponseSchema = z.object({
+  summaryText: z.string(),
+  recommendationText: z.string(),
   llmUsage: z.unknown().nullable().optional(),
 });
 
@@ -706,8 +730,30 @@ export class PythonProcessingClient {
     private readonly llmTimeoutMs: number,
   ) {}
 
+  // Exposed so callers that issue several sequential LLM-backed calls
+  // within their own overall deadline (e.g. ActivityAnalysisV2Service's
+  // auto-clarification replan loop) can tell whether there's enough budget
+  // left to even attempt another one, rather than discovering the overrun
+  // only after it's already happened.
+  get analyticsTimeoutMs(): number {
+    return this.llmTimeoutMs;
+  }
+
   private authHeaders(): Record<string, string> {
     return { "x-internal-service-token": this.sharedSecret };
+  }
+
+  private buildRequestContext(
+    path: string,
+    init: RequestInit,
+    timeoutMs: number,
+  ): Record<string, unknown> {
+    return {
+      url: `${this.baseUrl}${path}`,
+      path,
+      method: init.method ?? "GET",
+      timeoutMs,
+    };
   }
 
   private async request(
@@ -719,14 +765,22 @@ export class PythonProcessingClient {
     timeoutCode: string,
     timeoutMsOverride?: number,
   ): Promise<Response> {
+    const timeoutMs = timeoutMsOverride ?? this.timeoutMs;
+    const requestContext = this.buildRequestContext(path, init, timeoutMs);
     try {
       const response = await fetch(`${this.baseUrl}${path}`, {
         ...init,
-        signal: AbortSignal.timeout(timeoutMsOverride ?? this.timeoutMs),
+        signal: AbortSignal.timeout(timeoutMs),
       });
 
       if (!response.ok) {
-        throw new AppError(unavailableMessage, 502, unavailableCode);
+        const responseBody = await response.text().catch(() => "");
+        throw new AppError(unavailableMessage, 502, unavailableCode, {
+          ...requestContext,
+          upstreamStatus: response.status,
+          upstreamStatusText: response.statusText,
+          upstreamBody: responseBody.slice(0, 2000),
+        });
       }
 
       return response;
@@ -739,7 +793,7 @@ export class PythonProcessingClient {
         error instanceof Error &&
         (error.name === "TimeoutError" || error.name === "AbortError")
       ) {
-        throw new AppError(timeoutMessage, 504, timeoutCode);
+        throw new AppError(timeoutMessage, 504, timeoutCode, requestContext);
       }
 
       throw error;
@@ -982,5 +1036,40 @@ export class PythonProcessingClient {
     }
 
     return parsed.data as ActivityAnalysisV2PlanResponse;
+  }
+
+  async generateActivityAnalysisV2Recommendation(
+    input: ActivityAnalysisV2RecommendationRequest,
+  ): Promise<ActivityAnalysisV2RecommendationResponse> {
+    const response = await this.request(
+      "/internal/interpretation/activity-analysis-v2-recommendation",
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          ...this.authHeaders(),
+        },
+        body: JSON.stringify(input),
+      },
+      "The Python processing service could not generate the ActivityAnalystV2 recommendation.",
+      "python_processing_activity_analysis_v2_recommendation_unavailable",
+      "The Python processing service timed out while generating the ActivityAnalystV2 recommendation.",
+      "python_processing_activity_analysis_v2_recommendation_timeout",
+      this.llmTimeoutMs,
+    );
+
+    const payload = await response.json();
+    const parsed =
+      activityAnalysisV2RecommendationResponseSchema.safeParse(payload);
+    if (!parsed.success) {
+      throw new AppError(
+        "The Python processing service returned a malformed ActivityAnalystV2 recommendation.",
+        502,
+        "python_processing_activity_analysis_v2_recommendation_malformed",
+        parsed.error.flatten(),
+      );
+    }
+
+    return parsed.data as ActivityAnalysisV2RecommendationResponse;
   }
 }

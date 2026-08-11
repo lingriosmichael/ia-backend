@@ -40,8 +40,17 @@ function createServiceFixture(options?: {
     summaryText: string;
     insights: Array<{ id: string }>;
   } | null;
+  plannerError?: Error | Error[];
   plannerResponse?: Record<string, unknown> | Record<string, unknown>[];
   executorResult?: Record<string, unknown>;
+  narrativeResponse?: {
+    summaryText: string;
+    recommendationText: string;
+  };
+  analyticsTimeoutMs?: number;
+  // Runs at the start of every mocked planner call, before it resolves —
+  // used to simulate a call consuming wall-clock time under fake timers.
+  plannerCallSideEffect?: () => void;
 }) {
   const uploads = options?.uploads ?? [
     {
@@ -146,6 +155,7 @@ function createServiceFixture(options?: {
         diagnostics: input.diagnostics,
         shadowComparison: input.shadowComparison,
         renderedSummary: input.renderedSummary,
+        recommendationText: input.recommendationText,
         validation: input.validation,
         errorMessage: input.errorMessage,
         createdAt: NOW,
@@ -332,8 +342,20 @@ function createServiceFixture(options?: {
       },
   } as unknown as ActivityAnalysisV2ToolExecutor;
   let plannerCallCount = 0;
+  const plannerRequests: Array<Record<string, unknown>> = [];
+  const recommendationRequests: Array<Record<string, unknown>> = [];
   const pythonProcessingClient = {
-    planActivityAnalysisV2: async () => {
+    planActivityAnalysisV2: async (input: Record<string, unknown>) => {
+      plannerRequests.push(input);
+      options?.plannerCallSideEffect?.();
+      const plannerError = Array.isArray(options?.plannerError)
+        ? (options?.plannerError[plannerCallCount] ??
+          options?.plannerError.at(-1))
+        : options?.plannerError;
+      if (plannerError) {
+        plannerCallCount += 1;
+        throw plannerError;
+      }
       const plannerResponse = Array.isArray(options?.plannerResponse)
         ? (options?.plannerResponse[plannerCallCount] ??
           options?.plannerResponse.at(-1))
@@ -386,6 +408,19 @@ function createServiceFixture(options?: {
         }
       );
     },
+    generateActivityAnalysisV2Recommendation: async (input: Record<string, unknown>) => {
+      recommendationRequests.push(input);
+      return {
+        summaryText:
+          options?.narrativeResponse?.summaryText ??
+          "Die aktuelle Evidenz zeigt, dass das Bewerbungsziel erreicht wurde, das Auswahlziel jedoch noch deutlich verfehlt ist.",
+        recommendationText:
+          options?.narrativeResponse?.recommendationText ??
+          "Die bedingt geeigneten und noch offenen Bewerbungen sollten prioritär geklärt werden, damit sich die Auswahl dem Zielwert annähert. Gleichzeitig sollten die offenen Sicherheitsprüfungen vor einer Zuordnung zu Jugendlichen abgeschlossen werden.",
+        llmUsage: null,
+      };
+    },
+    analyticsTimeoutMs: options?.analyticsTimeoutMs ?? 120_000,
   } as unknown as PythonProcessingClient;
   const logger = {
     info: () => undefined,
@@ -410,6 +445,9 @@ function createServiceFixture(options?: {
     createdRuns,
     getActivityAnalysisV2ClarificationAnswers: () =>
       activityAnalysisV2ClarificationAnswers,
+    getPlannerCallCount: () => plannerCallCount,
+    getPlannerRequests: () => plannerRequests,
+    getRecommendationRequests: () => recommendationRequests,
   };
 }
 
@@ -458,10 +496,313 @@ test("previewActivityAnalysis persists a separate shadow run with current eviden
   assert.equal(record.shadowComparison.noOutcomeSectionOmitted, true);
   assert.equal(
     record.renderedSummary,
-    "Ergebnisse\n\nMindestens 70 Bewerbungen sammeln: Gemessener Wert 75 bei Ziel 70. Dieses Ziel ist erreicht.",
+    "Die aktuelle Evidenz zeigt, dass das Bewerbungsziel erreicht wurde, das Auswahlziel jedoch noch deutlich verfehlt ist.",
+  );
+  assert.equal(
+    record.recommendationText,
+    "Die bedingt geeigneten und noch offenen Bewerbungen sollten prioritär geklärt werden, damit sich die Auswahl dem Zielwert annähert. Gleichzeitig sollten die offenen Sicherheitsprüfungen vor einer Zuordnung zu Jugendlichen abgeschlossen werden.",
   );
   assert.equal(record.renderedSummary?.includes("Wirkung"), false);
   assert.equal(fixture.createdRuns.length, 1);
+});
+
+test("previewActivityAnalysis omits the recommendation section for clean achieved-only runs", async () => {
+  const fixture = createServiceFixture({
+    activityOutput: "65 Mentor:innen schulen",
+    plannerResponse: {
+      goalPlans: [
+        {
+          goalId: "output_1",
+          goalType: "output",
+          goalText: "65 Mentor:innen schulen",
+          evaluationMode: "numeric_target",
+          status: "planned",
+          rationale: "A distinct participant count can be compared to the target.",
+          plannedToolNames: ["count_distinct", "compare_target"],
+          missingCapabilities: [],
+        },
+      ],
+      clarificationQuestions: [],
+      toolRequests: [
+        {
+          goalId: "output_1",
+          alias: "trained_count",
+          toolName: "count_distinct",
+          arguments: {
+            uploadMetadataId: "upload-1",
+            tableName: "mentors",
+            columnName: "bewerbungs_id",
+            useAnalysisRows: true,
+          },
+        },
+        {
+          goalId: "output_1",
+          toolName: "compare_target",
+          arguments: {
+            valueAlias: "trained_count",
+            target: 65,
+            comparison: "at_least",
+            label: "Training target",
+          },
+        },
+      ],
+      limitations: [],
+      validation: {
+        status: "passed",
+        issues: [],
+      },
+    },
+    executorResult: {
+      toolCallTrace: [
+        {
+          toolCallId: "tool_1_count_distinct",
+          toolName: "count_distinct",
+          arguments: {
+            uploadMetadataId: "upload-1",
+            tableName: "mentors",
+            columnName: "bewerbungs_id",
+            useAnalysisRows: true,
+          },
+          calculationIds: ["calc_trained_count"],
+          status: "succeeded",
+          errorMessage: null,
+          startedAt: NOW.toISOString(),
+          completedAt: NOW.toISOString(),
+          durationMs: 0,
+        },
+        {
+          toolCallId: "tool_2_compare_target",
+          toolName: "compare_target",
+          arguments: {
+            valueAlias: "trained_count",
+            target: 65,
+            comparison: "at_least",
+            label: "Training target",
+          },
+          calculationIds: ["calc_trained_target"],
+          status: "succeeded",
+          errorMessage: null,
+          startedAt: NOW.toISOString(),
+          completedAt: NOW.toISOString(),
+          durationMs: 0,
+        },
+      ],
+      calculations: [
+        {
+          calculationId: "calc_trained_count",
+          toolName: "count_distinct",
+          label: "Distinct trained mentors",
+          description: "Counts unique trained mentors.",
+          formula: "COUNT_DISTINCT(bewerbungs_id)",
+          value: 65,
+          unit: "distinct_values",
+          sourceUploadMetadataIds: ["upload-1"],
+          sourceTableNames: ["mentors"],
+          sourceColumns: ["bewerbungs_id"],
+          numerator: 65,
+          denominator: null,
+          denominatorType: "distinct_entities",
+          identifierColumn: "bewerbungs_id",
+          result: { distinctCount: 65, basis: "analysis_rows" },
+        },
+        {
+          calculationId: "calc_trained_target",
+          toolName: "compare_target",
+          label: "Training target",
+          description: "Compares trained mentors against the target.",
+          formula: "65 at_least 65",
+          value: true,
+          unit: null,
+          sourceUploadMetadataIds: [],
+          sourceTableNames: [],
+          sourceColumns: [],
+          numerator: 65,
+          denominator: 65,
+          denominatorType: "rows",
+          identifierColumn: null,
+          result: {
+            achieved: true,
+            gap: 0,
+            comparison: "at_least",
+            value: 65,
+            target: 65,
+          },
+        },
+      ],
+    },
+    narrativeResponse: {
+      summaryText:
+        "Die Schulung hat das geplante Ergebnis erreicht und zeigt keine offenen Bewertungs- oder Risikopunkte.",
+      recommendationText: "",
+    },
+  });
+
+  const record = await fixture.service.previewActivityAnalysis(
+    "user-1",
+    "activity-1",
+  );
+
+  assert.equal(record.status, "completed");
+  assert.equal(record.recommendationText, null);
+  assert.equal(
+    fixture.getRecommendationRequests()[0]?.recommendationPolicy,
+    "optional",
+  );
+  assert.deepEqual(fixture.getRecommendationRequests()[0]?.limitations, []);
+});
+
+test("previewActivityAnalysis still requires a recommendation for achieved runs with actionable limitations", async () => {
+  const fixture = createServiceFixture({
+    activityOutput: "65 Mentor:innen schulen",
+    plannerResponse: {
+      goalPlans: [
+        {
+          goalId: "output_1",
+          goalType: "output",
+          goalText: "65 Mentor:innen schulen",
+          evaluationMode: "numeric_target",
+          status: "planned",
+          rationale: "A distinct participant count can be compared to the target.",
+          plannedToolNames: ["count_distinct", "compare_target"],
+          missingCapabilities: [],
+        },
+      ],
+      clarificationQuestions: [],
+      toolRequests: [
+        {
+          goalId: "output_1",
+          alias: "trained_count",
+          toolName: "count_distinct",
+          arguments: {
+            uploadMetadataId: "upload-1",
+            tableName: "mentors",
+            columnName: "bewerbungs_id",
+            useAnalysisRows: true,
+          },
+        },
+        {
+          goalId: "output_1",
+          toolName: "compare_target",
+          arguments: {
+            valueAlias: "trained_count",
+            target: 65,
+            comparison: "at_least",
+            label: "Training target",
+          },
+        },
+      ],
+      limitations: [
+        "Annahme: mentor_id identifiziert die Teilnehmenden eindeutig; diese Annahme sollte gegen die Rohdaten geprüft werden.",
+        "Planner model version: activity-analyst-v2-plan-v1.",
+      ],
+      validation: {
+        status: "passed",
+        issues: [],
+      },
+    },
+    executorResult: {
+      toolCallTrace: [
+        {
+          toolCallId: "tool_1_count_distinct",
+          toolName: "count_distinct",
+          arguments: {
+            uploadMetadataId: "upload-1",
+            tableName: "mentors",
+            columnName: "bewerbungs_id",
+            useAnalysisRows: true,
+          },
+          calculationIds: ["calc_trained_count"],
+          status: "succeeded",
+          errorMessage: null,
+          startedAt: NOW.toISOString(),
+          completedAt: NOW.toISOString(),
+          durationMs: 0,
+        },
+        {
+          toolCallId: "tool_2_compare_target",
+          toolName: "compare_target",
+          arguments: {
+            valueAlias: "trained_count",
+            target: 65,
+            comparison: "at_least",
+            label: "Training target",
+          },
+          calculationIds: ["calc_trained_target"],
+          status: "succeeded",
+          errorMessage: null,
+          startedAt: NOW.toISOString(),
+          completedAt: NOW.toISOString(),
+          durationMs: 0,
+        },
+      ],
+      calculations: [
+        {
+          calculationId: "calc_trained_count",
+          toolName: "count_distinct",
+          label: "Distinct trained mentors",
+          description: "Counts unique trained mentors.",
+          formula: "COUNT_DISTINCT(bewerbungs_id)",
+          value: 65,
+          unit: "distinct_values",
+          sourceUploadMetadataIds: ["upload-1"],
+          sourceTableNames: ["mentors"],
+          sourceColumns: ["bewerbungs_id"],
+          numerator: 65,
+          denominator: null,
+          denominatorType: "distinct_entities",
+          identifierColumn: "bewerbungs_id",
+          result: { distinctCount: 65, basis: "analysis_rows" },
+        },
+        {
+          calculationId: "calc_trained_target",
+          toolName: "compare_target",
+          label: "Training target",
+          description: "Compares trained mentors against the target.",
+          formula: "65 at_least 65",
+          value: true,
+          unit: null,
+          sourceUploadMetadataIds: [],
+          sourceTableNames: [],
+          sourceColumns: [],
+          numerator: 65,
+          denominator: 65,
+          denominatorType: "rows",
+          identifierColumn: null,
+          result: {
+            achieved: true,
+            gap: 0,
+            comparison: "at_least",
+            value: 65,
+            target: 65,
+          },
+        },
+      ],
+    },
+    narrativeResponse: {
+      summaryText:
+        "Die Schulung hat das Ziel erreicht, doch die Auswertung beruht auf einer Annahme zur eindeutigen ID-Zuordnung.",
+      recommendationText:
+        "Prüfen Sie die Eindeutigkeit der mentor_id in den Rohdaten, damit das erreichte Ergebnis belastbar abgesichert ist.",
+    },
+  });
+
+  const record = await fixture.service.previewActivityAnalysis(
+    "user-1",
+    "activity-1",
+  );
+
+  assert.equal(record.status, "completed");
+  assert.equal(
+    fixture.getRecommendationRequests()[0]?.recommendationPolicy,
+    "required",
+  );
+  assert.deepEqual(fixture.getRecommendationRequests()[0]?.limitations, [
+    "Annahme: mentor_id identifiziert die Teilnehmenden eindeutig; diese Annahme sollte gegen die Rohdaten geprüft werden.",
+  ]);
+  assert.equal(
+    record.recommendationText,
+    "Prüfen Sie die Eindeutigkeit der mentor_id in den Rohdaten, damit das erreichte Ergebnis belastbar abgesichert ist.",
+  );
 });
 
 test("previewActivityAnalysis pauses and persists clarification questions when the planner requests them", async () => {
@@ -488,7 +829,7 @@ test("previewActivityAnalysis pauses and persists clarification questions when t
           questionDomain: "interpretation",
           options: ["status", "entscheidung"],
           recommendedOption: "status",
-          recommendedConfidence: 0.91,
+          recommendedConfidence: 0.51,
           isBlocking: true,
           questionCode: "primary_status_field",
           targetTableName: "mentors",
@@ -518,6 +859,339 @@ test("previewActivityAnalysis pauses and persists clarification questions when t
   assert.equal(record.renderedSummary, null);
 });
 
+test("previewActivityAnalysis persists concrete planner validation issues when the planner returns an invalid plan", async () => {
+  const fixture = createServiceFixture({
+    plannerResponse: {
+      goalPlans: [
+        {
+          goalId: "output_1",
+          goalType: "output",
+          goalText: "Mindestens 70 Bewerbungen sammeln",
+          evaluationMode: "numeric_target",
+          status: "planned",
+          rationale: "One goal only.",
+          plannedToolNames: ["count_distinct"],
+          missingCapabilities: [],
+        },
+      ],
+      clarificationQuestions: [],
+      toolRequests: [
+        {
+          goalId: "output_1",
+          alias: "applications_count",
+          toolName: "count_distinct",
+          arguments: {
+            uploadMetadataId: "upload-1",
+            tableName: "mentors",
+            columnName: "bewerbungs_id",
+            useAnalysisRows: true,
+          },
+        },
+      ],
+      limitations: [
+        "ActivityAnalystV2 planning failed validation and did not return a publishable plan.",
+        "Final planner validation issue: Missing goal plans for goal IDs: ['output_2']",
+      ],
+      validation: {
+        status: "failed",
+        issues: ["Missing goal plans for goal IDs: ['output_2']"],
+      },
+    },
+  });
+
+  const record = await fixture.service.previewActivityAnalysis(
+    "user-1",
+    "activity-1",
+  );
+
+  assert.equal(record.status, "failed");
+  assert.equal(record.validation.status, "failed");
+  assert.deepEqual(record.validation.issues, [
+    "Missing goal plans for goal IDs: ['output_2']",
+  ]);
+  assert.equal(record.errorMessage, "ActivityAnalystV2 planner returned an invalid plan.");
+});
+
+test("previewActivityAnalysis does not seed backend-generated subset clarification answers", async () => {
+  const fixture = createServiceFixture({
+    activityOutput: "65 geeignete Mentor:innen auswählen",
+    privacySafeRepresentations: [
+      {
+        id: "psr-1",
+        uploadMetadataId: "upload-1",
+        payload: {
+          metadata: {
+            evidenceModality: "structured_quantitative",
+            interpretationDataType: "tabular_structured",
+          },
+          tables: [
+            {
+              name: "mentors",
+              rows: [
+                {
+                  bewerbungs_id: "B001",
+                  status: "geeignet",
+                },
+                {
+                  bewerbungs_id: "B002",
+                  status: "bedingt",
+                },
+              ],
+            },
+          ],
+        },
+      },
+    ],
+    plannerResponse: {
+      goalPlans: [
+        {
+          goalId: "output_1",
+          goalType: "output",
+          goalText: "65 geeignete Mentor:innen auswählen",
+          evaluationMode: "numeric_target",
+          status: "requires_clarification",
+          rationale: "The planner wants the operational suitable-status rule.",
+          plannedToolNames: [],
+          missingCapabilities: [],
+        },
+      ],
+      clarificationQuestions: [
+        {
+          goalId: "output_1",
+          prompt:
+            "Welche Regel soll verwendet werden, um geeignete Mentor:innen zu zählen?",
+          kind: "free_text",
+          questionDomain: "interpretation",
+          options: null,
+          recommendedOption: null,
+          recommendedConfidence: 0.4,
+          isBlocking: true,
+          questionCode: "positive_status_values",
+          targetTableName: "mentors",
+          targetColumnName: "status",
+        },
+      ],
+      toolRequests: [],
+      limitations: [],
+      validation: {
+        status: "passed",
+        issues: [],
+      },
+    },
+  });
+
+  await fixture.service.previewActivityAnalysis("user-1", "activity-1");
+
+  const plannerRequests = fixture.getPlannerRequests();
+  assert.equal(plannerRequests.length, 1);
+  const clarificationAnswers = Array.isArray(
+    plannerRequests[0]?.clarificationAnswers,
+  )
+    ? (plannerRequests[0]?.clarificationAnswers as Array<Record<string, unknown>>)
+    : [];
+  assert.equal(clarificationAnswers.length, 0);
+});
+
+test("previewActivityAnalysis auto-resolves planner clarification when recommended confidence is at least 0.8", async () => {
+  const fixture = createServiceFixture({
+    activityOutput: "65 geeignete Mentor:innen auswählen",
+    plannerResponse: [
+      {
+        goalPlans: [
+          {
+            goalId: "output_1",
+            goalType: "output",
+            goalText: "65 geeignete Mentor:innen auswählen",
+            evaluationMode: "numeric_target",
+            status: "requires_clarification",
+            rationale: "The planner wants the operational suitable-status rule.",
+            plannedToolNames: [],
+            missingCapabilities: [],
+          },
+        ],
+        clarificationQuestions: [
+          {
+            goalId: "output_1",
+            prompt:
+              "Welche Regel soll verwendet werden, um geeignete Mentor:innen zu zählen?",
+            kind: "single_choice",
+            questionDomain: "interpretation",
+            options: ["geeignet", "bedingt"],
+            recommendedOption: "geeignet",
+            recommendedConfidence: 0.8,
+            isBlocking: true,
+            questionCode: "positive_status_values",
+            targetTableName: "mentors",
+            targetColumnName: "status",
+          },
+        ],
+        toolRequests: [],
+        limitations: [],
+        validation: {
+          status: "passed",
+          issues: [],
+        },
+      },
+      {
+        goalPlans: [
+          {
+            goalId: "output_1",
+            goalType: "output",
+            goalText: "65 geeignete Mentor:innen auswählen",
+            evaluationMode: "numeric_target",
+            status: "planned",
+            rationale: "A distinct suitable-application count can be compared to the target.",
+            plannedToolNames: ["count_distinct", "compare_target"],
+            missingCapabilities: [],
+          },
+        ],
+        clarificationQuestions: [],
+        toolRequests: [
+          {
+            goalId: "output_1",
+            alias: "suitable_count",
+            toolName: "count_distinct",
+            arguments: {
+              uploadMetadataId: "upload-1",
+              tableName: "mentors",
+              columnName: "bewerbungs_id",
+              filters: [
+                {
+                  columnName: "status",
+                  operator: "equals",
+                  value: "geeignet",
+                },
+              ],
+              useAnalysisRows: true,
+            },
+          },
+          {
+            goalId: "output_1",
+            toolName: "compare_target",
+            arguments: {
+              valueAlias: "suitable_count",
+              target: 65,
+              comparison: "at_least",
+              label: "Suitable mentors target",
+            },
+          },
+        ],
+        limitations: [],
+        validation: {
+          status: "passed",
+          issues: [],
+        },
+      },
+    ],
+  });
+
+  const record = await fixture.service.previewActivityAnalysis(
+    "user-1",
+    "activity-1",
+  );
+
+  assert.equal(record.status, "completed");
+  assert.equal(record.clarificationQuestions.length, 0);
+  const plannerRequests = fixture.getPlannerRequests();
+  assert.equal(plannerRequests.length, 2);
+  const firstClarificationAnswers = Array.isArray(
+    plannerRequests[0]?.clarificationAnswers,
+  )
+    ? (plannerRequests[0]?.clarificationAnswers as Array<Record<string, unknown>>)
+    : [];
+  assert.equal(firstClarificationAnswers.length, 0);
+  const secondClarificationAnswers = Array.isArray(
+    plannerRequests[1]?.clarificationAnswers,
+  )
+    ? (plannerRequests[1]?.clarificationAnswers as Array<Record<string, unknown>>)
+    : [];
+  assert.deepEqual(secondClarificationAnswers, [
+    {
+      questionId: secondClarificationAnswers[0]?.questionId,
+      goalId: "output_1",
+      prompt:
+        "Welche Regel soll verwendet werden, um geeignete Mentor:innen zu zählen?",
+      answeredValue: "geeignet",
+      questionCode: "positive_status_values",
+      targetTableName: "mentors",
+      targetColumnName: "status",
+    },
+  ]);
+  assert.equal(fixture.getActivityAnalysisV2ClarificationAnswers().length, 0);
+});
+
+test("previewActivityAnalysis does not attempt an auto-resolved replan once the run's time budget can no longer fit another planner call", async (t) => {
+  t.mock.timers.enable({ apis: ["Date"] });
+
+  const fixture = createServiceFixture({
+    activityOutput: "65 geeignete Mentor:innen auswählen",
+    // Python's own per-call ceiling; the guard should compare remaining
+    // budget against this rather than a hardcoded number.
+    analyticsTimeoutMs: 60_000,
+    // Simulates the first planner call alone consuming almost all of
+    // PHASE_1_RUN_LIMITS.timeoutMs (150_000ms), leaving only 50_000ms —
+    // less than the 60_000ms a second call could take.
+    plannerCallSideEffect: () => t.mock.timers.tick(100_000),
+    plannerResponse: {
+      goalPlans: [
+        {
+          goalId: "output_1",
+          goalType: "output",
+          goalText: "65 geeignete Mentor:innen auswählen",
+          evaluationMode: "numeric_target",
+          status: "requires_clarification",
+          rationale: "The planner wants the operational suitable-status rule.",
+          plannedToolNames: [],
+          missingCapabilities: [],
+        },
+      ],
+      clarificationQuestions: [
+        {
+          goalId: "output_1",
+          prompt:
+            "Welche Regel soll verwendet werden, um geeignete Mentor:innen zu zählen?",
+          kind: "single_choice",
+          questionDomain: "interpretation",
+          options: ["geeignet", "bedingt"],
+          recommendedOption: "geeignet",
+          recommendedConfidence: 0.8,
+          isBlocking: true,
+          questionCode: "positive_status_values",
+          targetTableName: "mentors",
+          targetColumnName: "status",
+        },
+      ],
+      toolRequests: [],
+      limitations: [],
+      validation: {
+        status: "passed",
+        issues: [],
+      },
+    },
+  });
+
+  const record = await fixture.service.previewActivityAnalysis(
+    "user-1",
+    "activity-1",
+  );
+
+  // The question was auto-resolvable (confidence 0.8), so without the
+  // budget guard the loop would have attempted a second planner call.
+  // It shouldn't have: only 50_000ms of budget was left against a
+  // 60_000ms-ceiling call.
+  assert.equal(fixture.getPlannerRequests().length, 1);
+  // And because the loop never actually merged an answer for it, it must
+  // still reach the user instead of being silently hidden by the
+  // confidence-based filter buildClarificationQuestions used to apply.
+  assert.equal(record.status, "needs_clarification");
+  assert.equal(record.clarificationQuestions.length, 1);
+  assert.equal(record.clarificationQuestions[0]?.status, "pending");
+  assert.equal(
+    record.clarificationQuestions[0]?.recommendedOption,
+    "geeignet",
+  );
+});
+
 test("answerClarificationQuestion persists the answer and reruns analysis", async () => {
   const fixture = createServiceFixture({
     plannerResponse: [
@@ -543,7 +1217,7 @@ test("answerClarificationQuestion persists the answer and reruns analysis", asyn
             questionDomain: "interpretation",
             options: ["status", "entscheidung"],
             recommendedOption: "status",
-            recommendedConfidence: 0.91,
+            recommendedConfidence: 0.51,
             isBlocking: true,
             questionCode: "primary_status_field",
             targetTableName: "mentors",
@@ -651,7 +1325,7 @@ test("answerClarificationQuestion rejects an answer that isn't one of the questi
             questionDomain: "interpretation",
             options: ["status", "entscheidung"],
             recommendedOption: "status",
-            recommendedConfidence: 0.91,
+            recommendedConfidence: 0.79,
             isBlocking: true,
             questionCode: "primary_status_field",
             targetTableName: "mentors",
@@ -725,7 +1399,7 @@ test("legacy AI knowledge compatibility view is mapped from the latest V2 run", 
   assert.equal(record.totalEvidenceCount, 1);
   assert.equal(
     record.summaryText,
-    "Ergebnisse\n\nMindestens 70 Bewerbungen sammeln: Gemessener Wert 75 bei Ziel 70. Dieses Ziel ist erreicht.",
+    "Die aktuelle Evidenz zeigt, dass das Bewerbungsziel erreicht wurde, das Auswahlziel jedoch noch deutlich verfehlt ist.",
   );
   assert.equal(record.insights.length, 1);
   assert.equal(record.insights[0]?.sourceType, "goal_alignment");
@@ -739,6 +1413,12 @@ test("legacy AI knowledge compatibility view is mapped from the latest V2 run", 
 test("previewActivityAnalysis strips placeholder tokens from rendered assessment text", async () => {
   const fixture = createServiceFixture({
     activityOutput: "Mindestens {{count}} Bewerbungen sammeln",
+    narrativeResponse: {
+      summaryText:
+        "Die aktuelle Evidenz zeigt, dass das Bewerbungsziel trotz bereinigter Platzhalter erreicht wurde.",
+      recommendationText:
+        "Die nächste Priorität ist, die Auswahlentscheidungen zu schärfen und offene Fälle zu klären.",
+    },
   });
 
   const record = await fixture.service.previewActivityAnalysis(
@@ -750,7 +1430,7 @@ test("previewActivityAnalysis strips placeholder tokens from rendered assessment
   assert.equal(record.validation.status, "passed");
   assert.equal(
     record.renderedSummary,
-    "Ergebnisse\n\nMindestens Bewerbungen sammeln: Gemessener Wert 75 bei Ziel 70. Dieses Ziel ist erreicht.",
+    "Die aktuelle Evidenz zeigt, dass das Bewerbungsziel trotz bereinigter Platzhalter erreicht wurde.",
   );
 });
 
@@ -785,6 +1465,12 @@ test("previewActivityAnalysis persists requires_capability goals without executi
         issues: [],
       },
     },
+    narrativeResponse: {
+      summaryText:
+        "Die aktuelle Evidenz reicht noch nicht aus, um dieses Ziel belastbar zu bewerten, weil eine benötigte deterministische Berechnung fehlt.",
+      recommendationText:
+        "Die fehlende Berechnungsfähigkeit sollte ergänzt werden, bevor dieses Ziel erneut bewertet wird.",
+    },
   });
 
   const record = await fixture.service.previewActivityAnalysis(
@@ -813,7 +1499,112 @@ test("previewActivityAnalysis persists requires_capability goals without executi
   assert.equal(record.shadowComparison.status, "review_recommended");
   assert.equal(
     record.renderedSummary,
-    "Ergebnisse\n\nMindestens 70 Bewerbungen sammeln: Dieses Ziel kann derzeit nicht belastbar bewertet werden. Es fehlt derzeit die deterministische Berechnungsfähigkeit: event_frequency (Need events-per-period calculation by entity before target comparison.). Für dieses Ziel wäre eine Häufigkeitsberechnung pro Zeitraum nötig.",
+    "Die aktuelle Evidenz reicht noch nicht aus, um dieses Ziel belastbar zu bewerten, weil eine benötigte deterministische Berechnung fehlt.",
+  );
+});
+
+test("previewActivityAnalysis normalizes percentage goals to decimal targets before planning", async () => {
+  const fixture = createServiceFixture({
+    activityOutput:
+      "65 Mentor:innen schulen\nMindestens 80 % Teilnahmequote an beiden Schulungstagen",
+    plannerResponse: {
+      goalPlans: [
+        {
+          goalId: "output_1",
+          goalType: "output",
+          goalText: "65 Mentor:innen schulen",
+          evaluationMode: "numeric_target",
+          status: "requires_capability",
+          rationale: "Not relevant for this parser regression.",
+          plannedToolNames: [],
+          missingCapabilities: [],
+        },
+        {
+          goalId: "output_2",
+          goalType: "output",
+          goalText:
+            "Mindestens 80 % Teilnahmequote an beiden Schulungstagen",
+          evaluationMode: "numeric_target",
+          status: "requires_capability",
+          rationale: "Not relevant for this parser regression.",
+          plannedToolNames: [],
+          missingCapabilities: [],
+        },
+      ],
+      toolRequests: [],
+      limitations: [],
+      validation: {
+        status: "passed",
+        issues: [],
+      },
+    },
+  });
+
+  await fixture.service.previewActivityAnalysis("user-1", "activity-1");
+
+  const plannerRequests = fixture.getPlannerRequests();
+  assert.equal(plannerRequests.length, 1);
+  const goals = Array.isArray(plannerRequests[0]?.goals)
+    ? (plannerRequests[0]?.goals as Array<Record<string, unknown>>)
+    : [];
+  assert.equal(goals.length, 2);
+  assert.equal(goals[0]?.targetNumber, 65);
+  assert.equal(goals[1]?.targetNumber, 0.8);
+});
+
+test("previewActivityAnalysis fails when the Python planner is unavailable", async () => {
+  const fixture = createServiceFixture({
+    activityOutput:
+      "Mindestens 70 Bewerbungen sammeln\n65 geeignete Mentor:innen auswählen",
+    privacySafeRepresentations: [
+      {
+        id: "psr-1",
+        uploadMetadataId: "upload-1",
+        payload: {
+          metadata: {
+            evidenceModality: "structured_quantitative",
+            interpretationDataType: "tabular_structured",
+          },
+          tables: [
+            {
+              name: "mentors",
+              rows: [
+                {
+                  bewerbungs_id: "B001",
+                  status: "eingegangen",
+                },
+              ],
+            },
+          ],
+        },
+      },
+    ],
+    plannerError: new AppError(
+      "The Python processing service could not plan the ActivityAnalystV2 analysis.",
+      502,
+      "python_processing_activity_analysis_v2_plan_unavailable",
+      {
+        upstreamStatus: 404,
+        upstreamBody: '{"detail":"Not Found"}',
+      },
+    ),
+  });
+
+  const record = await fixture.service.previewActivityAnalysis(
+    "user-1",
+    "activity-1",
+  );
+
+  assert.equal(record.status, "failed");
+  assert.equal(record.phase, "phase_3_goal_planner");
+  assert.equal(record.validation.status, "failed");
+  assert.equal(record.toolCallTrace.length, 0);
+  assert.equal(record.calculations.length, 0);
+  assert.equal(record.assessment, null);
+  assert.equal(record.renderedSummary, null);
+  assert.match(
+    record.errorMessage ?? "",
+    /could not plan the ActivityAnalystV2 analysis/i,
   );
 });
 

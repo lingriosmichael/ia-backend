@@ -22,8 +22,13 @@ function toActivityEvidenceLinkageResultRecord(
     organizationId: document.organizationId,
     projectId: document.projectId,
     activityId: document.activityId,
+    status: document.status ?? "resolved",
     groups: (document.groups ??
       []) as ActivityEvidenceLinkageResultPersistenceRecord["groups"],
+    proposals: (document.proposals ??
+      []) as ActivityEvidenceLinkageResultPersistenceRecord["proposals"],
+    proposalDecisions: (document.proposalDecisions ??
+      []) as ActivityEvidenceLinkageResultPersistenceRecord["proposalDecisions"],
     createdAt: document.createdAt,
     updatedAt: document.updatedAt,
   };
@@ -42,7 +47,10 @@ export class MongoActivityEvidenceLinkageResultRepository implements ActivityEvi
             organizationId: input.organizationId,
             projectId: input.projectId,
             activityId: input.activityId,
+            status: input.status,
             groups: input.groups,
+            proposals: input.proposals,
+            proposalDecisions: input.proposalDecisions,
           },
         },
         { upsert: true, returnDocument: "after" },
