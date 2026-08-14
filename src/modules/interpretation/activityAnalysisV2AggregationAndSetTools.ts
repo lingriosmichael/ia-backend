@@ -13,7 +13,9 @@ import type { ActivityAnalysisV2GroupAggregateMetric } from "./activityAnalysisV
 import {
   buildCalculationId,
   buildCaseInsensitiveSetFromColumn,
+  collectEpistemicRoles,
   countDistinctValues,
+  mergeSourceColumnEpistemicRoles,
   toCaseInsensitiveMatchValue,
   toTimeBucketKey,
   type ActivityAnalysisV2ResolvedRowSource,
@@ -622,6 +624,10 @@ export function executeSetOperation(
     rightSourceLabel: rightSource.sourceLabel,
     rightColumnName,
   });
+  const mergedSourceColumnEpistemicRoles = mergeSourceColumnEpistemicRoles(
+    leftSource.sourceColumnEpistemicRoles,
+    rightSource.sourceColumnEpistemicRoles,
+  );
   const cohort: ActivityAnalysisV2RowAliasValue = {
     alias,
     rows: resultRows,
@@ -642,6 +648,8 @@ export function executeSetOperation(
       ]),
     ],
     basis: "cohort",
+    sourceColumnEpistemicRoles: mergedSourceColumnEpistemicRoles,
+    epistemicRoles: collectEpistemicRoles(mergedSourceColumnEpistemicRoles),
   };
   return {
     cohort,

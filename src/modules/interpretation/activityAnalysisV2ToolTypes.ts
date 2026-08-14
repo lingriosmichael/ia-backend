@@ -4,6 +4,7 @@
 // import just the types they need without pulling in unrelated logic.
 import type {
   ActivityAnalysisV2CalculationRecord,
+  ActivityAnalysisV2QualitativeFindingRecord,
   ActivityAnalysisV2ToolCallRecord,
   ActivityAnalysisV2ToolName,
   PreparedDatasetTable,
@@ -81,11 +82,27 @@ export interface ActivityAnalysisV2GroupAggregateMetric {
   columnName?: string;
 }
 
-export type ActivityAnalysisV2ToolRequest =
+export type ActivityAnalysisV2ToolRequest = {
+  goalId?: string;
+} & (
   | {
       toolName: "describe_evidence";
       alias?: string;
       arguments: Record<string, never>;
+    }
+  | {
+      toolName: "excerpt_retrieval";
+      alias?: string;
+      arguments: {
+        uploadMetadataId?: string;
+        tableName?: string;
+        cohortAlias?: string;
+        resultAlias?: string;
+        columnName: string;
+        limit?: number;
+        useAnalysisRows?: boolean;
+        filters?: ActivityAnalysisV2FilterCondition[];
+      };
     }
   | {
       toolName: "create_cohort";
@@ -465,9 +482,11 @@ export type ActivityAnalysisV2ToolRequest =
         comparison: "at_least" | "at_most" | "equal";
         label?: string;
       };
-    };
+    }
+);
 
 export interface ActivityAnalysisV2ToolExecutionResult {
   toolCallTrace: ActivityAnalysisV2ToolCallRecord[];
   calculations: ActivityAnalysisV2CalculationRecord[];
+  qualitativeFindings: ActivityAnalysisV2QualitativeFindingRecord[];
 }

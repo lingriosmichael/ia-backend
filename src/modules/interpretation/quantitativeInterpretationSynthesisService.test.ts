@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { ProcessingJobRepository } from "../ai/execution/processingJobRepository.js";
+import type { ActivityLlmTokenLedgerService } from "../activity/activityLlmTokenLedgerService.js";
 import type { ActivityRepository } from "../activity/activityRepository.js";
 import type { PythonProcessingClient } from "../processing/pythonProcessingClient.js";
 import type { ProjectLlmTokenLedgerService } from "../project/projectLlmTokenLedgerService.js";
@@ -20,6 +21,12 @@ function createFakeProjectLlmTokenLedgerService() {
   return {
     recordUsage: async () => {},
   } as unknown as ProjectLlmTokenLedgerService;
+}
+
+function createFakeActivityLlmTokenLedgerService() {
+  return {
+    recordUsage: async () => {},
+  } as unknown as ActivityLlmTokenLedgerService;
 }
 
 function createFakeLogger() {
@@ -87,6 +94,8 @@ function makePreparation(
       primaryStatusFields: [],
       positiveStatusDefinitions: [],
       primaryDateFields: [],
+      epistemicRoleClarifications: [],
+      validatedScaleConfirmations: [],
     },
     preparedDataset: {
       evidenceModality: "structured_quantitative",
@@ -110,6 +119,7 @@ function makePreparation(
               positiveStatusValues: [],
               positiveStatusDefinitionText: null,
               normalizationAccepted: null,
+              epistemicRole: null,
             },
             {
               name: "status",
@@ -118,6 +128,7 @@ function makePreparation(
               positiveStatusValues: ["completed"],
               positiveStatusDefinitionText: "completed is positive",
               normalizationAccepted: true,
+              epistemicRole: null,
             },
           ],
           notes: [],
@@ -338,6 +349,7 @@ test("maps quantitative synthesis output back into the interpretation result", a
     projectRepository,
     pythonProcessingClient,
     createFakeProjectLlmTokenLedgerService(),
+    createFakeActivityLlmTokenLedgerService(),
     createFakeLogger(),
   );
 
@@ -374,6 +386,7 @@ test("skips synthesis until deterministic quantitative analysis is ready", async
     {} as ProjectRepository,
     {} as PythonProcessingClient,
     createFakeProjectLlmTokenLedgerService(),
+    createFakeActivityLlmTokenLedgerService(),
     createFakeLogger(),
   );
 
@@ -444,6 +457,7 @@ test("records a durable failure instead of throwing or silently returning null w
     projectRepository,
     pythonProcessingClient,
     createFakeProjectLlmTokenLedgerService(),
+    createFakeActivityLlmTokenLedgerService(),
     logger,
   );
 
@@ -602,6 +616,7 @@ test("mixed dual-track synthesis preserves qualitative artifacts and adds reconc
     projectRepository,
     pythonProcessingClient,
     createFakeProjectLlmTokenLedgerService(),
+    createFakeActivityLlmTokenLedgerService(),
     createFakeLogger(),
   );
 
@@ -662,6 +677,7 @@ test("mixed dual-track synthesis preserves qualitative artifacts and adds reconc
                 positiveStatusValues: [],
                 positiveStatusDefinitionText: null,
                 normalizationAccepted: null,
+                epistemicRole: null,
               },
               {
                 name: "status",
@@ -670,6 +686,7 @@ test("mixed dual-track synthesis preserves qualitative artifacts and adds reconc
                 positiveStatusValues: ["completed"],
                 positiveStatusDefinitionText: "completed is positive",
                 normalizationAccepted: true,
+                epistemicRole: null,
               },
             ],
             notes: [],

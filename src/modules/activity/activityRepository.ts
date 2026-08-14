@@ -2,6 +2,7 @@ import type { DatabaseSession } from "../../shared/database/databaseClient.js";
 import type {
   ActivityAnalysisV2ClarificationAnswerPersistenceRecord,
   ActivityCreateInput,
+  ActivityLlmTokenLedgerIncrement,
   ActivityPersistenceRecord,
   ActivityUpdateInput,
 } from "./activityPersistence.js";
@@ -31,6 +32,11 @@ export interface ActivityRepository {
     answer: ActivityAnalysisV2ClarificationAnswerPersistenceRecord,
     session: DatabaseSession,
   ): Promise<ActivityPersistenceRecord>;
+  incrementLlmTokenLedger(
+    activityId: string,
+    increment: ActivityLlmTokenLedgerIncrement,
+    session: DatabaseSession,
+  ): Promise<void>;
   listByProject(
     projectId: string,
     session: DatabaseSession,

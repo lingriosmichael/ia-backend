@@ -23,6 +23,7 @@ export interface ActivityWorkflowStageInput {
   uploadIds: string[];
   jobs: WorkflowStageJob[];
   results: InterpretationResultPersistenceRecord[];
+  hasPendingQualitativeCodingReview: boolean;
   /**
    * Whether ActivityEvidenceLinkageResultRepository.findByActivityId
    * returned a record for this activity. Only meaningful (and only
@@ -95,6 +96,10 @@ export function computeActivityWorkflowStage(
     input.results.length > 0 && input.results.length === input.uploadIds.length;
   if (!isFullyInterpreted) {
     return "analysis_pending";
+  }
+
+  if (input.hasPendingQualitativeCodingReview) {
+    return "qualitative_review";
   }
 
   if (input.uploadIds.length >= 2 && !input.hasLinkageResultIfApplicable) {

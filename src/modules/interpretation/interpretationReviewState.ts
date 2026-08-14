@@ -6,11 +6,15 @@ import type {
 } from "../../shared/contracts.js";
 import type { ActivityRepository } from "../activity/activityRepository.js";
 
-const FIRST_LAYER_BLOCKING_QUESTION_CODES = new Set<InterpretationQuestionCode>([
-  "normalization_merge",
-  "row_grain",
-  "duplicate_identifier_resolution",
-]);
+const FIRST_LAYER_BLOCKING_QUESTION_CODES = new Set<InterpretationQuestionCode>(
+  [
+    "normalization_merge",
+    "row_grain",
+    "duplicate_identifier_resolution",
+    "epistemic_role_clarification",
+    "validated_scale_confirmation",
+  ],
+);
 
 type ReviewQuestion = {
   isBlocking?: boolean | null;
@@ -84,7 +88,7 @@ export async function clearActivityAiKnowledgeStateIfPresent(
   const clearedAiKnowledge = Boolean(activity.aiKnowledgeSnapshot);
   const clearedClarificationAnswers = Boolean(
     activity.activityAnalysisV2ClarificationAnswers &&
-      activity.activityAnalysisV2ClarificationAnswers.length > 0,
+    activity.activityAnalysisV2ClarificationAnswers.length > 0,
   );
 
   if (

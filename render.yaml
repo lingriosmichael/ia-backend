@@ -82,6 +82,56 @@ services:
         value: mock-structured-v1
 
   - type: worker
+    name: brindl-activity-analysis-worker
+    runtime: node
+    region: frankfurt
+    plan: starter
+    buildCommand: npm ci --include=dev && npm run build && npm prune --omit=dev
+    startCommand: npm run start:activity-analysis-worker
+    # Safe to raise: unlike brindl-backend, nothing here is pinned to local
+    # disk, and job claiming is an atomic Mongo findOneAndUpdate, so several
+    # instances can compete for the same job types with no extra
+    # coordination. Left at 1 initially — raise once real load justifies it.
+    numInstances: 1
+    maxShutdownDelaySeconds: 120
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: JWT_SECRET
+        fromService:
+          type: web
+          name: brindl-backend
+          envVarKey: JWT_SECRET
+      - key: MONGODB_URI
+        sync: false
+      - key: MONGODB_DB_NAME
+        value: brindl_backend
+      - key: PYTHON_SERVICE_URL
+        fromService:
+          type: pserv
+          name: brindl-python-api
+          property: hostport
+      - key: PYTHON_SERVICE_SHARED_SECRET
+        fromService:
+          type: web
+          name: brindl-backend
+          envVarKey: PYTHON_SERVICE_SHARED_SECRET
+      - key: PYTHON_SERVICE_TIMEOUT_MS
+        value: "30000"
+      - key: PYTHON_ANALYTICS_TIMEOUT_MS
+        value: "120000"
+      - key: ACTIVITY_ANALYSIS_WORKER_CONCURRENCY
+        value: "2"
+      - key: FILE_STORAGE_DRIVER
+        value: local
+      - key: ALLOW_LOCAL_FILE_STORAGE_IN_PRODUCTION
+        value: "true"
+      - key: AI_PROVIDER
+        value: mock
+      - key: AI_MODEL
+        value: mock-structured-v1
+
+  - type: worker
     name: brindl-analytics-worker
     runtime: node
     region: frankfurt

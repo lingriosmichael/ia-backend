@@ -30,6 +30,8 @@ import type {
   ProcessingJobRecord,
   PrivacyReviewDecisions,
   PrivacyReviewRecord,
+  QualitativeCodingReviewDecisions,
+  QualitativeCodingReviewRecord,
   ProjectStatus,
   ProjectSummary,
   UploadMetadataStatus,
@@ -628,6 +630,41 @@ export function mapPrivacyReview(record: {
     findings: (record.findings as Record<string, unknown>) ?? {},
     parsedRepresentationPreview: record.parsedRepresentationPreview,
     decisions: (record.decisions as PrivacyReviewDecisions | null) ?? null,
+    approvedById: record.approvedById,
+    approvedAt: record.approvedAt ? toIso(record.approvedAt) : null,
+    createdAt: toIso(record.createdAt),
+    updatedAt: toIso(record.updatedAt),
+  };
+}
+
+export function mapQualitativeCodingReview(record: {
+  id: string;
+  organizationId: string;
+  projectId: string;
+  activityId: string | null;
+  uploadMetadataId: string;
+  privacySafeRepresentationId: string;
+  interpretationResultId: string;
+  status: "pending" | "approved" | "rejected";
+  findings: unknown;
+  decisions: unknown;
+  approvedById: string | null;
+  approvedAt: Date | null;
+  createdAt: Date;
+  updatedAt: Date;
+}): QualitativeCodingReviewRecord {
+  return {
+    id: record.id,
+    organizationId: record.organizationId,
+    projectId: record.projectId,
+    activityId: record.activityId,
+    uploadMetadataId: record.uploadMetadataId,
+    privacySafeRepresentationId: record.privacySafeRepresentationId,
+    interpretationResultId: record.interpretationResultId,
+    status: record.status,
+    findings: (record.findings as Record<string, unknown>) ?? {},
+    decisions:
+      (record.decisions as QualitativeCodingReviewDecisions | null) ?? null,
     approvedById: record.approvedById,
     approvedAt: record.approvedAt ? toIso(record.approvedAt) : null,
     createdAt: toIso(record.createdAt),

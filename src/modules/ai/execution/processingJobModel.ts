@@ -7,7 +7,7 @@ const processingJobSchema = new Schema(
     _id: { type: String, required: true },
     organizationId: { type: String, required: true, index: true },
     projectId: { type: String, required: true, index: true },
-    activityId: { type: String, default: null, index: true },
+    activityId: { type: String, default: null },
     uploadMetadataId: { type: String, default: null },
     triggeredById: { type: String, required: true },
     jobType: {
@@ -23,6 +23,8 @@ const processingJobSchema = new Schema(
         "report_generation",
         "chat",
         "other",
+        "activity_analysis_v2",
+        "qualitative_coding_review",
       ],
       required: true,
     },
@@ -83,6 +85,36 @@ processingJobSchema.index({
   leaseExpiresAt: 1,
   createdAt: 1,
 });
+
+// General-purpose index backing listByActivity's `find({ activityId })`
+// query across all job types/statuses. Declared explicitly (rather than via
+// the field-level `index: true` shorthand) so it sits alongside, instead of
+// duplicating, the more specific partial unique index below — Mongoose
+// warns if the same field is indexed via both styles.
+processingJobSchema.index({ activityId: 1 });
+
+// Enforces "only one active V2 analysis run per activity" at the database
+// level. Unlike the uploadMetadataId index above, this one is scoped to
+// jobType: several other job types (workbook_split, evidence_processing,
+// dataset_interpretation) legitimately populate activityId and run
+// concurrently for the same activity, so an unscoped index here would break
+// those flows. Keyed on {activityId, jobType} rather than {activityId}
+// alone — the partial filter already pins jobType to a single value so this
+// doesn't change the uniqueness semantics, but it keeps the key pattern
+// distinct from the general activityId index above (Mongoose warns on two
+// indexes sharing an identical key pattern, regardless of differing
+// options).
+processingJobSchema.index(
+  { activityId: 1, jobType: 1 },
+  {
+    unique: true,
+    partialFilterExpression: {
+      activityId: { $type: "string" },
+      jobType: "activity_analysis_v2",
+      status: { $in: [...activeProcessingJobStatusValues] },
+    },
+  },
+);
 
 export type ProcessingJobMongoDocument = InferSchemaType<
   typeof processingJobSchema

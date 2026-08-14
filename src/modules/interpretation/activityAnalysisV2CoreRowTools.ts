@@ -87,6 +87,8 @@ export function createCohortAliasValue(
     sourceUploadMetadataIds: source.sourceUploadMetadataIds,
     sourceTableNames: source.sourceTableNames,
     basis: "cohort",
+    sourceColumnEpistemicRoles: source.sourceColumnEpistemicRoles,
+    epistemicRoles: source.epistemicRoles,
   };
 }
 
@@ -103,6 +105,8 @@ export function createResultAliasValue(
     sourceUploadMetadataIds: source.sourceUploadMetadataIds,
     sourceTableNames: source.sourceTableNames,
     basis: "result",
+    sourceColumnEpistemicRoles: source.sourceColumnEpistemicRoles,
+    epistemicRoles: source.epistemicRoles,
   };
 }
 

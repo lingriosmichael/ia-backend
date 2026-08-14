@@ -15,7 +15,10 @@ import type {
   ActivityEvidenceLinkageResultPersistenceRecord,
   ActivityEvidenceLinkageResultUpsertInput,
 } from "./activityEvidenceLinkageResultPersistence.js";
-import type { PreparedDatasetColumn } from "../../shared/contracts.js";
+import type {
+  ActivityEvidenceLinkageProposalDecision,
+  PreparedDatasetColumn,
+} from "../../shared/contracts.js";
 
 const NOW = new Date("2026-01-01T00:00:00.000Z");
 const ACTIVITY_ID = "activity-1";
@@ -92,6 +95,7 @@ function makeColumn(
     positiveStatusValues,
     positiveStatusDefinitionText: null,
     normalizationAccepted: null,
+    epistemicRole: null,
   };
 }
 
@@ -122,6 +126,8 @@ function makePreparation(
       primaryStatusFields: [],
       positiveStatusDefinitions: [],
       primaryDateFields: [],
+      epistemicRoleClarifications: [],
+      validatedScaleConfirmations: [],
     },
     preparedDataset: {
       evidenceModality: "structured_quantitative",
@@ -173,10 +179,16 @@ function makeIdentifierRows(ids: string[]): Record<string, unknown>[] {
   return ids.map((id) => ({ participant_id: id }));
 }
 
+interface ProposalDecisionUpsertCall {
+  proposalId: string;
+  decision: ActivityEvidenceLinkageProposalDecision;
+}
+
 interface UpsertCapture {
   input: ActivityEvidenceLinkageResultUpsertInput | null;
   record: ActivityEvidenceLinkageResultPersistenceRecord | null;
   deletedActivityIds: string[];
+  proposalDecisionUpsertCalls: ProposalDecisionUpsertCall[];
 }
 
 function makeService(options: {
@@ -200,6 +212,7 @@ function makeService(options: {
     input: null,
     record: null,
     deletedActivityIds: [],
+    proposalDecisionUpsertCalls: [],
     concernTaggingRequests: [],
   };
 
@@ -231,6 +244,32 @@ function makeService(options: {
         createdAt: NOW,
         updatedAt: NOW,
       } as ActivityEvidenceLinkageResultPersistenceRecord;
+      return capture.record;
+    },
+    upsertProposalDecision: async (
+      _activityId: string,
+      proposalId: string,
+      decision: ActivityEvidenceLinkageProposalDecision,
+      decidedAt: Date,
+    ) => {
+      capture.proposalDecisionUpsertCalls.push({ proposalId, decision });
+      if (!capture.record) {
+        return null;
+      }
+      const existingIndex = capture.record.proposalDecisions.findIndex(
+        (entry) => entry.proposalId === proposalId,
+      );
+      const nextProposalDecisions = [...capture.record.proposalDecisions];
+      const nextDecision = { proposalId, decision, decidedAt };
+      if (existingIndex >= 0) {
+        nextProposalDecisions[existingIndex] = nextDecision;
+      } else {
+        nextProposalDecisions.push(nextDecision);
+      }
+      capture.record = {
+        ...capture.record,
+        proposalDecisions: nextProposalDecisions,
+      };
       return capture.record;
     },
     findByActivityId: async () => capture.record,
@@ -402,7 +441,7 @@ test("rejecting a weak linkage proposal resolves the activity with separate file
   ];
   const rowsB = [...rowsA];
 
-  const { service } = makeService({
+  const { service, capture } = makeService({
     uploadIds: ["upload-a", "upload-b"],
     results: [
       makeResult("result-a", "upload-a", "psr-a"),
@@ -428,6 +467,15 @@ test("rejecting a weak linkage proposal resolves the activity with separate file
     proposalId,
     "reject",
   );
+
+  // reviewProposal must write this one decision through the repository's
+  // dedicated atomic upsert, not by reading proposalDecisions into memory
+  // and writing the whole array back — a stale read-modify-write here is
+  // exactly what lets a concurrent review of a *different* proposal on the
+  // same activity silently disappear.
+  assert.deepEqual(capture.proposalDecisionUpsertCalls, [
+    { proposalId, decision: "reject" },
+  ]);
 
   assert.equal(resolved.status, "resolved");
   assert.deepEqual(resolved.groups, []);

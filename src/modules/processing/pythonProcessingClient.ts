@@ -1,6 +1,9 @@
 import { z } from "zod";
 import { AppError } from "../../shared/errors/appError.js";
+import { interpretationQuestionCodeValues } from "../../shared/contracts.js";
 import type {
+  EpistemicRole,
+  InterpretationQuestionCode,
   LlmUsageSummary,
   PrivacyReviewDecisions,
 } from "../../shared/contracts.js";
@@ -85,6 +88,59 @@ interface ConcernTaggingOutput {
   llmUsage?: LlmUsageSummary | null;
 }
 
+export interface QualitativeCodingReviewRequestInput {
+  uploadMetadataId: string;
+  originalFileName: string;
+  language: "de" | "en";
+  privacySafePayload: Record<string, unknown>;
+  sourceCodebookCodes?: Array<{
+    code: string;
+    label: string;
+    description: string;
+    exampleExcerpts: string[];
+  }>;
+  sourceCodebookUploadMetadataId?: string | null;
+  sourceCodebookOriginalFileName?: string | null;
+  datasetProfileTables: Array<{
+    tableName: string;
+    rowCount: number;
+    columns: Array<{
+      name: string;
+      // Reuses contracts.ts's EpistemicRole rather than a hand-duplicated
+      // union — see the comment on ActivityAnalysisV2ClarificationQuestionDraft's
+      // questionCode below for why a hand-duplicated union here is a real risk,
+      // not just a style nit.
+      epistemicRole: EpistemicRole | null;
+    }>;
+  }>;
+}
+
+export interface QualitativeCodingReviewResponseOutput {
+  findings: Array<{
+    findingKey: string;
+    tableName: string;
+    textColumnName: string;
+    syntheticCodeColumnName: string;
+    rowCount: number;
+    nonEmptyRowCount: number;
+    sampleExcerpts: string[];
+    existingCodeColumnNames: string[];
+    proposedCodes: Array<{
+      code: string;
+      label: string;
+      description: string;
+      exampleExcerpts: string[];
+    }>;
+    proposedAssignments: Array<{
+      rowIndex: number;
+      assignedCode: string | null;
+    }>;
+    sourceCodebookUploadMetadataId: string | null;
+    sourceCodebookOriginalFileName: string | null;
+  }>;
+  llmUsage?: LlmUsageSummary | null;
+}
+
 export interface ActivityAnalysisV2GoalInput {
   goalId: string;
   goalType: "output" | "outcome";
@@ -112,6 +168,7 @@ export interface ActivityAnalysisV2EvidenceColumnInput {
     | "boolean"
     | "unknown"
     | null;
+  epistemicRole?: EpistemicRole | null;
 }
 
 export interface ActivityAnalysisV2EvidenceTableInput {
@@ -137,6 +194,7 @@ export interface ActivityAnalysisV2PlanToolRequest {
   alias?: string | null;
   toolName:
     | "describe_evidence"
+    | "excerpt_retrieval"
     | "create_cohort"
     | "filter_result"
     | "join_tables"
@@ -215,14 +273,11 @@ export interface ActivityAnalysisV2ClarificationQuestionDraft {
   recommendedOption: string | null;
   recommendedConfidence: number | null;
   isBlocking: boolean;
-  questionCode:
-    | "normalization_merge"
-    | "row_grain"
-    | "duplicate_identifier_resolution"
-    | "primary_status_field"
-    | "positive_status_values"
-    | "primary_date_field"
-    | null;
+  // Reuses contracts.ts's InterpretationQuestionCode rather than a
+  // hand-duplicated union — a hand-duplicated one here is exactly what let
+  // epistemic_role_clarification/validated_scale_confirmation silently
+  // fall out of sync with the Zod schema below.
+  questionCode: InterpretationQuestionCode | null;
   targetTableName: string | null;
   targetColumnName: string | null;
 }
@@ -264,6 +319,7 @@ export interface ActivityAnalysisV2RecommendationRequest {
   goalAssessments: Record<string, unknown>[];
   limitations: string[];
   calculations: Record<string, unknown>[];
+  qualitativeFindings: Record<string, unknown>[];
 }
 
 export interface ActivityAnalysisV2RecommendationResponse {
@@ -285,6 +341,7 @@ export interface ActivityAnalysisV2RecommendationResponse {
 // zero calculations instead of a clear error.
 const activityAnalysisV2ToolNameSchema = z.enum([
   "describe_evidence",
+  "excerpt_retrieval",
   "create_cohort",
   "filter_result",
   "join_tables",
@@ -360,16 +417,15 @@ const activityAnalysisV2ClarificationQuestionDraftSchema = z.object({
   recommendedOption: z.string().nullable(),
   recommendedConfidence: z.number().nullable(),
   isBlocking: z.boolean(),
-  questionCode: z
-    .enum([
-      "normalization_merge",
-      "row_grain",
-      "duplicate_identifier_resolution",
-      "primary_status_field",
-      "positive_status_values",
-      "primary_date_field",
-    ])
-    .nullable(),
+  // Derived from the same source of truth used everywhere else in the
+  // backend (contracts.ts) rather than a hand-duplicated list, so this
+  // can't silently drift out of sync with new question codes the way it
+  // did for epistemic_role_clarification/validated_scale_confirmation —
+  // those were added to the planner's InterpretationQuestionDraft schema
+  // on the Python side and to contracts.ts here, but this Zod schema was
+  // never updated, so a real plan response containing either code failed
+  // this parse and the whole plan was rejected as malformed.
+  questionCode: z.enum(interpretationQuestionCodeValues).nullable(),
   targetTableName: z.string().nullable(),
   targetColumnName: z.string().nullable(),
 });
@@ -730,6 +786,18 @@ export class PythonProcessingClient {
     private readonly llmTimeoutMs: number,
   ) {}
 
+  // Qualitative coding review generation is the most LLM-call-heavy path in
+  // this codebase — it can issue numFreeTextColumns * (1 +
+  // ceil(rowCount/25)) sequential OpenAI calls before responding, well
+  // beyond what the generic llmTimeoutMs (120s) budget assumes. This call
+  // now runs inside a background processing job rather than a live HTTP
+  // request (see ProcessingJobService/activityAnalysisWorker.ts), so a
+  // generous ceiling here is no longer expensive: nothing holds a
+  // user-facing connection open, heartbeat-based liveness is the real
+  // "is this stuck" signal, and a timeout is retried automatically via the
+  // job's attemptCount/maxAttempts instead of failing a user's request.
+  private readonly qualitativeCodingReviewTimeoutMs = 480_000;
+
   // Exposed so callers that issue several sequential LLM-backed calls
   // within their own overall deadline (e.g. ActivityAnalysisV2Service's
   // auto-clarification replan loop) can tell whether there's enough budget
@@ -866,6 +934,29 @@ export class PythonProcessingClient {
     );
 
     return response.json() as Promise<ApprovePrivacyReviewResponse>;
+  }
+
+  async proposeQualitativeCodingReview(
+    input: QualitativeCodingReviewRequestInput,
+  ): Promise<QualitativeCodingReviewResponseOutput> {
+    const response = await this.request(
+      "/internal/interpretation/qualitative-coding-review",
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          ...this.authHeaders(),
+        },
+        body: JSON.stringify(input),
+      },
+      "The Python processing service did not return a qualitative coding review proposal.",
+      "python_processing_qualitative_coding_review_unavailable",
+      "The Python processing service timed out while generating the qualitative coding review proposal.",
+      "python_processing_qualitative_coding_review_timeout",
+      this.qualitativeCodingReviewTimeoutMs,
+    );
+
+    return response.json() as Promise<QualitativeCodingReviewResponseOutput>;
   }
 
   async startDatasetInterpretation(

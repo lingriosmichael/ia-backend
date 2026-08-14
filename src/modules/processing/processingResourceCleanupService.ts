@@ -12,6 +12,7 @@ import type { KnowledgeIndicatorRepository } from "../knowledge/knowledgeIndicat
 import type { ProjectKnowledgeModelRepository } from "../knowledge/projectKnowledgeModelRepository.js";
 import type { ActivityEvidenceLinkageResultRepository } from "../linkage/activityEvidenceLinkageResultRepository.js";
 import type { ParsedRepresentationRepository } from "./parsedRepresentationRepository.js";
+import type { QualitativeCodingReviewRepository } from "./qualitativeCodingReviewRepository.js";
 import type { PrivacyReviewRepository } from "./privacyReviewRepository.js";
 import type { PrivacySafeRepresentationRepository } from "./privacySafeRepresentationRepository.js";
 
@@ -19,6 +20,7 @@ export class ProcessingResourceCleanupService {
   constructor(
     private readonly parsedRepresentationRepository: ParsedRepresentationRepository,
     private readonly privacyReviewRepository: PrivacyReviewRepository,
+    private readonly qualitativeCodingReviewRepository: QualitativeCodingReviewRepository,
     private readonly privacySafeRepresentationRepository: PrivacySafeRepresentationRepository,
     private readonly interpretationResultRepository: InterpretationResultRepository,
     private readonly datasetPreparationRepository: DatasetPreparationRepository,
@@ -41,6 +43,10 @@ export class ProcessingResourceCleanupService {
     await Promise.all([
       this.parsedRepresentationRepository.deleteByProjectId(projectId, session),
       this.privacyReviewRepository.deleteByProjectId(projectId, session),
+      this.qualitativeCodingReviewRepository.deleteByProjectId(
+        projectId,
+        session,
+      ),
       this.privacySafeRepresentationRepository.deleteByProjectId(
         projectId,
         session,
@@ -88,6 +94,10 @@ export class ProcessingResourceCleanupService {
         session,
       ),
       this.privacyReviewRepository.deleteByActivityId(activityId, session),
+      this.qualitativeCodingReviewRepository.deleteByActivityId(
+        activityId,
+        session,
+      ),
       this.privacySafeRepresentationRepository.deleteByActivityId(
         activityId,
         session,
@@ -142,6 +152,10 @@ export class ProcessingResourceCleanupService {
         session,
       ),
       this.privacyReviewRepository.deleteByUploadMetadataId(
+        uploadMetadataId,
+        session,
+      ),
+      this.qualitativeCodingReviewRepository.deleteByUploadMetadataId(
         uploadMetadataId,
         session,
       ),

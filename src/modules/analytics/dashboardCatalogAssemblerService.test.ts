@@ -179,6 +179,8 @@ test("dataset preparation and deterministic analysis warnings become catalog qua
           primaryStatusFields: [],
           positiveStatusDefinitions: [],
           primaryDateFields: [],
+          epistemicRoleClarifications: [],
+          validatedScaleConfirmations: [],
         },
         preparedDataset: {
           evidenceModality: "structured_quantitative",

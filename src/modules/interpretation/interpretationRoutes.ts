@@ -31,36 +31,6 @@ export async function registerInterpretationRoutes(
     controller.startForActivity.bind(controller),
   );
 
-  // Deprecated compatibility endpoint. Canonical activity analysis lives at
-  // `/activities/:activityId/analysis-v2`.
-  app.get(
-    "/activities/:activityId/ai-knowledge",
-    { preHandler: authenticate },
-    controller.getActivityAiKnowledge.bind(controller),
-  );
-
-  // Deprecated compatibility endpoint. Runs V2 and returns the legacy
-  // response shape for older clients.
-  app.post(
-    "/activities/:activityId/ai-knowledge",
-    {
-      preHandler: authenticate,
-      config: processingKickoffRateLimitConfig,
-    },
-    controller.generateActivityAiKnowledge.bind(controller),
-  );
-
-  // Deprecated compatibility endpoint. Runs V2 and returns the legacy
-  // response shape for older clients.
-  app.put(
-    "/activities/:activityId/ai-knowledge",
-    {
-      preHandler: authenticate,
-      config: processingKickoffRateLimitConfig,
-    },
-    controller.regenerateActivityAiKnowledge.bind(controller),
-  );
-
   app.post(
     "/activities/:activityId/analysis-v2",
     {
@@ -87,6 +57,18 @@ export async function registerInterpretationRoutes(
       config: processingKickoffRateLimitConfig,
     },
     controller.answerActivityAnalysisV2Question.bind(controller),
+  );
+
+  app.patch(
+    "/activities/:activityId/analysis-v2/questions",
+    {
+      preHandler: authenticate,
+      // Same pipeline cost as the single-question route above — this one
+      // just answers several questions before triggering the one replan
+      // instead of triggering a replan per question.
+      config: processingKickoffRateLimitConfig,
+    },
+    controller.answerActivityAnalysisV2Questions.bind(controller),
   );
 
   app.get(
@@ -132,6 +114,19 @@ export async function registerInterpretationRoutes(
     "/interpretations/:interpretationResultId/questions/:questionId",
     { preHandler: authenticate },
     controller.answerQuestion.bind(controller),
+  );
+
+  app.patch(
+    "/interpretations/:interpretationResultId/questions",
+    {
+      preHandler: authenticate,
+      // Answering questions re-syncs dataset preparation, deterministic
+      // analysis, and quantitative synthesis (which calls the Python
+      // service) — same cost profile as the single-question route above,
+      // just amortized over however many questions are answered in one call.
+      config: processingKickoffRateLimitConfig,
+    },
+    controller.answerQuestions.bind(controller),
   );
 
   app.post(

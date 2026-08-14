@@ -17,10 +17,7 @@ function captureErrorHandler() {
   } as unknown as FastifyInstance;
 
   registerErrorHandler(fakeApp);
-  return (
-    error: unknown,
-    requestOverrides?: Partial<FastifyRequest>,
-  ) => {
+  return (error: unknown, requestOverrides?: Partial<FastifyRequest>) => {
     const loggedErrors: unknown[] = [];
     const loggedWarnings: unknown[] = [];
     const sent: { statusCode: number; body: unknown }[] = [];
@@ -71,6 +68,44 @@ test("errorHandler logs a 4xx AppError as a warning and still returns the client
   assert.equal(loggedErrors.length, 0);
   assert.equal(loggedWarnings.length, 1);
   assert.equal(sent[0]?.statusCode, 404);
+});
+
+test("errorHandler strips details from a 5xx AppError before it reaches the client", () => {
+  const invoke = captureErrorHandler();
+  const { sent } = invoke(
+    new AppError(
+      "The Python processing service could not plan the ActivityAnalystV2 analysis.",
+      502,
+      "python_processing_activity_analysis_v2_plan_unavailable",
+      {
+        url: "http://python-service.internal:8000/internal/interpretation/activity-analysis-v2-plan",
+        upstreamStatus: 404,
+        upstreamBody: '{"detail":"Not Found"}',
+      },
+    ),
+  );
+
+  assert.equal(
+    (sent[0]?.body as { error: { details?: unknown } }).error.details,
+    undefined,
+  );
+});
+
+test("errorHandler still forwards details on a 4xx AppError, since callers rely on it to render a next step", () => {
+  const invoke = captureErrorHandler();
+  const { sent } = invoke(
+    new AppError(
+      "Every current evidence file must complete privacy-safe processing before ActivityAnalystV2 preview is available.",
+      409,
+      "activity_analysis_v2_not_ready",
+      { missingPrivacySafeUploads: ["upload-1"] },
+    ),
+  );
+
+  assert.deepEqual(
+    (sent[0]?.body as { error: { details?: unknown } }).error.details,
+    { missingPrivacySafeUploads: ["upload-1"] },
+  );
 });
 
 test("errorHandler stays silent for the expected pre-run analysis-v2 404", () => {

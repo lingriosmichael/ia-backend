@@ -20,8 +20,10 @@ truthful map, not an aspiration.)
 - `src/scripts/` — explicit maintenance/migration scripts
 - `src/workers/` — standalone worker entrypoints deployed as separate processes
   from the main API (e.g. `analyticsWorker.ts`, started via `npm run
-start:analytics-worker`) — not reachable through any HTTP route, so grep
-  here if async job processing looks like it "isn't doing anything"
+start:analytics-worker`; `activityAnalysisWorker.ts`, started via `npm run
+start:activity-analysis-worker`, claims `activity_analysis_v2` and
+  `qualitative_coding_review` jobs) — not reachable through any HTTP route,
+  so grep here if async job processing looks like it "isn't doing anything"
 
 The suffix list above is a baseline, not a rule every file must fit. Some
 modules — most notably `interpretation/`, which hosts the `ActivityAnalystV2`

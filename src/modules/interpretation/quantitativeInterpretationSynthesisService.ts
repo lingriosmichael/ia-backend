@@ -2,6 +2,7 @@ import type { FastifyBaseLogger } from "fastify";
 import { databaseSession } from "../../shared/database/databaseClient.js";
 import { createDocumentId } from "../../shared/database/documentId.js";
 import type { ProcessingJobRepository } from "../ai/execution/processingJobRepository.js";
+import type { ActivityLlmTokenLedgerService } from "../activity/activityLlmTokenLedgerService.js";
 import type { ActivityRepository } from "../activity/activityRepository.js";
 import type { PythonProcessingClient } from "../processing/pythonProcessingClient.js";
 import type { ProjectLlmTokenLedgerService } from "../project/projectLlmTokenLedgerService.js";
@@ -191,6 +192,7 @@ export class QuantitativeInterpretationSynthesisService {
     private readonly projectRepository: ProjectRepository,
     private readonly pythonProcessingClient: PythonProcessingClient,
     private readonly projectLlmTokenLedgerService: ProjectLlmTokenLedgerService,
+    private readonly activityLlmTokenLedgerService: ActivityLlmTokenLedgerService,
     private readonly logger: FastifyBaseLogger,
   ) {}
 
@@ -327,6 +329,11 @@ export class QuantitativeInterpretationSynthesisService {
           );
     await this.projectLlmTokenLedgerService.recordUsage(
       result.projectId,
+      synthesis.llmUsage ?? null,
+      databaseSession,
+    );
+    await this.activityLlmTokenLedgerService.recordUsage(
+      result.activityId,
       synthesis.llmUsage ?? null,
       databaseSession,
     );

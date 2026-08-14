@@ -169,6 +169,123 @@ function createExecutorFixture(options?: {
   };
 }
 
+function createEpistemicRoleGateFixture() {
+  const evidence: CurrentActivityEvidenceSnapshot = {
+    organizationId: "org-1",
+    projectId: "project-1",
+    activityId: "activity-1",
+    evidence: [
+      {
+        uploadMetadataId: "upload-qual-1",
+        privacySafeRepresentationId: "psr-qual-1",
+        logicalEvidenceId: "evidence-qual-1",
+        versionNumber: 1,
+        originalFileName: "mentor_feedback.csv",
+        evidenceModality: "structured_qualitative",
+        uploadedAt: NOW,
+        payload: {
+          tables: [
+            {
+              name: "mentor_feedback",
+              rows: [
+                {
+                  participant_id: "P1",
+                  confidence_code: "5",
+                  theme_code: "improved",
+                  reflection_note:
+                    "Meryem Lange said she feels more confident speaking up.",
+                },
+                {
+                  participant_id: "P2",
+                  confidence_code: "4",
+                  theme_code: "improved",
+                  reflection_note:
+                    "Jordan Smith described a much clearer sense of direction.",
+                },
+                {
+                  participant_id: "P3",
+                  confidence_code: "2",
+                  theme_code: "stalled",
+                  reflection_note: "",
+                },
+              ],
+            },
+          ],
+        },
+      },
+    ],
+    missingPrivacySafeUploads: [],
+  };
+
+  const preparedTablesByResultId = new Map([
+    [
+      "result-qual-1",
+      {
+        evidenceModality: "structured_qualitative",
+        isReadyForDeterministicAnalysis: true,
+        unresolvedRequirements: [],
+        tables: [
+          {
+            name: "mentor_feedback",
+            rowCount: 3,
+            columnCount: 4,
+            selectedRowGrain: "participant record",
+            identifierColumn: "participant_id",
+            identifierHandling: "deduplicate_by_identifier",
+            primaryStatusColumn: null,
+            primaryDateColumn: null,
+            columns: [
+              {
+                name: "participant_id",
+                inferredType: "identifier",
+                role: "identifier",
+                epistemicRole: "identifier",
+                positiveStatusValues: [],
+                positiveStatusDefinitionText: null,
+                normalizationAccepted: true,
+              },
+              {
+                name: "confidence_code",
+                inferredType: "numeric",
+                role: "measure",
+                epistemicRole: "subjective_code",
+                positiveStatusValues: [],
+                positiveStatusDefinitionText: null,
+                normalizationAccepted: true,
+              },
+              {
+                name: "theme_code",
+                inferredType: "categorical",
+                role: "subgroup",
+                epistemicRole: "subjective_code",
+                positiveStatusValues: [],
+                positiveStatusDefinitionText: null,
+                normalizationAccepted: true,
+              },
+              {
+                name: "reflection_note",
+                inferredType: "free_text",
+                role: "free_text",
+                epistemicRole: "free_text",
+                positiveStatusValues: [],
+                positiveStatusDefinitionText: null,
+                normalizationAccepted: true,
+              },
+            ],
+            notes: [],
+          },
+        ],
+      },
+    ],
+  ]);
+
+  return createExecutorFixture({
+    evidence,
+    results: [{ id: "result-qual-1", uploadMetadataId: "upload-qual-1" }],
+    preparedTablesByResultId,
+  });
+}
+
 test("describe_evidence reports analysis-row counts on deduplicated entity-grain tables", async () => {
   const fixture = createExecutorFixture();
 
@@ -243,6 +360,384 @@ test("count_rows can distinguish raw rows from prepared analysis rows", async ()
   assert.equal(result.calculations[0]?.result.basis, "raw_rows");
   assert.equal(result.calculations[1]?.value, 3);
   assert.equal(result.calculations[1]?.result.basis, "analysis_rows");
+});
+
+test("aggregate_numeric rejects subjective-code columns for outcome-style claims", async () => {
+  const fixture = createEpistemicRoleGateFixture();
+
+  const result = await fixture.executor.execute(
+    [
+      {
+        goalId: "outcome_1",
+        toolName: "aggregate_numeric",
+        arguments: {
+          uploadMetadataId: "upload-qual-1",
+          tableName: "mentor_feedback",
+          columnName: "confidence_code",
+          operation: "avg",
+        },
+      },
+    ],
+    fixture.evidence,
+    {
+      maxToolCalls: 12,
+      maxLlmIterations: 4,
+      timeoutMs: 30_000,
+      maxEvidenceItems: 25,
+    },
+  );
+
+  assert.equal(result.calculations.length, 0);
+  assert.equal(result.toolCallTrace[0]?.status, "failed");
+  assert.match(
+    result.toolCallTrace[0]?.errorMessage ?? "",
+    /epistemic_role_gate_downgrade/i,
+  );
+});
+
+test("a goal downgraded by the epistemic-role gate still executes its later excerpt_retrieval call", async () => {
+  const fixture = createEpistemicRoleGateFixture();
+
+  const result = await fixture.executor.execute(
+    [
+      {
+        goalId: "outcome_1",
+        toolName: "aggregate_numeric",
+        arguments: {
+          uploadMetadataId: "upload-qual-1",
+          tableName: "mentor_feedback",
+          columnName: "confidence_code",
+          operation: "avg",
+        },
+      },
+      {
+        goalId: "outcome_1",
+        toolName: "excerpt_retrieval",
+        arguments: {
+          uploadMetadataId: "upload-qual-1",
+          tableName: "mentor_feedback",
+          columnName: "reflection_note",
+          limit: 2,
+        },
+      },
+    ],
+    fixture.evidence,
+    {
+      maxToolCalls: 12,
+      maxLlmIterations: 4,
+      timeoutMs: 30_000,
+      maxEvidenceItems: 25,
+    },
+  );
+
+  assert.equal(result.toolCallTrace[0]?.status, "failed");
+  assert.match(
+    result.toolCallTrace[0]?.errorMessage ?? "",
+    /epistemic_role_gate_downgrade/i,
+  );
+  // A goal downgraded to qualitative_evidence_only must still be able to
+  // collect the qualitative evidence it was downgraded to — the gate must
+  // reject only the specific blocked request, not every later request for
+  // the same goal.
+  assert.equal(result.toolCallTrace[1]?.status, "succeeded");
+  assert.equal(result.qualitativeFindings.length, 1);
+});
+
+test("paired_change is blocked when its pre/post columns are subjective_code", async () => {
+  const fixture = createEpistemicRoleGateFixture();
+
+  const result = await fixture.executor.execute(
+    [
+      {
+        goalId: "outcome_1",
+        toolName: "paired_change",
+        alias: "confidence_change",
+        arguments: {
+          uploadMetadataId: "upload-qual-1",
+          tableName: "mentor_feedback",
+          entityColumnName: "participant_id",
+          preColumnName: "confidence_code",
+          postColumnName: "confidence_code",
+          outputColumnName: "confidence_delta",
+        },
+      },
+    ],
+    fixture.evidence,
+    {
+      maxToolCalls: 12,
+      maxLlmIterations: 4,
+      timeoutMs: 30_000,
+      maxEvidenceItems: 25,
+    },
+  );
+
+  assert.equal(result.calculations.length, 0);
+  assert.equal(result.toolCallTrace[0]?.status, "failed");
+  assert.match(
+    result.toolCallTrace[0]?.errorMessage ?? "",
+    /epistemic_role_gate_downgrade/i,
+  );
+});
+
+test("compare_target is blocked when a scalar alias comes from a qualitative-filtered cohort", async () => {
+  const fixture = createEpistemicRoleGateFixture();
+
+  const result = await fixture.executor.execute(
+    [
+      {
+        goalId: "outcome_1",
+        toolName: "create_cohort",
+        alias: "improved_theme_rows",
+        arguments: {
+          uploadMetadataId: "upload-qual-1",
+          tableName: "mentor_feedback",
+          filters: [
+            {
+              columnName: "theme_code",
+              operator: "equals",
+              value: "improved",
+            },
+          ],
+        },
+      },
+      {
+        goalId: "outcome_1",
+        toolName: "count_rows",
+        alias: "improved_theme_count",
+        arguments: {
+          cohortAlias: "improved_theme_rows",
+        },
+      },
+      {
+        goalId: "outcome_1",
+        toolName: "compare_target",
+        arguments: {
+          valueAlias: "improved_theme_count",
+          target: 2,
+          comparison: "at_least",
+          label: "Improved coded reflections",
+        },
+      },
+    ],
+    fixture.evidence,
+    {
+      maxToolCalls: 12,
+      maxLlmIterations: 4,
+      timeoutMs: 30_000,
+      maxEvidenceItems: 25,
+    },
+  );
+
+  assert.equal(result.calculations.length, 2);
+  assert.equal(result.toolCallTrace[0]?.status, "succeeded");
+  assert.equal(result.toolCallTrace[1]?.status, "succeeded");
+  assert.equal(result.toolCallTrace[2]?.status, "failed");
+  assert.match(result.toolCallTrace[2]?.errorMessage ?? "", /subjective_code/i);
+  assert.deepEqual(result.calculations[1]?.sourceColumnEpistemicRoles, [
+    { columnName: "theme_code", epistemicRole: "subjective_code" },
+  ]);
+});
+
+test("synthetic qualitative code columns are treated as subjective_code by the executor", async () => {
+  const fixture = createExecutorFixture({
+    evidence: {
+      organizationId: "org-1",
+      projectId: "project-1",
+      activityId: "activity-1",
+      evidence: [
+        {
+          uploadMetadataId: "upload-1",
+          privacySafeRepresentationId: "psr-1",
+          logicalEvidenceId: "evidence-1",
+          versionNumber: 1,
+          originalFileName: "mentor_feedback.csv",
+          evidenceModality: "structured_qualitative",
+          uploadedAt: NOW,
+          payload: {
+            tables: [
+              {
+                name: "applications",
+                rows: [
+                  {
+                    bewerbungs_id: "A1",
+                    reflection_note: "I feel more confident now.",
+                    reflection_note_coded: "improved",
+                  },
+                  {
+                    bewerbungs_id: "A2",
+                    reflection_note: "Still uncertain.",
+                    reflection_note_coded: "uncertain",
+                  },
+                  {
+                    bewerbungs_id: "A3",
+                    reflection_note: "Much clearer direction.",
+                    reflection_note_coded: "improved",
+                  },
+                ],
+                syntheticColumnMetadata: [
+                  {
+                    name: "reflection_note_coded",
+                    sourceTextColumnName: "reflection_note",
+                    epistemicRole: "subjective_code",
+                    inferredType: "categorical",
+                  },
+                ],
+              },
+            ],
+          },
+        },
+      ],
+      missingPrivacySafeUploads: [],
+    },
+    preparedTablesByResultId: new Map([
+      [
+        "result-1",
+        {
+          evidenceModality: "structured_qualitative",
+          isReadyForDeterministicAnalysis: true,
+          unresolvedRequirements: [],
+          tables: [
+            {
+              name: "applications",
+              rowCount: 3,
+              columnCount: 2,
+              selectedRowGrain: "application record",
+              identifierColumn: "bewerbungs_id",
+              identifierHandling: "deduplicate_by_identifier",
+              primaryStatusColumn: null,
+              primaryDateColumn: null,
+              columns: [
+                {
+                  name: "bewerbungs_id",
+                  inferredType: "identifier",
+                  role: "identifier",
+                  epistemicRole: "identifier",
+                  positiveStatusValues: [],
+                  positiveStatusDefinitionText: null,
+                  normalizationAccepted: true,
+                },
+                {
+                  name: "reflection_note",
+                  inferredType: "free_text",
+                  role: "free_text",
+                  epistemicRole: "free_text",
+                  positiveStatusValues: [],
+                  positiveStatusDefinitionText: null,
+                  normalizationAccepted: true,
+                },
+              ],
+              notes: [],
+            },
+          ],
+        },
+      ],
+    ]),
+  });
+
+  const result = await fixture.executor.execute(
+    [
+      {
+        goalId: "outcome_1",
+        toolName: "create_cohort",
+        alias: "improved_synthetic_rows",
+        arguments: {
+          uploadMetadataId: "upload-1",
+          tableName: "applications",
+          filters: [
+            {
+              columnName: "reflection_note_coded",
+              operator: "equals",
+              value: "improved",
+            },
+          ],
+        },
+      },
+      {
+        goalId: "outcome_1",
+        toolName: "count_rows",
+        alias: "improved_synthetic_count",
+        arguments: {
+          cohortAlias: "improved_synthetic_rows",
+        },
+      },
+      {
+        goalId: "outcome_1",
+        toolName: "compare_target",
+        arguments: {
+          valueAlias: "improved_synthetic_count",
+          target: 2,
+          comparison: "at_least",
+          label: "Improved coded reflections",
+        },
+      },
+    ],
+    fixture.evidence,
+    {
+      maxToolCalls: 12,
+      maxLlmIterations: 4,
+      timeoutMs: 30_000,
+      maxEvidenceItems: 25,
+    },
+  );
+
+  assert.equal(result.calculations.length, 2);
+  assert.equal(result.toolCallTrace[0]?.status, "succeeded");
+  assert.equal(result.toolCallTrace[1]?.status, "succeeded");
+  assert.equal(result.toolCallTrace[2]?.status, "failed");
+  assert.match(result.toolCallTrace[2]?.errorMessage ?? "", /subjective_code/i);
+  assert.deepEqual(result.calculations[1]?.sourceColumnEpistemicRoles, [
+    { columnName: "reflection_note_coded", epistemicRole: "subjective_code" },
+  ]);
+});
+
+test("excerpt_retrieval returns grounded qualitative findings with excerpt provenance", async () => {
+  const fixture = createEpistemicRoleGateFixture();
+
+  const result = await fixture.executor.execute(
+    [
+      {
+        goalId: "outcome_1",
+        toolName: "excerpt_retrieval",
+        arguments: {
+          uploadMetadataId: "upload-qual-1",
+          tableName: "mentor_feedback",
+          columnName: "reflection_note",
+          limit: 2,
+          filters: [
+            {
+              columnName: "theme_code",
+              operator: "equals",
+              value: "improved",
+            },
+          ],
+        },
+      },
+    ],
+    fixture.evidence,
+    {
+      maxToolCalls: 12,
+      maxLlmIterations: 4,
+      timeoutMs: 30_000,
+      maxEvidenceItems: 25,
+    },
+  );
+
+  assert.equal(result.calculations.length, 0);
+  assert.equal(result.qualitativeFindings.length, 1);
+  assert.equal(result.toolCallTrace[0]?.status, "succeeded");
+  assert.deepEqual(result.toolCallTrace[0]?.qualitativeFindingIds, [
+    result.qualitativeFindings[0]?.findingId,
+  ]);
+  assert.equal(result.qualitativeFindings[0]?.excerptsReturned, 2);
+  assert.equal(result.qualitativeFindings[0]?.totalMatchingRows, 2);
+  assert.equal(
+    result.qualitativeFindings[0]?.excerpts[0]?.sourceColumn,
+    "reflection_note",
+  );
+  assert.deepEqual(result.qualitativeFindings[0]?.sourceColumnEpistemicRoles, [
+    { columnName: "reflection_note", epistemicRole: "free_text" },
+    { columnName: "theme_code", epistemicRole: "subjective_code" },
+  ]);
 });
 
 test("intersection_count uses distinct entity sets across two tables", async () => {

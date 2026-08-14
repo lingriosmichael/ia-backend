@@ -4,7 +4,11 @@
 // from any of them (see activityAnalysisV2ToolExecutor.ts for the split
 // rationale and module dependency order).
 import { createHash } from "node:crypto";
-import type { ActivityAnalysisV2ToolName } from "../../shared/contracts.js";
+import type {
+  ActivityAnalysisV2CalculationRecord,
+  ActivityAnalysisV2ToolName,
+  EpistemicRole,
+} from "../../shared/contracts.js";
 import {
   resolveAnalysisRowContext,
   toCategoryValue,
@@ -72,6 +76,10 @@ export interface ActivityAnalysisV2ResolvedRowSource {
   sourceTableNames: string[];
   basis: ActivityAnalysisV2RowBasis;
   filters: ActivityAnalysisV2FilterCondition[];
+  sourceColumnEpistemicRoles: NonNullable<
+    ActivityAnalysisV2CalculationRecord["sourceColumnEpistemicRoles"]
+  >;
+  epistemicRoles: EpistemicRole[];
 }
 
 export interface ActivityAnalysisV2RowAliasValue {
@@ -83,6 +91,110 @@ export interface ActivityAnalysisV2RowAliasValue {
   sourceUploadMetadataIds: string[];
   sourceTableNames: string[];
   basis: ActivityAnalysisV2RowBasis;
+  sourceColumnEpistemicRoles: NonNullable<
+    ActivityAnalysisV2CalculationRecord["sourceColumnEpistemicRoles"]
+  >;
+  epistemicRoles: EpistemicRole[];
+}
+
+// Dedupes by columnName+role (a column can legitimately appear once per
+// distinct role across merged sources) and keeps the first-seen entry for
+// a given key, so callers can pass e.g. [left, right] and let left's entry
+// win on overlap. This is the one place that merges
+// sourceColumnEpistemicRoles — every tool that joins or aggregates two row
+// sources should call this instead of writing its own merge, since this
+// data backs the epistemic-role security gate (see
+// activityAnalysisV2EpistemicRoleGate.ts) and a second, subtly different
+// merge implementation is exactly how that gate could silently diverge.
+export function mergeSourceColumnEpistemicRoles(
+  ...roleGroups: Array<
+    | NonNullable<
+        ActivityAnalysisV2CalculationRecord["sourceColumnEpistemicRoles"]
+      >
+    | undefined
+  >
+): NonNullable<
+  ActivityAnalysisV2CalculationRecord["sourceColumnEpistemicRoles"]
+> {
+  const merged: NonNullable<
+    ActivityAnalysisV2CalculationRecord["sourceColumnEpistemicRoles"]
+  > = [];
+  const seen = new Set<string>();
+
+  for (const group of roleGroups) {
+    for (const entry of group ?? []) {
+      const key = `${entry.columnName}::${entry.epistemicRole ?? "null"}`;
+      if (seen.has(key)) {
+        continue;
+      }
+      seen.add(key);
+      merged.push(entry);
+    }
+  }
+
+  return merged;
+}
+
+export function collectEpistemicRoles(
+  sourceColumnEpistemicRoles: NonNullable<
+    ActivityAnalysisV2CalculationRecord["sourceColumnEpistemicRoles"]
+  >,
+): EpistemicRole[] {
+  return Array.from(
+    new Set(
+      sourceColumnEpistemicRoles.flatMap((entry) =>
+        entry.epistemicRole ? [entry.epistemicRole] : [],
+      ),
+    ),
+  );
+}
+
+export function collectColumnEpistemicRolesForTables(
+  tables: ActivityAnalysisV2TableContext[],
+  uploadMetadataIds: string[],
+  tableNames: string[],
+  columnNames: string[],
+): NonNullable<
+  ActivityAnalysisV2CalculationRecord["sourceColumnEpistemicRoles"]
+> {
+  const roleEntries: NonNullable<
+    ActivityAnalysisV2CalculationRecord["sourceColumnEpistemicRoles"]
+  > = [];
+  const seen = new Set<string>();
+
+  for (const uploadMetadataId of uploadMetadataIds) {
+    for (const tableName of tableNames) {
+      const table =
+        tables.find(
+          (candidate) =>
+            candidate.uploadMetadataId === uploadMetadataId &&
+            candidate.tableName === tableName,
+        ) ?? null;
+      if (!table?.preparedTable) {
+        continue;
+      }
+      for (const columnName of columnNames) {
+        const column =
+          table.preparedTable.columns.find(
+            (candidate) => candidate.name === columnName,
+          ) ?? null;
+        if (!column) {
+          continue;
+        }
+        const key = `${columnName}::${column.epistemicRole ?? "null"}`;
+        if (seen.has(key)) {
+          continue;
+        }
+        seen.add(key);
+        roleEntries.push({
+          columnName,
+          epistemicRole: column.epistemicRole ?? null,
+        });
+      }
+    }
+  }
+
+  return roleEntries;
 }
 
 export function selectRows(
@@ -253,6 +365,26 @@ export function resolveSourceRows(
       sourceTableNames: aliasValue.sourceTableNames,
       basis: aliasValue.basis,
       filters: reference.filters ?? [],
+      sourceColumnEpistemicRoles: mergeSourceColumnEpistemicRoles(
+        aliasValue.sourceColumnEpistemicRoles,
+        collectColumnEpistemicRolesForTables(
+          tables,
+          aliasValue.sourceUploadMetadataIds,
+          aliasValue.sourceTableNames,
+          (reference.filters ?? []).map((filter) => filter.columnName),
+        ),
+      ),
+      epistemicRoles: collectEpistemicRoles(
+        mergeSourceColumnEpistemicRoles(
+          aliasValue.sourceColumnEpistemicRoles,
+          collectColumnEpistemicRolesForTables(
+            tables,
+            aliasValue.sourceUploadMetadataIds,
+            aliasValue.sourceTableNames,
+            (reference.filters ?? []).map((filter) => filter.columnName),
+          ),
+        ),
+      ),
     };
   }
 
@@ -273,6 +405,26 @@ export function resolveSourceRows(
       sourceTableNames: aliasValue.sourceTableNames,
       basis: "result",
       filters: reference.filters ?? [],
+      sourceColumnEpistemicRoles: mergeSourceColumnEpistemicRoles(
+        aliasValue.sourceColumnEpistemicRoles,
+        collectColumnEpistemicRolesForTables(
+          tables,
+          aliasValue.sourceUploadMetadataIds,
+          aliasValue.sourceTableNames,
+          (reference.filters ?? []).map((filter) => filter.columnName),
+        ),
+      ),
+      epistemicRoles: collectEpistemicRoles(
+        mergeSourceColumnEpistemicRoles(
+          aliasValue.sourceColumnEpistemicRoles,
+          collectColumnEpistemicRolesForTables(
+            tables,
+            aliasValue.sourceUploadMetadataIds,
+            aliasValue.sourceTableNames,
+            (reference.filters ?? []).map((filter) => filter.columnName),
+          ),
+        ),
+      ),
     };
   }
 
@@ -288,6 +440,12 @@ export function resolveSourceRows(
   );
   const rowContext = resolveTableRowContext(table);
   const useAnalysisRows = reference.useAnalysisRows ?? true;
+  const filterColumnRoles = collectColumnEpistemicRolesForTables(
+    tables,
+    [table.uploadMetadataId],
+    [table.tableName],
+    (reference.filters ?? []).map((filter) => filter.columnName),
+  );
   return {
     sourceLabel: table.tableName,
     rows: applyFilters(
@@ -301,6 +459,8 @@ export function resolveSourceRows(
     sourceTableNames: [table.tableName],
     basis: useAnalysisRows ? "analysis_rows" : "raw_rows",
     filters: reference.filters ?? [],
+    sourceColumnEpistemicRoles: filterColumnRoles,
+    epistemicRoles: collectEpistemicRoles(filterColumnRoles),
   };
 }
 

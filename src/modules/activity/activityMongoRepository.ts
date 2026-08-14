@@ -13,6 +13,7 @@ import type { ActivityRepository } from "./activityRepository.js";
 import type {
   ActivityCreateInput,
   ActivityAnalysisV2ClarificationAnswerPersistenceRecord,
+  ActivityLlmTokenLedgerIncrement,
   ActivityPersistenceRecord,
   ActivityUpdateInput,
 } from "./activityPersistence.js";
@@ -83,6 +84,13 @@ function toActivityRecord(
         }
       : null,
     activityAnalysisV2ClarificationAnswers: clarificationAnswers,
+    llmTokenLedger: {
+      totalPromptTokensLifetime:
+        document.llmTokenLedger?.totalPromptTokensLifetime ?? 0,
+      totalCompletionTokensLifetime:
+        document.llmTokenLedger?.totalCompletionTokensLifetime ?? 0,
+      totalTokensLifetime: document.llmTokenLedger?.totalTokensLifetime ?? 0,
+    },
     createdAt: document.createdAt,
     updatedAt: document.updatedAt,
   };
@@ -187,6 +195,35 @@ export class MongoActivityRepository implements ActivityRepository {
     }
 
     return record;
+  }
+
+  async incrementLlmTokenLedger(
+    activityId: string,
+    increment: ActivityLlmTokenLedgerIncrement,
+    session: DatabaseSession,
+  ): Promise<void> {
+    const document = await applyMongoSession(
+      ActivityMongoModel.findByIdAndUpdate(
+        activityId,
+        {
+          $inc: {
+            "llmTokenLedger.totalPromptTokensLifetime":
+              increment.totalPromptTokensLifetime,
+            "llmTokenLedger.totalCompletionTokensLifetime":
+              increment.totalCompletionTokensLifetime,
+            "llmTokenLedger.totalTokensLifetime": increment.totalTokensLifetime,
+          },
+        },
+        {
+          returnDocument: "after",
+        },
+      ).select({ _id: 1 }),
+      session,
+    ).exec();
+
+    if (!document) {
+      throw new AppError("Activity not found.", 404, "activity_not_found");
+    }
   }
 
   async listByProject(

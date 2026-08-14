@@ -3,6 +3,7 @@ import type {
   DatasetProfileTable,
   DatasetPreparationDecisionSelection,
   DatasetPreparationStatus,
+  EpistemicRole,
   EvidenceModality,
   InterpretationQuestionCode,
   PreparedDatasetColumnRole,
@@ -23,6 +24,8 @@ const PREPARATION_QUESTION_CODES = new Set<InterpretationQuestionCode>([
   "normalization_merge",
   "row_grain",
   "duplicate_identifier_resolution",
+  "epistemic_role_clarification",
+  "validated_scale_confirmation",
 ]);
 
 function isPreparationQuestionCode(
@@ -49,6 +52,8 @@ function emptyDecisionSummary() {
     primaryStatusFields: [] as DatasetPreparationDecisionSelection[],
     positiveStatusDefinitions: [] as DatasetPreparationDecisionSelection[],
     primaryDateFields: [] as DatasetPreparationDecisionSelection[],
+    epistemicRoleClarifications: [] as DatasetPreparationDecisionSelection[],
+    validatedScaleConfirmations: [] as DatasetPreparationDecisionSelection[],
   };
 }
 
@@ -72,6 +77,10 @@ function mapQuestionCodeToSummaryKey(questionCode: InterpretationQuestionCode) {
       return "positiveStatusDefinitions";
     case "primary_date_field":
       return "primaryDateFields";
+    case "epistemic_role_clarification":
+      return "epistemicRoleClarifications";
+    case "validated_scale_confirmation":
+      return "validatedScaleConfirmations";
   }
 }
 
@@ -116,6 +125,55 @@ function parseIdentifierHandling(
     answer.includes("needs review")
   ) {
     return "manual_review_required";
+  }
+  return null;
+}
+
+// Matches the fixed option text Python emits for "epistemic_role_clarification"
+// (interpretation_pipeline.py's _EPISTEMIC_ROLE_CLARIFICATION_OPTIONS) — a
+// closed single-choice answer set, not open-ended user typing, so keyword
+// matching here is exact rather than fuzzy.
+function parseEpistemicRoleClarificationAnswer(
+  answer: string | null,
+): EpistemicRole | null {
+  if (!answer) {
+    return null;
+  }
+  const normalized = normalizeText(answer);
+  if (normalized.includes("reviewer") || normalized.includes("prüfende")) {
+    return "subjective_code";
+  }
+  if (
+    normalized.includes("quote") ||
+    normalized.includes("comment") ||
+    normalized.includes("zitat") ||
+    normalized.includes("kommentar")
+  ) {
+    return "free_text";
+  }
+  if (
+    normalized.includes("plain descriptive") ||
+    normalized.includes("normales datenfeld")
+  ) {
+    return "categorical";
+  }
+  return null;
+}
+
+// Matches _VALIDATED_SCALE_CONFIRMATION_OPTIONS — same closed-option-set
+// reasoning as parseEpistemicRoleClarificationAnswer above.
+function parseValidatedScaleConfirmationAnswer(
+  answer: string | null,
+): boolean | null {
+  if (!answer) {
+    return null;
+  }
+  const normalized = normalizeText(answer);
+  if (normalized.startsWith("yes") || normalized.startsWith("ja")) {
+    return true;
+  }
+  if (normalized.startsWith("no") || normalized.startsWith("nein")) {
+    return false;
   }
   return null;
 }
@@ -196,13 +254,29 @@ function buildPreparedDatasetSnapshot(
       tableName,
     );
 
-    const identifierColumn =
-      duplicateResolutionSelection?.columnName ??
-      profileTable?.likelyIdentifierColumns[0] ??
-      null;
+    // A table can have more than one duplicate_identifier_resolution
+    // question — one per likely-identifier column that actually has
+    // duplicate values (e.g. both 'bewerbungs_id' and 'vorname' can be
+    // likely-identifier candidates, but only 'vorname' has duplicates and
+    // therefore only it gets a question). matchSelectionByTable only
+    // matches by table name, not by column, so a duplicate-resolution
+    // answer must only be trusted to pick the identifier column when it's
+    // actually about the top-ranked candidate — otherwise an answer about
+    // a lower-ranked, duplicate-prone column would silently override an
+    // already-unambiguous, higher-ranked one that never needed a question
+    // at all. Confirmed against a real activity: 'vorname' (duplicate
+    // first names) won over 'bewerbungs_id' (the real, unique id column)
+    // purely because vorname's question happened to be the one answered,
+    // which then broke evidence-linkage matching against a second upload
+    // whose identifier column was correctly 'bewerbungs_id'.
+    const identifierColumn = profileTable?.likelyIdentifierColumns[0] ?? null;
+    const identifierResolutionAppliesToIdentifierColumn =
+      identifierColumn !== null &&
+      duplicateResolutionSelection?.columnName === identifierColumn;
     const identifierHandling =
-      parseIdentifierHandling(duplicateResolutionSelection) ??
-      (identifierColumn ? "assume_unique" : null);
+      (identifierResolutionAppliesToIdentifierColumn
+        ? parseIdentifierHandling(duplicateResolutionSelection)
+        : null) ?? (identifierColumn ? "assume_unique" : null);
     const primaryStatusColumn =
       primaryStatusSelection?.value ??
       (profileTable?.likelyStatusColumns.length === 1
@@ -272,6 +346,38 @@ function buildPreparedDatasetSnapshot(
                     ? "free_text"
                     : "other";
 
+      // Python can't fully resolve epistemicRole at profiling time: an
+      // ambiguous string column (epistemicRole === null) needs a human
+      // choice between subjective_code/free_text, and a validated_scale
+      // candidate needs an explicit human confirmation before it's
+      // upgraded from the safe metric_count default — never auto-resolved
+      // (Section 3 of QUALITATIVE_MIXED_EVIDENCE_PLAN.md).
+      const epistemicRoleClarificationAnswer =
+        decisionSummary.epistemicRoleClarifications.find(
+          (selection) =>
+            selection.tableName === tableName &&
+            selection.columnName === columnName,
+        ) ?? null;
+      const validatedScaleConfirmationAnswer =
+        decisionSummary.validatedScaleConfirmations.find(
+          (selection) =>
+            selection.tableName === tableName &&
+            selection.columnName === columnName,
+        ) ?? null;
+      const baseEpistemicRole: EpistemicRole | null =
+        profileColumn?.epistemicRole ?? null;
+      const epistemicRole: EpistemicRole | null =
+        baseEpistemicRole === null
+          ? parseEpistemicRoleClarificationAnswer(
+              epistemicRoleClarificationAnswer?.value ?? null,
+            )
+          : profileColumn?.isValidatedScaleCandidate &&
+              parseValidatedScaleConfirmationAnswer(
+                validatedScaleConfirmationAnswer?.value ?? null,
+              ) === true
+            ? "validated_scale"
+            : baseEpistemicRole;
+
       return {
         name: columnName,
         inferredType: profileColumn?.inferredType ?? null,
@@ -283,6 +389,7 @@ function buildPreparedDatasetSnapshot(
             ? (positiveStatusSelection?.value ?? null)
             : null,
         normalizationAccepted,
+        epistemicRole,
       };
     });
 

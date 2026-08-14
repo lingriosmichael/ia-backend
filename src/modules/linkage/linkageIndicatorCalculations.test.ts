@@ -24,6 +24,7 @@ function makeColumn(
     positiveStatusValues,
     positiveStatusDefinitionText: null,
     normalizationAccepted: null,
+    epistemicRole: null,
   };
 }
 

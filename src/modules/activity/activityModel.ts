@@ -94,6 +94,11 @@ const activitySchema = new Schema(
     },
     interpretationAcknowledgedAt: { type: Date, default: null },
     interpretationAcknowledgedById: { type: String, default: null },
+    llmTokenLedger: {
+      totalPromptTokensLifetime: { type: Number, default: 0 },
+      totalCompletionTokensLifetime: { type: Number, default: 0 },
+      totalTokensLifetime: { type: Number, default: 0 },
+    },
   },
   {
     collection: "activities",

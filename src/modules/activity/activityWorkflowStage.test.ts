@@ -45,6 +45,7 @@ function makeInput(
     uploadIds: ["upload-1"],
     jobs: [],
     results: [],
+    hasPendingQualitativeCodingReview: false,
     hasLinkageResultIfApplicable: false,
     ...overrides,
   };
@@ -189,6 +190,18 @@ test("a single-upload activity fully interpreted is assessment_ready without nee
     }),
   );
   assert.equal(stage, "assessment_ready");
+});
+
+test("a fully interpreted activity with a pending qualitative coding review is qualitative_review", () => {
+  const stage = computeActivityWorkflowStage(
+    makeInput({
+      uploadIds: ["upload-1"],
+      results: [makeResult({ uploadMetadataId: "upload-1" })],
+      hasPendingQualitativeCodingReview: true,
+      hasLinkageResultIfApplicable: true,
+    }),
+  );
+  assert.equal(stage, "qualitative_review");
 });
 
 test("a fully-interpreted multi-upload activity without a linkage result is goal_review (§11)", () => {

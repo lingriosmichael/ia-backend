@@ -9,9 +9,11 @@
   "scripts": {
     "dev": "tsx watch src/server.ts",
     "dev:analytics-worker": "tsx watch src/workers/analyticsWorker.ts",
+    "dev:activity-analysis-worker": "tsx watch src/workers/activityAnalysisWorker.ts",
     "build": "tsc -p tsconfig.json",
     "start": "node dist/src/server.js",
     "start:analytics-worker": "node dist/src/workers/analyticsWorker.js",
+    "start:activity-analysis-worker": "node dist/src/workers/activityAnalysisWorker.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "eslint . && npm run typecheck",
     "lint:fix": "eslint . --fix && npm run typecheck",

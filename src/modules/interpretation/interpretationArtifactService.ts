@@ -10,6 +10,7 @@ import type {
   DatasetProfileNumericSummary,
   DatasetProfileTable,
   DatasetProfileValueCount,
+  EpistemicRole,
   EvidenceRoutingDecision,
   IndicatorCalculationOperation,
   IndicatorComputedValueGroundingStatus,
@@ -28,6 +29,7 @@ import type {
 import {
   datasetProfileColumnTypeValues,
   datasetProfileIssueCodeValues,
+  epistemicRoleValues,
   indicatorCalculationOperationValues,
   indicatorComputedValueGroundingStatusValues,
   indicatorComputedValueSourceKindValues,
@@ -72,11 +74,16 @@ const interpretationQuestionCodes: readonly InterpretationQuestionCode[] = [
   "primary_status_field",
   "positive_status_values",
   "primary_date_field",
+  "epistemic_role_clarification",
+  "validated_scale_confirmation",
 ];
 
-const DEFERRED_TO_ACTIVITY_ANALYSIS_V2_QUESTION_CODES = new Set<
-  InterpretationQuestionCode
->(["primary_status_field", "positive_status_values", "primary_date_field"]);
+const DEFERRED_TO_ACTIVITY_ANALYSIS_V2_QUESTION_CODES =
+  new Set<InterpretationQuestionCode>([
+    "primary_status_field",
+    "positive_status_values",
+    "primary_date_field",
+  ]);
 
 const interpretationWarningSeverities: readonly InterpretationWarningSeverity[] =
   ["info", "warning"];
@@ -203,6 +210,12 @@ function readDatasetProfileColumnType(
     : "unknown";
 }
 
+function readEpistemicRole(value: unknown): EpistemicRole | null {
+  return epistemicRoleValues.includes(value as EpistemicRole)
+    ? (value as EpistemicRole)
+    : null;
+}
+
 function readDatasetProfileIssueCode(value: unknown): DatasetProfileIssueCode {
   return datasetProfileIssueCodeValues.includes(
     value as DatasetProfileIssueCode,
@@ -263,6 +276,8 @@ function readDatasetProfileColumns(value: unknown): DatasetProfileColumn[] {
     numericSummary: readDatasetProfileNumericSummary(entry.numericSummary),
     dateSummary: readDatasetProfileDateSummary(entry.dateSummary),
     duplicateNonNullValueCount: readNumber(entry.duplicateNonNullValueCount),
+    epistemicRole: readEpistemicRole(entry.epistemicRole),
+    isValidatedScaleCandidate: readBoolean(entry.isValidatedScaleCandidate),
   }));
 }
 
@@ -661,9 +676,7 @@ function mapQuestions(value: unknown): InterpretationQuestionCreateInput[] {
           ? readStringArray(entry.options)
           : null,
         recommendedOption: readNullableString(entry.recommendedOption),
-        recommendedConfidence: readNullableNumber(
-          entry.recommendedConfidence,
-        ),
+        recommendedConfidence: readNullableNumber(entry.recommendedConfidence),
         isBlocking: readBoolean(
           entry.isBlocking,
           readQuestionKind(entry.kind) !== "free_text",

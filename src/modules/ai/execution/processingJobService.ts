@@ -22,6 +22,15 @@ import type { ProcessingJobPersistenceRecord } from "../persistence/aiPersistenc
 import type { ProcessingJobRepository } from "./processingJobRepository.js";
 
 const workerLeaseDurationMs = 90_000;
+// How long a job can sit in "queued" with no worker ever having claimed it
+// (leaseOwner still null) before sync() logs a warning. A healthy worker
+// polls idle every 5s (see activityAnalysisWorker.ts / app/worker/main.py),
+// so anything queued this long almost always means the worker process for
+// that job type isn't running at all, not that it's merely busy — the
+// symptom is otherwise silent: the job just sits there and the frontend
+// polls forever with no error, no timeout, nothing in the logs pointing at
+// the actual cause.
+const queuedJobStalenessWarningMs = 60_000;
 const terminalJobStatuses: ProcessingJobStatus[] = [
   "completed",
   "failed",
@@ -174,6 +183,11 @@ export class ProcessingJobService {
     private readonly logger: FastifyBaseLogger,
   ) {}
 
+  // Warn at most once per job, not once per poll — sync() is polled at a
+  // ~1s cadence by the frontend while a job is active, and a stale-queued
+  // job can sit there for a long time before someone notices.
+  private readonly staleQueuedJobIdsAlreadyWarned = new Set<string>();
+
   async listByActivity(userId: string, activityId: string) {
     await this.authorizationService.canViewActivity(userId, activityId);
     const jobs = await this.processingJobRepository.listByActivity(
@@ -316,7 +330,35 @@ export class ProcessingJobService {
     }
 
     await this.authorizationService.canViewProject(userId, job.projectId);
+    this.warnIfStaleQueuedJob(job);
     return mapProcessingJob(job);
+  }
+
+  private warnIfStaleQueuedJob(job: ProcessingJobPersistenceRecord) {
+    if (
+      job.status !== "queued" ||
+      job.leaseOwner ||
+      this.staleQueuedJobIdsAlreadyWarned.has(job.id)
+    ) {
+      return;
+    }
+
+    const queuedForMs = Date.now() - job.createdAt.getTime();
+    if (queuedForMs < queuedJobStalenessWarningMs) {
+      return;
+    }
+
+    this.staleQueuedJobIdsAlreadyWarned.add(job.id);
+    this.logger.warn(
+      {
+        processingJobId: job.id,
+        jobType: job.jobType,
+        activityId: job.activityId,
+        uploadMetadataId: job.uploadMetadataId,
+        queuedForMs,
+      },
+      "processing job has been queued for a long time with no worker ever claiming it — is the worker process for this jobType running? (activityAnalysisWorker.ts for activity_analysis_v2/qualitative_coding_review, app/worker/main.py for evidence_processing/dataset_interpretation/workbook_split)",
+    );
   }
 
   async claimNextRunnableJob(
@@ -344,6 +386,99 @@ export class ProcessingJobService {
       job: mapProcessingJob(claimedJob),
       context,
     };
+  }
+
+  /**
+   * Claim variant for job types executed in-process by a backend worker
+   * (e.g. activityAnalysisWorker.ts), as opposed to claimNextRunnableJob's
+   * Python-worker contract. Skips buildWorkerContext entirely: that method
+   * exists only because Python has no direct DB access and needs the
+   * backend to hand it everything over HTTP, whereas an in-process backend
+   * worker already has direct access to the same repositories/services the
+   * claimed job's own domain logic needs — it just needs the claimed job
+   * record itself to read activityId/uploadMetadataId/payload from.
+   */
+  async claimNextRunnableBackendJob(
+    workerId: string,
+    supportedJobTypes: ProcessingJobType[],
+  ): Promise<ProcessingJobRecord | null> {
+    const now = new Date();
+    const claimedJob = await this.processingJobRepository.claimNextRunnable(
+      {
+        workerId,
+        supportedJobTypes,
+        leaseExpiresAt: new Date(now.getTime() + workerLeaseDurationMs),
+        now,
+        claimedStatus: "processing",
+      },
+      databaseSession,
+    );
+
+    return claimedJob ? mapProcessingJob(claimedJob) : null;
+  }
+
+  /**
+   * Completion variant for job types executed in-process by a backend
+   * worker. Unlike applyExternalCompletion/applyProcessorStatus, there is
+   * no artifact-ingestion step left to do here: the domain service the
+   * worker calls (e.g. ActivityAnalysisV2Service.previewActivityAnalysis,
+   * QualitativeCodingReviewService.generate) already persists its own
+   * result record as a normal part of doing the work, before job
+   * completion is ever recorded. This only flips the job's own
+   * status/lease bookkeeping. Idempotent — a job that's already terminal is
+   * a no-op, same guarantee applyExternalCompletion makes.
+   */
+  async completeBackendExecutedJob(
+    processingJobId: string,
+    workerId: string,
+    outcome: {
+      status: "completed" | "failed";
+      errorMessage?: string | null;
+    },
+  ) {
+    const job = await this.processingJobRepository.findById(
+      processingJobId,
+      databaseSession,
+    );
+
+    if (!job) {
+      throw new AppError(
+        "Processing job not found.",
+        404,
+        "processing_job_not_found",
+      );
+    }
+
+    if (terminalJobStatuses.includes(job.status)) {
+      return mapProcessingJob(job);
+    }
+
+    const updatedJob = await this.processingJobRepository.update(
+      job.id,
+      {
+        status: outcome.status,
+        errorMessage: outcome.errorMessage ?? null,
+        leaseOwner: null,
+        leaseExpiresAt: null,
+        lastHeartbeatAt: null,
+        completedAt: new Date(),
+      },
+      databaseSession,
+    );
+
+    this.logger.info(
+      {
+        processingJobId: job.id,
+        jobType: job.jobType,
+        workerId,
+        fromStatus: job.status,
+        toStatus: updatedJob.status,
+        errorMessage: updatedJob.errorMessage,
+      },
+      "backend-executed processing job status changed",
+    );
+
+    return mapProcessingJob(updatedJob);
   }
 
   async createDerivedWorkbookSheetUpload(

@@ -47,6 +47,15 @@ const envSchema = z
       .int()
       .positive()
       .default(120000),
+    QUALITATIVE_CODING_DEBUG_INCLUDE_PAYLOADS: z
+      .enum(["true", "false"])
+      .default("false")
+      .transform((value) => value === "true"),
+    ACTIVITY_ANALYSIS_WORKER_CONCURRENCY: z.coerce
+      .number()
+      .int()
+      .positive()
+      .default(2),
     FILE_STORAGE_DRIVER: z.enum(["local", "s3"]).default("local"),
     UPLOAD_DIR: z.string().min(1).default("./uploads"),
     S3_ENDPOINT: z.string().url().optional(),

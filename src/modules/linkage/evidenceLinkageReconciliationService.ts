@@ -23,10 +23,7 @@ import {
   applyConcernTaggingResults,
 } from "./linkageConcernTagging.js";
 import type { ActivityEvidenceLinkageResultRepository } from "./activityEvidenceLinkageResultRepository.js";
-import type {
-  ActivityEvidenceLinkageProposalDecisionPersistenceRecord,
-  ActivityEvidenceLinkageResultPersistenceRecord,
-} from "./activityEvidenceLinkageResultPersistence.js";
+import type { ActivityEvidenceLinkageResultPersistenceRecord } from "./activityEvidenceLinkageResultPersistence.js";
 
 function getProposalId(candidate: LinkageCandidate): string {
   const left = [
@@ -230,32 +227,17 @@ export class EvidenceLinkageReconciliationService {
       );
     }
 
-    const nextProposalDecisions: ActivityEvidenceLinkageProposalDecisionPersistenceRecord[] =
-      [
-        ...current.proposalDecisions.filter(
-          (entry) => entry.proposalId !== proposalId,
-        ),
-        {
-          proposalId,
-          decision,
-          decidedAt: new Date(),
-        },
-      ];
-
-    await this.activityEvidenceLinkageResultRepository.upsertByActivityId(
-      {
-        organizationId: current.organizationId,
-        projectId: current.projectId,
-        activityId: current.activityId,
-        status: current.status,
-        groups: current.groups,
-        proposals: current.proposals,
-        proposalDecisions: nextProposalDecisions,
-      },
+    await this.activityEvidenceLinkageResultRepository.upsertProposalDecision(
+      activityId,
+      proposalId,
+      decision,
+      new Date(),
       databaseSession,
     );
 
-    return (await this.reconcileForActivity(activityId)) as ActivityEvidenceLinkageResultPersistenceRecord;
+    return (await this.reconcileForActivity(
+      activityId,
+    )) as ActivityEvidenceLinkageResultPersistenceRecord;
   }
 
   // Opt-in: an activity with no concernTaggingInstruction never calls the

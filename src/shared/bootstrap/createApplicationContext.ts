@@ -9,6 +9,7 @@ import { AuthorizationService } from "../auth/authorizationService.js";
 import { createRequireInternalServiceSecretMiddleware } from "../auth/requireInternalServiceSecret.js";
 import { MongoTransactionManager } from "../database/transactionManager.js";
 import { ActivityController } from "../../modules/activity/activityController.js";
+import { ActivityLlmTokenLedgerService } from "../../modules/activity/activityLlmTokenLedgerService.js";
 import { MongoActivityRepository } from "../../modules/activity/activityMongoRepository.js";
 import { ActivityService } from "../../modules/activity/activityService.js";
 import { AnalyticsController } from "../../modules/analytics/analyticsController.js";
@@ -62,6 +63,9 @@ import { MongoParsedRepresentationRepository } from "../../modules/processing/pa
 import { PrivacyReviewController } from "../../modules/processing/privacyReviewController.js";
 import { MongoPrivacyReviewRepository } from "../../modules/processing/privacyReviewMongoRepository.js";
 import { PrivacyReviewService } from "../../modules/processing/privacyReviewService.js";
+import { QualitativeCodingReviewController } from "../../modules/processing/qualitativeCodingReviewController.js";
+import { MongoQualitativeCodingReviewRepository } from "../../modules/processing/qualitativeCodingReviewMongoRepository.js";
+import { QualitativeCodingReviewService } from "../../modules/processing/qualitativeCodingReviewService.js";
 import { MongoPrivacySafeRepresentationRepository } from "../../modules/processing/privacySafeRepresentationMongoRepository.js";
 import { ProcessingResourceCleanupService } from "../../modules/processing/processingResourceCleanupService.js";
 import { PythonProcessingClient } from "../../modules/processing/pythonProcessingClient.js";
@@ -93,6 +97,8 @@ export function createApplicationContext(
   const parsedRepresentationRepository =
     new MongoParsedRepresentationRepository();
   const privacyReviewRepository = new MongoPrivacyReviewRepository();
+  const qualitativeCodingReviewRepository =
+    new MongoQualitativeCodingReviewRepository();
   const privacySafeRepresentationRepository =
     new MongoPrivacySafeRepresentationRepository();
   const interpretationResultRepository =
@@ -133,6 +139,7 @@ export function createApplicationContext(
   const processingResourceCleanupService = new ProcessingResourceCleanupService(
     parsedRepresentationRepository,
     privacyReviewRepository,
+    qualitativeCodingReviewRepository,
     privacySafeRepresentationRepository,
     interpretationResultRepository,
     datasetPreparationRepository,
@@ -186,6 +193,9 @@ export function createApplicationContext(
   );
   const projectLlmTokenLedgerService = new ProjectLlmTokenLedgerService(
     projectRepository,
+  );
+  const activityLlmTokenLedgerService = new ActivityLlmTokenLedgerService(
+    activityRepository,
   );
   const activityService = new ActivityService(
     activityRepository,
@@ -251,6 +261,7 @@ export function createApplicationContext(
       projectRepository,
       pythonProcessingClient,
       projectLlmTokenLedgerService,
+      activityLlmTokenLedgerService,
       logger,
     );
   const interpretationArtifactService = new InterpretationArtifactService(
@@ -287,6 +298,18 @@ export function createApplicationContext(
     privacyReviewRepository,
     parsedRepresentationRepository,
   );
+  const qualitativeCodingReviewService = new QualitativeCodingReviewService(
+    uploadMetadataRepository,
+    authorizationService,
+    privacySafeRepresentationRepository,
+    interpretationResultRepository,
+    qualitativeCodingReviewRepository,
+    pythonProcessingClient,
+    projectLlmTokenLedgerService,
+    activityLlmTokenLedgerService,
+    logger,
+    config.QUALITATIVE_CODING_DEBUG_INCLUDE_PAYLOADS,
+  );
   const activityUploadService = new ActivityUploadService(
     activityService,
     fileStorageService,
@@ -296,6 +319,7 @@ export function createApplicationContext(
   const interpretationService = new InterpretationService(
     uploadMetadataRepository,
     privacySafeRepresentationRepository,
+    qualitativeCodingReviewRepository,
     interpretationResultRepository,
     processingJobRepository,
     activityRepository,
@@ -313,6 +337,7 @@ export function createApplicationContext(
   const currentActivityEvidenceLoader = new CurrentActivityEvidenceLoader(
     uploadMetadataRepository,
     privacySafeRepresentationRepository,
+    qualitativeCodingReviewRepository,
   );
   const activityAnalysisV2ToolExecutor = new ActivityAnalysisV2ToolExecutor(
     interpretationResultRepository,
@@ -322,11 +347,14 @@ export function createApplicationContext(
     authorizationService,
     activityRepository,
     currentActivityEvidenceLoader,
+    qualitativeCodingReviewRepository,
     activityAnalysisRunV2Repository,
     activityAnalysisV2ToolExecutor,
     interpretationResultRepository,
     datasetPreparationService,
     pythonProcessingClient,
+    projectLlmTokenLedgerService,
+    activityLlmTokenLedgerService,
     logger,
   );
   const dashboardCatalogAssemblerService = new DashboardCatalogAssemblerService(
@@ -412,9 +440,14 @@ export function createApplicationContext(
     ),
     processingJobController: new ProcessingJobController(processingJobService),
     privacyReviewController: new PrivacyReviewController(privacyReviewService),
+    qualitativeCodingReviewController: new QualitativeCodingReviewController(
+      qualitativeCodingReviewService,
+      processingJobService,
+    ),
     interpretationController: new InterpretationController(
       interpretationService,
       activityAnalysisV2Service,
+      processingJobService,
     ),
     analyticsController: new AnalyticsController(
       analyticsExecutionService,
@@ -424,5 +457,12 @@ export function createApplicationContext(
       analyticsDashboardPreferenceService,
     ),
     analyticsExecutionService,
+    // Exposed directly (not just wrapped in a controller) so standalone
+    // worker entrypoints under src/workers/ can call them in-process — see
+    // analyticsWorker.ts's use of context.analyticsExecutionService for the
+    // existing precedent this follows.
+    processingJobService,
+    activityAnalysisV2Service,
+    qualitativeCodingReviewService,
   };
 }

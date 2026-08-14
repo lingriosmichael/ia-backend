@@ -66,6 +66,8 @@ function makePreparation(
       primaryStatusFields: [],
       positiveStatusDefinitions: [],
       primaryDateFields: [],
+      epistemicRoleClarifications: [],
+      validatedScaleConfirmations: [],
     },
     preparedDataset: {
       evidenceModality: "structured_quantitative",
@@ -89,6 +91,7 @@ function makePreparation(
               positiveStatusValues: [],
               positiveStatusDefinitionText: null,
               normalizationAccepted: null,
+              epistemicRole: null,
             },
             {
               name: "status",
@@ -97,6 +100,7 @@ function makePreparation(
               positiveStatusValues: ["completed"],
               positiveStatusDefinitionText: "Treat completed as positive.",
               normalizationAccepted: true,
+              epistemicRole: null,
             },
             {
               name: "session_date",
@@ -105,6 +109,7 @@ function makePreparation(
               positiveStatusValues: [],
               positiveStatusDefinitionText: null,
               normalizationAccepted: null,
+              epistemicRole: null,
             },
             {
               name: "cohort",
@@ -113,6 +118,7 @@ function makePreparation(
               positiveStatusValues: [],
               positiveStatusDefinitionText: null,
               normalizationAccepted: null,
+              epistemicRole: null,
             },
             {
               name: "motivation_score",
@@ -121,6 +127,7 @@ function makePreparation(
               positiveStatusValues: [],
               positiveStatusDefinitionText: null,
               normalizationAccepted: null,
+              epistemicRole: null,
             },
             {
               name: "communication_score",
@@ -129,6 +136,7 @@ function makePreparation(
               positiveStatusValues: [],
               positiveStatusDefinitionText: null,
               normalizationAccepted: null,
+              epistemicRole: null,
             },
           ],
           notes: [],
@@ -440,6 +448,7 @@ test("deduplicates entity-level deterministic metrics when identifier handling s
                 positiveStatusValues: [],
                 positiveStatusDefinitionText: null,
                 normalizationAccepted: null,
+                epistemicRole: null,
               },
               {
                 name: "fuehrungszeugnis_status",
@@ -449,6 +458,7 @@ test("deduplicates entity-level deterministic metrics when identifier handling s
                 positiveStatusDefinitionText:
                   "Treat eingereicht as the positive status.",
                 normalizationAccepted: true,
+                epistemicRole: null,
               },
             ],
             notes: [],

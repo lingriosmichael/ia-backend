@@ -3,8 +3,13 @@ import type {
   ActivityAnalysisV2CalculationRecord,
   ActivityAnalysisV2ToolCallRecord,
   ActivityAnalysisRunV2RunLimits,
+  EpistemicRole,
 } from "../../shared/contracts.js";
 import type { DatasetPreparationRepository } from "./datasetPreparationRepository.js";
+import {
+  extractSyntheticQualitativeCodeColumnMetadata,
+  preparedDatasetTableWithSyntheticColumns,
+} from "../processing/qualitativeCodingReviewSupport.js";
 import {
   readRowRecords,
   readTableRecords,
@@ -18,6 +23,8 @@ import type {
 } from "./activityAnalysisV2ToolTypes.js";
 import {
   buildToolCallId,
+  collectEpistemicRoles,
+  mergeSourceColumnEpistemicRoles,
   requireScalarAliasValue,
   resolveSetSourceColumnName,
   resolveSourceRows,
@@ -45,6 +52,7 @@ import {
   executePairedChange,
   executePeriodChange,
 } from "./activityAnalysisV2TemporalTools.js";
+import { executeExcerptRetrieval } from "./activityAnalysisV2QualitativeTools.js";
 import {
   executeAggregateNumeric,
   executeCountDistinct,
@@ -64,6 +72,23 @@ import {
   executeCalculateSumOrProduct,
   executeCompareTarget,
 } from "./activityAnalysisV2ScalarMathTools.js";
+import { buildEpistemicRoleGateDowngradeMessage } from "./activityAnalysisV2EpistemicRoleGate.js";
+
+const OUTCOME_CLAIM_BLOCKED_EPISTEMIC_ROLES = new Set<EpistemicRole>([
+  "subjective_code",
+  "free_text",
+]);
+
+function buildTableContextKey(
+  uploadMetadataId: string,
+  tableName: string,
+): string {
+  return `${uploadMetadataId}::${tableName}`;
+}
+
+type SourceColumnEpistemicRoleEntry = NonNullable<
+  ActivityAnalysisV2CalculationRecord["sourceColumnEpistemicRoles"]
+>[number];
 
 // This is the orchestrator only: it resolves evidence into table contexts
 // and dispatches each planned tool request to the appropriate execute*
@@ -131,16 +156,592 @@ export class ActivityAnalysisV2ToolExecutor {
       );
       for (const table of readTableRecords(evidence.payload)) {
         const tableName = typeof table.name === "string" ? table.name : "table";
+        const syntheticColumns =
+          extractSyntheticQualitativeCodeColumnMetadata(table);
         tables.push({
           uploadMetadataId: evidence.uploadMetadataId,
           privacySafeRepresentationId: evidence.privacySafeRepresentationId,
           tableName,
           rows: readRowRecords(table.rows),
-          preparedTable: preparedTablesByName.get(tableName) ?? null,
+          preparedTable: preparedDatasetTableWithSyntheticColumns(
+            preparedTablesByName.get(tableName) ?? null,
+            syntheticColumns,
+          ),
         });
       }
     }
     return tables;
+  }
+
+  private buildTableContextIndex(
+    tables: ActivityAnalysisV2TableContext[],
+  ): Map<string, ActivityAnalysisV2TableContext> {
+    return new Map(
+      tables.map((table) => [
+        buildTableContextKey(table.uploadMetadataId, table.tableName),
+        table,
+      ]),
+    );
+  }
+
+  // Delegates to the foundational module's collectEpistemicRoles — kept as
+  // a private wrapper (rather than inlining `new Set(collectEpistemicRoles(...))`
+  // at every call site) purely to keep the Set-wrapping in one place.
+  private extractEpistemicRoles(
+    roleEntries: SourceColumnEpistemicRoleEntry[],
+  ): Set<EpistemicRole> {
+    return new Set(collectEpistemicRoles(roleEntries));
+  }
+
+  private collectColumnEpistemicRolesFromReference(
+    tables: ActivityAnalysisV2TableContext[],
+    tableContextIndex: Map<string, ActivityAnalysisV2TableContext>,
+    rowAliases: Map<string, ActivityAnalysisV2RowAliasValue>,
+    reference: ActivityAnalysisV2ToolRequest["arguments"],
+    columnNames: string[],
+  ): SourceColumnEpistemicRoleEntry[] {
+    const roleEntries: SourceColumnEpistemicRoleEntry[] = [];
+    const seen = new Set<string>();
+    let source;
+    try {
+      source = resolveSourceRows(
+        tables,
+        rowAliases,
+        reference as ActivityAnalysisV2ToolRequest["arguments"] & {
+          uploadMetadataId?: string;
+          tableName?: string;
+          cohortAlias?: string;
+          resultAlias?: string;
+        },
+      );
+    } catch {
+      return roleEntries;
+    }
+
+    for (const uploadMetadataId of source.sourceUploadMetadataIds) {
+      for (const tableName of source.sourceTableNames) {
+        const table =
+          tableContextIndex.get(
+            buildTableContextKey(uploadMetadataId, tableName),
+          ) ?? null;
+        if (!table?.preparedTable) {
+          continue;
+        }
+        for (const columnName of columnNames) {
+          const column =
+            table.preparedTable.columns.find(
+              (candidate) => candidate.name === columnName,
+            ) ?? null;
+          if (!column) {
+            continue;
+          }
+          const key = `${columnName}::${column.epistemicRole ?? "null"}`;
+          if (seen.has(key)) {
+            continue;
+          }
+          seen.add(key);
+          roleEntries.push({
+            columnName,
+            epistemicRole: column.epistemicRole ?? null,
+          });
+        }
+      }
+    }
+
+    if (
+      (reference as { cohortAlias?: string; resultAlias?: string })
+        .cohortAlias ||
+      (reference as { cohortAlias?: string; resultAlias?: string }).resultAlias
+    ) {
+      const aliasName =
+        (reference as { cohortAlias?: string; resultAlias?: string })
+          .cohortAlias ??
+        (reference as { cohortAlias?: string; resultAlias?: string })
+          .resultAlias ??
+        null;
+      const aliasValue = aliasName ? (rowAliases.get(aliasName) ?? null) : null;
+      if (aliasValue) {
+        for (const columnName of columnNames) {
+          const hasDirectMatch = roleEntries.some(
+            (entry) => entry.columnName === columnName,
+          );
+          if (hasDirectMatch) {
+            continue;
+          }
+          for (const role of aliasValue.epistemicRoles) {
+            const key = `${columnName}::${role}`;
+            if (seen.has(key)) {
+              continue;
+            }
+            seen.add(key);
+            roleEntries.push({
+              columnName,
+              epistemicRole: role,
+            });
+          }
+        }
+      }
+    }
+
+    return roleEntries;
+  }
+
+  private collectCalculationEpistemicRoles(
+    calculations: ActivityAnalysisV2CalculationRecord[],
+  ): Set<EpistemicRole> {
+    return this.extractEpistemicRoles(
+      calculations.flatMap(
+        (calculation) => calculation.sourceColumnEpistemicRoles ?? [],
+      ),
+    );
+  }
+
+  private annotateCalculationSourceColumnRoles(
+    calculations: ActivityAnalysisV2CalculationRecord[],
+    tableContextIndex: Map<string, ActivityAnalysisV2TableContext>,
+  ): ActivityAnalysisV2CalculationRecord[] {
+    return calculations.map((calculation) => {
+      const annotatedRoles: ActivityAnalysisV2CalculationRecord["sourceColumnEpistemicRoles"] =
+        [];
+      const seen = new Set<string>();
+
+      for (const uploadMetadataId of calculation.sourceUploadMetadataIds) {
+        for (const tableName of calculation.sourceTableNames) {
+          const table =
+            tableContextIndex.get(
+              buildTableContextKey(uploadMetadataId, tableName),
+            ) ?? null;
+          if (!table?.preparedTable) {
+            continue;
+          }
+          const referencedColumnNames = [
+            ...calculation.sourceColumns,
+            ...(
+              (calculation.result.filters as
+                Array<{ columnName?: string }> | undefined) ?? []
+            ).flatMap((filter) =>
+              typeof filter.columnName === "string" ? [filter.columnName] : [],
+            ),
+            ...(
+              (calculation.result.leftFilters as
+                Array<{ columnName?: string }> | undefined) ?? []
+            ).flatMap((filter) =>
+              typeof filter.columnName === "string" ? [filter.columnName] : [],
+            ),
+            ...(
+              (calculation.result.rightFilters as
+                Array<{ columnName?: string }> | undefined) ?? []
+            ).flatMap((filter) =>
+              typeof filter.columnName === "string" ? [filter.columnName] : [],
+            ),
+          ];
+          for (const columnName of referencedColumnNames) {
+            const dedupeKey = `${columnName}`;
+            if (seen.has(dedupeKey)) {
+              continue;
+            }
+            seen.add(dedupeKey);
+            const column =
+              table.preparedTable.columns.find(
+                (candidate) => candidate.name === columnName,
+              ) ?? null;
+            annotatedRoles.push({
+              columnName,
+              epistemicRole: column?.epistemicRole ?? null,
+            });
+          }
+        }
+      }
+
+      return {
+        ...calculation,
+        sourceColumnEpistemicRoles: annotatedRoles,
+      };
+    });
+  }
+
+  private annotateQualitativeFindingSourceColumnRoles(
+    findings: ActivityAnalysisV2ToolExecutionResult["qualitativeFindings"],
+    tableContextIndex: Map<string, ActivityAnalysisV2TableContext>,
+  ): ActivityAnalysisV2ToolExecutionResult["qualitativeFindings"] {
+    return findings.map((finding) => {
+      const annotatedRoles: NonNullable<
+        ActivityAnalysisV2ToolExecutionResult["qualitativeFindings"][number]["sourceColumnEpistemicRoles"]
+      > = [];
+      const seen = new Set<string>();
+
+      for (const uploadMetadataId of finding.sourceUploadMetadataIds) {
+        for (const tableName of finding.sourceTableNames) {
+          const table =
+            tableContextIndex.get(
+              buildTableContextKey(uploadMetadataId, tableName),
+            ) ?? null;
+          if (!table?.preparedTable) {
+            continue;
+          }
+          for (const columnName of finding.sourceColumns) {
+            const dedupeKey = `${columnName}`;
+            if (seen.has(dedupeKey)) {
+              continue;
+            }
+            seen.add(dedupeKey);
+            const column =
+              table.preparedTable.columns.find(
+                (candidate) => candidate.name === columnName,
+              ) ?? null;
+            annotatedRoles.push({
+              columnName,
+              epistemicRole: column?.epistemicRole ?? null,
+            });
+          }
+        }
+      }
+
+      return {
+        ...finding,
+        sourceColumnEpistemicRoles: annotatedRoles,
+      };
+    });
+  }
+
+  private collectRequestSourceColumnEpistemicRoles(
+    request: ActivityAnalysisV2ToolRequest,
+    tables: ActivityAnalysisV2TableContext[],
+    tableContextIndex: Map<string, ActivityAnalysisV2TableContext>,
+    rowAliases: Map<string, ActivityAnalysisV2RowAliasValue>,
+    scalarAliasRoles: Map<string, Set<EpistemicRole>>,
+  ): SourceColumnEpistemicRoleEntry[] {
+    const collectFromReference = (
+      reference: ActivityAnalysisV2ToolRequest["arguments"],
+      columnNames: string[] = [],
+    ): SourceColumnEpistemicRoleEntry[] => {
+      try {
+        const source = resolveSourceRows(
+          tables,
+          rowAliases,
+          reference as ActivityAnalysisV2ToolRequest["arguments"] & {
+            uploadMetadataId?: string;
+            tableName?: string;
+            cohortAlias?: string;
+            resultAlias?: string;
+          },
+        );
+        return mergeSourceColumnEpistemicRoles(
+          source.sourceColumnEpistemicRoles,
+          this.collectColumnEpistemicRolesFromReference(
+            tables,
+            tableContextIndex,
+            rowAliases,
+            reference,
+            columnNames,
+          ),
+        );
+      } catch {
+        return [];
+      }
+    };
+
+    if (request.toolName === "describe_evidence") {
+      return [];
+    }
+
+    if (request.toolName === "compare_target") {
+      return [
+        ...(scalarAliasRoles.get(request.arguments.valueAlias) ?? []),
+      ].map((role) => ({
+        columnName: request.arguments.valueAlias,
+        epistemicRole: role,
+      }));
+    }
+
+    if (
+      request.toolName === "calculate_ratio" ||
+      request.toolName === "calculate_difference" ||
+      request.toolName === "calculate_percent_change" ||
+      request.toolName === "calculate_sum" ||
+      request.toolName === "calculate_product"
+    ) {
+      const aliases =
+        request.toolName === "calculate_ratio"
+          ? [
+              request.arguments.numeratorAlias,
+              request.arguments.denominatorAlias,
+            ]
+          : request.toolName === "calculate_difference"
+            ? [
+                request.arguments.minuendAlias,
+                request.arguments.subtrahendAlias,
+              ]
+            : request.toolName === "calculate_percent_change"
+              ? [
+                  request.arguments.baselineAlias,
+                  request.arguments.currentAlias,
+                ]
+              : request.arguments.operandAliases;
+      return mergeSourceColumnEpistemicRoles(
+        aliases.flatMap((alias) =>
+          [...(scalarAliasRoles.get(alias) ?? [])].map((role) => ({
+            columnName: alias,
+            epistemicRole: role,
+          })),
+        ),
+      );
+    }
+
+    if (
+      request.toolName === "intersection_count" ||
+      request.toolName === "union_count" ||
+      request.toolName === "intersection_set" ||
+      request.toolName === "union_set" ||
+      request.toolName === "difference_set"
+    ) {
+      return mergeSourceColumnEpistemicRoles(
+        collectFromReference(
+          request.arguments.left,
+          request.arguments.left.columnName
+            ? [request.arguments.left.columnName]
+            : [],
+        ),
+        collectFromReference(
+          request.arguments.right,
+          request.arguments.right.columnName
+            ? [request.arguments.right.columnName]
+            : [],
+        ),
+      );
+    }
+
+    if (
+      request.toolName === "join_tables" ||
+      request.toolName === "anti_join"
+    ) {
+      return mergeSourceColumnEpistemicRoles(
+        collectFromReference(
+          request.arguments.left,
+          request.arguments.keys.map((key) => key.leftColumnName),
+        ),
+        collectFromReference(
+          request.arguments.right,
+          request.arguments.keys.map((key) => key.rightColumnName),
+        ),
+      );
+    }
+
+    if (request.toolName === "group_aggregate") {
+      return collectFromReference(request.arguments, [
+        ...request.arguments.groupBy,
+        ...request.arguments.metrics.flatMap((metric) =>
+          metric.columnName ? [metric.columnName] : [],
+        ),
+      ]);
+    }
+
+    if (
+      request.toolName === "create_cohort" ||
+      request.toolName === "filter_result" ||
+      request.toolName === "count_rows"
+    ) {
+      return collectFromReference(request.arguments);
+    }
+
+    if (
+      request.toolName === "excerpt_retrieval" ||
+      request.toolName === "count_distinct" ||
+      request.toolName === "profile_column" ||
+      request.toolName === "group_count" ||
+      request.toolName === "aggregate_numeric" ||
+      request.toolName === "time_bucket_count"
+    ) {
+      return collectFromReference(request.arguments, [
+        request.arguments.columnName,
+      ]);
+    }
+
+    if (request.toolName === "count_distinct_keys") {
+      return collectFromReference(
+        request.arguments,
+        request.arguments.columnNames,
+      );
+    }
+
+    if (request.toolName === "crosstab_count") {
+      return collectFromReference(request.arguments, [
+        request.arguments.leftColumnName,
+        request.arguments.rightColumnName,
+      ]);
+    }
+
+    if (
+      request.toolName === "derive_numeric_column" ||
+      request.toolName === "compare_columns"
+    ) {
+      return collectFromReference(request.arguments, [
+        request.arguments.leftColumnName,
+        request.arguments.rightColumnName,
+        request.arguments.outputColumnName,
+      ]);
+    }
+
+    if (
+      request.toolName === "first_event" ||
+      request.toolName === "last_event"
+    ) {
+      return collectFromReference(request.arguments, [
+        request.arguments.entityColumnName,
+        request.arguments.dateColumnName,
+        request.arguments.outputDateColumnName,
+      ]);
+    }
+
+    if (request.toolName === "date_difference") {
+      return collectFromReference(request.arguments, [
+        request.arguments.startDateColumnName,
+        request.arguments.endDateColumnName,
+        request.arguments.outputColumnName,
+      ]);
+    }
+
+    if (request.toolName === "event_gap") {
+      return collectFromReference(request.arguments, [
+        request.arguments.entityColumnName,
+        request.arguments.dateColumnName,
+        request.arguments.outputColumnName,
+      ]);
+    }
+
+    if (request.toolName === "days_since_last_event") {
+      return collectFromReference(
+        request.arguments,
+        [
+          request.arguments.entityColumnName,
+          request.arguments.dateColumnName,
+          request.arguments.outputColumnName,
+          request.arguments.outputDateColumnName,
+        ].filter((columnName): columnName is string => Boolean(columnName)),
+      );
+    }
+
+    if (request.toolName === "period_change") {
+      return collectFromReference(request.arguments, [
+        request.arguments.dateColumnName,
+      ]);
+    }
+
+    if (request.toolName === "paired_change") {
+      return collectFromReference(request.arguments, [
+        request.arguments.entityColumnName,
+        request.arguments.preColumnName,
+        request.arguments.postColumnName,
+        request.arguments.outputColumnName,
+      ]);
+    }
+
+    return [];
+  }
+
+  private getEpistemicRoleGateDowngradeMessage(
+    request: ActivityAnalysisV2ToolRequest,
+    tables: ActivityAnalysisV2TableContext[],
+    tableContextIndex: Map<string, ActivityAnalysisV2TableContext>,
+    rowAliases: Map<string, ActivityAnalysisV2RowAliasValue>,
+    scalarAliasRoles: Map<string, Set<EpistemicRole>>,
+  ): string | null {
+    if (request.toolName === "aggregate_numeric") {
+      const roles = this.extractEpistemicRoles(
+        this.collectColumnEpistemicRolesFromReference(
+          tables,
+          tableContextIndex,
+          rowAliases,
+          request.arguments,
+          [request.arguments.columnName],
+        ),
+      );
+      const blockedRole = [...roles].find((role) =>
+        OUTCOME_CLAIM_BLOCKED_EPISTEMIC_ROLES.has(role),
+      );
+      return blockedRole
+        ? buildEpistemicRoleGateDowngradeMessage({
+            toolName: request.toolName,
+            role: blockedRole,
+            columnName: request.arguments.columnName,
+          })
+        : null;
+    }
+
+    if (request.toolName === "group_aggregate") {
+      for (const metric of request.arguments.metrics) {
+        if (
+          !metric.columnName ||
+          !["sum", "avg", "min", "max", "median"].includes(metric.operation)
+        ) {
+          continue;
+        }
+        const roles = this.collectColumnEpistemicRolesFromReference(
+          tables,
+          tableContextIndex,
+          rowAliases,
+          request.arguments,
+          [metric.columnName],
+        );
+        const blockedRole = [...this.extractEpistemicRoles(roles)].find(
+          (role) => OUTCOME_CLAIM_BLOCKED_EPISTEMIC_ROLES.has(role),
+        );
+        if (blockedRole) {
+          return buildEpistemicRoleGateDowngradeMessage({
+            toolName: request.toolName,
+            role: blockedRole,
+            columnName: metric.columnName,
+          });
+        }
+      }
+    }
+
+    if (request.toolName === "compare_target") {
+      const roles =
+        scalarAliasRoles.get(request.arguments.valueAlias) ?? new Set();
+      const blockedRole = [...roles].find((role) =>
+        OUTCOME_CLAIM_BLOCKED_EPISTEMIC_ROLES.has(role),
+      );
+      return blockedRole
+        ? buildEpistemicRoleGateDowngradeMessage({
+            toolName: request.toolName,
+            role: blockedRole,
+          })
+        : null;
+    }
+
+    if (request.toolName === "paired_change") {
+      // paired_change presents its result as a before/after outcome delta —
+      // the same shape of claim as aggregate_numeric — so a subjective_code
+      // column holding small integer codes must not be laundered into a
+      // numeric "improvement" this way either.
+      for (const columnName of [
+        request.arguments.preColumnName,
+        request.arguments.postColumnName,
+      ]) {
+        const roles = this.extractEpistemicRoles(
+          this.collectColumnEpistemicRolesFromReference(
+            tables,
+            tableContextIndex,
+            rowAliases,
+            request.arguments,
+            [columnName],
+          ),
+        );
+        const blockedRole = [...roles].find((role) =>
+          OUTCOME_CLAIM_BLOCKED_EPISTEMIC_ROLES.has(role),
+        );
+        if (blockedRole) {
+          return buildEpistemicRoleGateDowngradeMessage({
+            toolName: request.toolName,
+            role: blockedRole,
+            columnName,
+          });
+        }
+      }
+    }
+
+    return null;
   }
 
   async execute(
@@ -161,9 +762,13 @@ export class ActivityAnalysisV2ToolExecutor {
     }
 
     const tables = await this.buildTableContexts(evidenceSnapshot);
+    const tableContextIndex = this.buildTableContextIndex(tables);
     const toolCallTrace: ActivityAnalysisV2ToolCallRecord[] = [];
     const calculations: ActivityAnalysisV2CalculationRecord[] = [];
+    const qualitativeFindings: ActivityAnalysisV2ToolExecutionResult["qualitativeFindings"] =
+      [];
     const scalarAliases = new Map<string, number | null>();
+    const scalarAliasRoles = new Map<string, Set<EpistemicRole>>();
     const rowAliases = new Map<string, ActivityAnalysisV2RowAliasValue>();
 
     for (const [index, request] of requests.entries()) {
@@ -173,10 +778,58 @@ export class ActivityAnalysisV2ToolExecutor {
         );
       }
       const startedAt = new Date();
+
+      // Only the specific request that would produce an outcome claim off a
+      // blocked column is rejected — a goal downgraded by one blocked
+      // compare_target/aggregate_numeric call must still be able to run its
+      // other planned calls (e.g. excerpt_retrieval) so the
+      // qualitative_evidence_only fallback it was downgraded to actually has
+      // evidence. Do not short-circuit the rest of the goal's requests here.
+      const downgradeMessage = this.getEpistemicRoleGateDowngradeMessage(
+        request,
+        tables,
+        tableContextIndex,
+        rowAliases,
+        scalarAliasRoles,
+      );
+      if (downgradeMessage) {
+        const completedAt = new Date();
+        toolCallTrace.push({
+          toolCallId: buildToolCallId(
+            request.toolName,
+            index,
+            request.arguments as Record<string, unknown>,
+          ),
+          toolName: request.toolName,
+          arguments: request.arguments as Record<string, unknown>,
+          calculationIds: [],
+          qualitativeFindingIds: [],
+          status: "failed",
+          errorMessage: downgradeMessage,
+          startedAt: startedAt.toISOString(),
+          completedAt: completedAt.toISOString(),
+          durationMs: completedAt.getTime() - startedAt.getTime(),
+        });
+        continue;
+      }
+
       let toolCalculations: ActivityAnalysisV2CalculationRecord[] = [];
+      let toolQualitativeFindings: ActivityAnalysisV2ToolExecutionResult["qualitativeFindings"] =
+        [];
       try {
         if (request.toolName === "describe_evidence") {
           toolCalculations = executeDescribeEvidence(tables);
+        } else if (request.toolName === "excerpt_retrieval") {
+          const source = resolveSourceRows(
+            tables,
+            rowAliases,
+            request.arguments,
+          );
+          toolQualitativeFindings = executeExcerptRetrieval(
+            source,
+            request.arguments.columnName,
+            request.arguments.limit ?? 3,
+          );
         } else if (request.toolName === "create_cohort") {
           if (!request.alias) {
             throw new Error(
@@ -688,7 +1341,68 @@ export class ActivityAnalysisV2ToolExecutor {
           );
         }
 
+        toolCalculations = this.annotateCalculationSourceColumnRoles(
+          toolCalculations,
+          tableContextIndex,
+        );
+        toolQualitativeFindings =
+          this.annotateQualitativeFindingSourceColumnRoles(
+            toolQualitativeFindings,
+            tableContextIndex,
+          );
+
+        const requestSourceColumnEpistemicRoles =
+          this.collectRequestSourceColumnEpistemicRoles(
+            request,
+            tables,
+            tableContextIndex,
+            rowAliases,
+            scalarAliasRoles,
+          );
+        toolCalculations = toolCalculations.map((calculation) => ({
+          ...calculation,
+          sourceColumnEpistemicRoles: mergeSourceColumnEpistemicRoles(
+            calculation.sourceColumnEpistemicRoles ?? [],
+            requestSourceColumnEpistemicRoles,
+          ),
+        }));
+        toolQualitativeFindings = toolQualitativeFindings.map((finding) => ({
+          ...finding,
+          sourceColumnEpistemicRoles: mergeSourceColumnEpistemicRoles(
+            finding.sourceColumnEpistemicRoles ?? [],
+            requestSourceColumnEpistemicRoles,
+          ),
+        }));
+
         if (request.alias) {
+          const requestEpistemicRoles = this.extractEpistemicRoles(
+            requestSourceColumnEpistemicRoles,
+          );
+          const calculationEpistemicRoles =
+            this.collectCalculationEpistemicRoles(toolCalculations);
+          const combinedEpistemicRoles = new Set<EpistemicRole>([
+            ...requestEpistemicRoles,
+            ...calculationEpistemicRoles,
+          ]);
+
+          const existingRowAlias = rowAliases.get(request.alias) ?? null;
+          if (existingRowAlias) {
+            const mergedSourceColumnEpistemicRoles =
+              mergeSourceColumnEpistemicRoles(
+                existingRowAlias.sourceColumnEpistemicRoles,
+                requestSourceColumnEpistemicRoles,
+                toolCalculations.flatMap(
+                  (calculation) => calculation.sourceColumnEpistemicRoles ?? [],
+                ),
+              );
+            rowAliases.set(request.alias, {
+              ...existingRowAlias,
+              sourceColumnEpistemicRoles: mergedSourceColumnEpistemicRoles,
+              epistemicRoles: [
+                ...this.extractEpistemicRoles(mergedSourceColumnEpistemicRoles),
+              ],
+            });
+          }
           // Every tool branch above that produces a reusable row-based
           // result (a cohort, join result, derived table, etc.) already
           // calls rowAliases.set(request.alias, ...) itself. Checking that
@@ -703,10 +1417,12 @@ export class ActivityAnalysisV2ToolExecutor {
               request.alias,
               typeof primaryValue === "number" ? primaryValue : null,
             );
+            scalarAliasRoles.set(request.alias, combinedEpistemicRoles);
           }
         }
 
         calculations.push(...toolCalculations);
+        qualitativeFindings.push(...toolQualitativeFindings);
         const completedAt = new Date();
         toolCallTrace.push({
           toolCallId: buildToolCallId(
@@ -718,6 +1434,9 @@ export class ActivityAnalysisV2ToolExecutor {
           arguments: request.arguments as Record<string, unknown>,
           calculationIds: toolCalculations.map(
             (calculation) => calculation.calculationId,
+          ),
+          qualitativeFindingIds: toolQualitativeFindings.map(
+            (finding) => finding.findingId,
           ),
           status: "succeeded",
           errorMessage: null,
@@ -736,6 +1455,7 @@ export class ActivityAnalysisV2ToolExecutor {
           toolName: request.toolName,
           arguments: request.arguments as Record<string, unknown>,
           calculationIds: [],
+          qualitativeFindingIds: [],
           status: "failed",
           errorMessage:
             error instanceof Error ? error.message : "Unknown tool failure.",
@@ -747,11 +1467,11 @@ export class ActivityAnalysisV2ToolExecutor {
           new Error(
             error instanceof Error ? error.message : "Unknown tool failure.",
           ),
-          { toolCallTrace, calculations },
+          { toolCallTrace, calculations, qualitativeFindings },
         );
       }
     }
 
-    return { toolCallTrace, calculations };
+    return { toolCallTrace, calculations, qualitativeFindings };
   }
 }

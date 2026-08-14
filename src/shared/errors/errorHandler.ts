@@ -51,11 +51,17 @@ export function registerErrorHandler(app: FastifyInstance) {
         request.log.warn(logPayload, "AppError");
       }
 
+      // `details` is only client-safe for 4xx responses (e.g. which upload
+      // is missing, which options were allowed) — the webapp uses it to
+      // render a specific next step. 5xx details are operational diagnostics
+      // (e.g. pythonProcessingClient.ts attaches the raw upstream response
+      // body and internal service URL for server-side logging) and must
+      // never reach the client.
       return reply.code(error.statusCode).send(
         errorResponse({
           code: error.code,
           message: error.message,
-          details: error.details,
+          details: error.statusCode < 500 ? error.details : undefined,
         }),
       );
     }

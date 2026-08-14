@@ -483,20 +483,21 @@ export class UploadMetadataService {
 
     await this.authorizationService.canEditProject(userId, record.projectId);
 
-    const activeProcessingJob =
-      await this.processingJobRepository.findActiveByUploadMetadataId(
-        uploadMetadataId,
-        databaseSession,
-      );
-
-    if (activeProcessingJob) {
-      throw new AppError(
-        "Evidence cannot be deleted while processing is still active.",
-        409,
-        "evidence_processing_in_progress",
-      );
-    }
-
+    // Cascades unconditionally, matching ActivityService.delete's existing
+    // pattern — deleting evidence used to instead throw 409
+    // evidence_processing_in_progress whenever any processing job (of any
+    // type/status) was still active, which meant a stuck job made the
+    // evidence permanently undeletable through the API, with no self-service
+    // way to recover short of the job eventually timing out or failing on
+    // its own. processingResourceCleanupService/processingJobRepository's
+    // deleteByUploadMetadataId are generic over jobType, so this covers
+    // every job type without further changes, the same way activity
+    // deletion already does. A worker actively mid-flight on a deleted
+    // job's underlying domain call keeps running to completion rather than
+    // being interrupted — same limitation activity deletion already has —
+    // and fails harmlessly once it tries to report back against a job
+    // record that no longer exists (see ProcessingJobService.completeBackendExecutedJob
+    // / renewLease's not-found handling).
     await this.transactionManager.runInTransaction(async (session) => {
       if (record.activityId) {
         await this.invalidateActivityAggregateAnalysisState({

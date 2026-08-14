@@ -288,9 +288,80 @@ export const approvePrivacyReviewSchema = z
     });
   });
 
+export const approveQualitativeCodingReviewSchema = z
+  .object({
+    decisions: z
+      .object({
+        columnDecisions: z
+          .array(
+            z.object({
+              findingKey: z.string().trim().min(1).max(400),
+              decision: z.enum(["approve_as_proposed", "reject_for_now"]),
+              note: z.string().trim().max(1000).optional(),
+            }),
+          )
+          .optional(),
+      })
+      .optional(),
+  })
+  .superRefine((value, context) => {
+    const seen = new Set<string>();
+    value.decisions?.columnDecisions?.forEach((columnDecision, index) => {
+      if (seen.has(columnDecision.findingKey)) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          message:
+            "Each qualitative coding finding may only appear once in columnDecisions.",
+          path: ["decisions", "columnDecisions", index],
+        });
+        return;
+      }
+      seen.add(columnDecision.findingKey);
+    });
+  });
+
 export const answerInterpretationQuestionSchema = z.object({
   answeredValue: z.string().trim().min(1).max(2000),
 });
+
+// Shared by every "answer several clarification questions in one call"
+// endpoint (ActivityAnalystV2's run-level questions, the per-
+// InterpretationResult dataset questions) — same shape, same duplicate
+// guard, just a distinct exported name per endpoint for readability at the
+// call site.
+function clarificationAnswerBatchSchema() {
+  return z.object({
+    answers: z
+      .array(
+        z.object({
+          questionId: z.string().trim().min(1),
+          answeredValue: z.string().trim().min(1).max(2000),
+        }),
+      )
+      .min(1)
+      .max(50)
+      .superRefine((answers, ctx) => {
+        const seen = new Set<string>();
+        answers.forEach((answer, index) => {
+          if (seen.has(answer.questionId)) {
+            ctx.addIssue({
+              code: z.ZodIssueCode.custom,
+              message: `Duplicate questionId "${answer.questionId}" in batch answers.`,
+              path: ["answers", index, "questionId"],
+            });
+            return;
+          }
+          seen.add(answer.questionId);
+        });
+      }),
+  });
+}
+
+export const answerActivityAnalysisV2QuestionsSchema =
+  clarificationAnswerBatchSchema();
+
+export const answerInterpretationQuestionsSchema =
+  clarificationAnswerBatchSchema();
 
 export const startInterpretationSchema = z.object({
   language: z.enum(["de", "en"]).default("de"),

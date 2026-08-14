@@ -46,4 +46,3 @@ export function isAllowedOrigin(
   const normalizedOrigin = normalizeOrigin(origin);
   return configuredOrigins(config).includes(normalizedOrigin);
 }
-

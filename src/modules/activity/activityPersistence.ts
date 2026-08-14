@@ -40,6 +40,12 @@ export interface ActivityAnalysisV2ClarificationAnswerPersistenceRecord {
   answeredAt: Date;
 }
 
+export interface ActivityLlmTokenLedgerPersistence {
+  totalPromptTokensLifetime: number;
+  totalCompletionTokensLifetime: number;
+  totalTokensLifetime: number;
+}
+
 export interface ActivityPersistenceRecord {
   id: string;
   projectId: string;
@@ -58,6 +64,7 @@ export interface ActivityPersistenceRecord {
   interpretationAcknowledgedById: string | null;
   aiKnowledgeSnapshot?: ActivityAiKnowledgeSnapshotPersistenceRecord | null;
   activityAnalysisV2ClarificationAnswers?: ActivityAnalysisV2ClarificationAnswerPersistenceRecord[];
+  llmTokenLedger?: ActivityLlmTokenLedgerPersistence;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -94,4 +101,10 @@ export interface ActivityUpdateInput {
   interpretationAcknowledgedById?: string | null;
   aiKnowledgeSnapshot?: ActivityAiKnowledgeSnapshotPersistenceRecord | null;
   activityAnalysisV2ClarificationAnswers?: ActivityAnalysisV2ClarificationAnswerPersistenceRecord[];
+}
+
+export interface ActivityLlmTokenLedgerIncrement {
+  totalPromptTokensLifetime: number;
+  totalCompletionTokensLifetime: number;
+  totalTokensLifetime: number;
 }

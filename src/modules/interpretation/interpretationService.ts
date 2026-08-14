@@ -20,6 +20,8 @@ import type { ActivityRepository } from "../activity/activityRepository.js";
 import type { ProcessingJobRepository } from "../ai/execution/processingJobRepository.js";
 import type { ProcessingJobPersistenceRecord } from "../ai/persistence/aiPersistenceTypes.js";
 import type { PrivacySafeRepresentationRepository } from "../processing/privacySafeRepresentationRepository.js";
+import type { QualitativeCodingReviewRepository } from "../processing/qualitativeCodingReviewRepository.js";
+import { qualitativeCodingReviewRequirementStatus } from "../processing/qualitativeCodingReviewSupport.js";
 import { PythonProcessingClient } from "../processing/pythonProcessingClient.js";
 import type { UploadMetadataRepository } from "../upload/uploadMetadataRepository.js";
 import type { ProjectKnowledgeBuilderService } from "../knowledge/projectKnowledgeBuilderService.js";
@@ -41,6 +43,7 @@ import {
 } from "../../shared/utils/evidenceModality.js";
 import { DeterministicAnalysisService } from "./deterministicAnalysisService.js";
 import { QuantitativeInterpretationSynthesisService } from "./quantitativeInterpretationSynthesisService.js";
+import { validateAnswerAgainstQuestionOptions } from "./interpretationQuestionAnswerValidation.js";
 
 function getProcessingJobCreatedTimestamp(
   job: Pick<ProcessingJobPersistenceRecord, "createdAt">,
@@ -76,7 +79,9 @@ function getLatestJobByUploadMetadataId(
 }
 
 function mapActivityEvidenceLinkageResult(
-  record: import("../linkage/activityEvidenceLinkageResultPersistence.js").ActivityEvidenceLinkageResultPersistenceRecord | null,
+  record:
+    | import("../linkage/activityEvidenceLinkageResultPersistence.js").ActivityEvidenceLinkageResultPersistenceRecord
+    | null,
 ): ActivityEvidenceLinkageResultRecord | null {
   if (!record) {
     return null;
@@ -103,6 +108,7 @@ export class InterpretationService {
   constructor(
     private readonly uploadMetadataRepository: UploadMetadataRepository,
     private readonly privacySafeRepresentationRepository: PrivacySafeRepresentationRepository,
+    private readonly qualitativeCodingReviewRepository: QualitativeCodingReviewRepository,
     private readonly interpretationResultRepository: InterpretationResultRepository,
     private readonly processingJobRepository: ProcessingJobRepository,
     private readonly activityRepository: ActivityRepository,
@@ -485,25 +491,54 @@ export class InterpretationService {
       return { activityId, stage: "no_evidence" };
     }
 
-    const [jobs, results, linkageResult] = await Promise.all([
-      this.processingJobRepository.listByActivity(activityId, databaseSession),
-      this.interpretationResultRepository.findLatestByUploadMetadataIds(
-        uploads.map((upload) => upload.id),
-        databaseSession,
-      ),
-      uploads.length >= 2
-        ? this.activityEvidenceLinkageResultRepository.findByActivityId(
-            activityId,
-            databaseSession,
-          )
-        : Promise.resolve(null),
-    ]);
+    const [jobs, results, linkageResult, qualitativeCodingReviews] =
+      await Promise.all([
+        this.processingJobRepository.listByActivity(
+          activityId,
+          databaseSession,
+        ),
+        this.interpretationResultRepository.findLatestByUploadMetadataIds(
+          uploads.map((upload) => upload.id),
+          databaseSession,
+        ),
+        uploads.length >= 2
+          ? this.activityEvidenceLinkageResultRepository.findByActivityId(
+              activityId,
+              databaseSession,
+            )
+          : Promise.resolve(null),
+        Promise.all(
+          uploads.map((upload) =>
+            this.qualitativeCodingReviewRepository.findByUploadMetadataId(
+              upload.id,
+              databaseSession,
+            ),
+          ),
+        ),
+      ]);
+    const qualitativeCodingReviewByUploadMetadataId = new Map(
+      uploads.map((upload, index) => [
+        upload.id,
+        qualitativeCodingReviews[index] ?? null,
+      ]),
+    );
+    const hasPendingQualitativeCodingReview = results.some((result) => {
+      return (
+        qualitativeCodingReviewRequirementStatus(
+          result.datasetProfile ?? null,
+          qualitativeCodingReviewByUploadMetadataId.get(
+            result.uploadMetadataId,
+          ) ?? null,
+        ) === "required_pending"
+      );
+    });
 
     const stage = computeActivityWorkflowStage({
       isAcknowledged: Boolean(activity.interpretationAcknowledgedAt),
       uploadIds: uploads.map((upload) => upload.id),
       jobs,
       results,
+      hasPendingQualitativeCodingReview,
       hasLinkageResultIfApplicable: linkageResult?.status === "resolved",
     });
 
@@ -532,11 +567,12 @@ export class InterpretationService {
       userId,
       activityId,
     );
-    const record = await this.evidenceLinkageReconciliationService.reviewProposal(
-      activity.id,
-      proposalId,
-      decision,
-    );
+    const record =
+      await this.evidenceLinkageReconciliationService.reviewProposal(
+        activity.id,
+        proposalId,
+        decision,
+      );
 
     return mapActivityEvidenceLinkageResult(
       record,
@@ -581,6 +617,23 @@ export class InterpretationService {
     questionId: string,
     answeredValue: string,
   ) {
+    return this.answerQuestions(userId, interpretationResultId, [
+      { questionId, answeredValue },
+    ]);
+  }
+
+  // Answers a batch of questions on one InterpretationResult in a single
+  // call, so a document with several outstanding questions only re-runs
+  // dataset preparation / deterministic analysis / quantitative synthesis
+  // once instead of once per question — each of those steps can be slow
+  // (the synthesis step in particular calls out to the Python service), so
+  // answering N questions one at a time cost N full re-syncs, most of them
+  // wasted because the other questions were still unanswered anyway.
+  async answerQuestions(
+    userId: string,
+    interpretationResultId: string,
+    answers: Array<{ questionId: string; answeredValue: string }>,
+  ) {
     const result = await this.interpretationResultRepository.findById(
       interpretationResultId,
       databaseSession,
@@ -596,32 +649,62 @@ export class InterpretationService {
 
     await this.authorizationService.canEditProject(userId, result.projectId);
 
-    const answeredQuestion = result.questions.find(
-      (question) => question.id === questionId,
+    const questionById = new Map(
+      result.questions.map((question) => [question.id, question]),
     );
-
-    const updated = await this.interpretationResultRepository.answerQuestion(
-      interpretationResultId,
-      questionId,
-      { answeredValue, answeredById: userId, answeredAt: new Date() },
-      databaseSession,
-    );
-
-    if (!updated || !answeredQuestion) {
-      throw new AppError(
-        "This question was not found.",
-        404,
-        "interpretation_question_not_found",
+    // Validate the entire batch against the pre-answer question snapshot
+    // before persisting anything, so an invalid answer rejects the whole
+    // batch rather than leaving some questions answered and others not.
+    const resolvedAnswers = answers.map((answer) => {
+      const question = questionById.get(answer.questionId);
+      if (!question) {
+        throw new AppError(
+          "This question was not found.",
+          404,
+          "interpretation_question_not_found",
+          { questionId: answer.questionId },
+        );
+      }
+      validateAnswerAgainstQuestionOptions(
+        question,
+        answer.answeredValue,
+        "interpretation_question_invalid_answer",
       );
+      return { question, answeredValue: answer.answeredValue };
+    });
+
+    let updated = result;
+    let shouldClearAiKnowledge = false;
+    for (const { question, answeredValue } of resolvedAnswers) {
+      const updatedDocument =
+        await this.interpretationResultRepository.answerQuestion(
+          interpretationResultId,
+          question.id,
+          { answeredValue, answeredById: userId, answeredAt: new Date() },
+          databaseSession,
+        );
+
+      if (!updatedDocument) {
+        throw new AppError(
+          "This question was not found.",
+          404,
+          "interpretation_question_not_found",
+          { questionId: question.id },
+        );
+      }
+
+      updated = updatedDocument;
+      if (
+        (question.status === "answered" &&
+          question.answeredValue !== answeredValue &&
+          isBlockingQuestion(question)) ||
+        question.status !== "answered"
+      ) {
+        shouldClearAiKnowledge = true;
+      }
     }
 
-    if (
-      result.activityId &&
-      ((answeredQuestion.status === "answered" &&
-        answeredQuestion.answeredValue !== answeredValue &&
-        isBlockingQuestion(answeredQuestion)) ||
-        answeredQuestion.status !== "answered")
-    ) {
+    if (result.activityId && shouldClearAiKnowledge) {
       await clearActivityAiKnowledgeStateIfPresent(
         this.activityRepository,
         result.activityId,
@@ -661,10 +744,10 @@ export class InterpretationService {
             {
               activityId: updated.activityId,
               interpretationResultId: updated.id,
-              questionId,
+              questionIds: resolvedAnswers.map(({ question }) => question.id),
               error,
             },
-            "evidence linkage reconciliation could not be completed after a question answer",
+            "evidence linkage reconciliation could not be completed after a batch question answer",
           );
         });
     }

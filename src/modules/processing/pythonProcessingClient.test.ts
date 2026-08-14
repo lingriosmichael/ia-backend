@@ -290,6 +290,87 @@ test("planActivityAnalysisV2 posts to the dedicated planner endpoint and uses th
   assert.equal(result.validation.status, "passed");
 });
 
+test("planActivityAnalysisV2 accepts clarificationQuestions using the epistemicRole question codes", async (t) => {
+  // Regression test: the planner's InterpretationQuestionDraft schema
+  // (Python) and contracts.ts's interpretationQuestionCodeValues both
+  // include epistemic_role_clarification/validated_scale_confirmation,
+  // but this client's Zod schema was hand-duplicated and never updated to
+  // match — a real plan response carrying either code was rejected as
+  // malformed even though it was perfectly valid.
+  t.mock.method(AbortSignal, "timeout", () => new AbortController().signal);
+  t.mock.method(globalThis, "fetch", async () =>
+    jsonResponse({
+      goalPlans: [],
+      toolRequests: [],
+      clarificationQuestions: [
+        {
+          goalId: null,
+          prompt: "Ist 'confidence_code' eine validierte Skala?",
+          kind: "single_choice",
+          questionDomain: "preparation",
+          options: ["Ja", "Nein"],
+          recommendedOption: null,
+          recommendedConfidence: null,
+          isBlocking: true,
+          questionCode: "validated_scale_confirmation",
+          targetTableName: "mentor_feedback",
+          targetColumnName: "confidence_code",
+        },
+        {
+          goalId: null,
+          prompt: "Welche Art von Information enthält 'theme_code'?",
+          kind: "single_choice",
+          questionDomain: "preparation",
+          options: ["Code", "Freitext"],
+          recommendedOption: null,
+          recommendedConfidence: null,
+          isBlocking: true,
+          questionCode: "epistemic_role_clarification",
+          targetTableName: "mentor_feedback",
+          targetColumnName: "theme_code",
+        },
+      ],
+      limitations: [],
+      validation: {
+        status: "passed",
+        issues: [],
+      },
+    }),
+  );
+
+  const client = new PythonProcessingClient(
+    "https://python.example",
+    "secret",
+    30_000,
+    120_000,
+  );
+
+  const result = await client.planActivityAnalysisV2({
+    activityId: "activity-1",
+    activityName: "Mentoring-Reflexion",
+    language: "de",
+    goals: [],
+    evidenceTables: [],
+    runLimits: {
+      maxToolCalls: 8,
+      maxLlmIterations: 2,
+      timeoutMs: 30_000,
+      maxEvidenceItems: 10,
+    },
+  });
+
+  assert.equal(result.validation.status, "passed");
+  assert.equal(result.clarificationQuestions?.length, 2);
+  assert.equal(
+    result.clarificationQuestions?.[0]?.questionCode,
+    "validated_scale_confirmation",
+  );
+  assert.equal(
+    result.clarificationQuestions?.[1]?.questionCode,
+    "epistemic_role_clarification",
+  );
+});
+
 test("planActivityAnalysisV2 rejects a malformed plan response instead of trusting it", async (t) => {
   t.mock.method(AbortSignal, "timeout", () => new AbortController().signal);
   t.mock.method(globalThis, "fetch", async () =>

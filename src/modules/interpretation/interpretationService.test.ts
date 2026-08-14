@@ -1,8 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { AppError } from "../../shared/errors/appError.js";
 import { InterpretationService } from "./interpretationService.js";
 import type { UploadMetadataRepository } from "../upload/uploadMetadataRepository.js";
 import type { PrivacySafeRepresentationRepository } from "../processing/privacySafeRepresentationRepository.js";
+import type { QualitativeCodingReviewRepository } from "../processing/qualitativeCodingReviewRepository.js";
 import type { InterpretationResultRepository } from "./interpretationResultRepository.js";
 import type { ProcessingJobRepository } from "../ai/execution/processingJobRepository.js";
 import type { ActivityRepository } from "../activity/activityRepository.js";
@@ -52,11 +54,30 @@ function createDependencies(options: {
     id: string;
     uploadMetadataId: string;
     activityId: string;
+    datasetProfile?: {
+      tables: Array<{
+        columns: Array<{
+          epistemicRole:
+            | "identifier"
+            | "temporal"
+            | "validated_scale"
+            | "metric_count"
+            | "subjective_code"
+            | "free_text"
+            | "flag"
+            | null;
+        }>;
+      }>;
+    } | null;
     updatedAt?: Date;
+    projectId?: string;
     questions?: Array<{
       id: string;
       isBlocking: boolean;
       status: "pending" | "answered";
+      kind?: "single_choice" | "free_text" | "merge_confirmation";
+      options?: string[] | null;
+      answeredValue?: string | null;
     }>;
     qualitativeFindings?: Array<{
       id: string;
@@ -97,6 +118,12 @@ function createDependencies(options: {
       } | null;
     }>;
     entities?: Array<{ originalField: string; aiMeaning: string }>;
+  }>;
+  qualitativeCodingReviews?: Array<{
+    uploadMetadataId: string;
+    status: "pending" | "approved" | "rejected";
+    findings?: Record<string, unknown>;
+    decisions?: Record<string, unknown> | null;
   }>;
   deterministicAnalyses?: Array<{
     id: string;
@@ -190,11 +217,13 @@ function createDependencies(options: {
   ];
   const processingJobs = [...(options.processingJobs ?? [])];
   const createdJobs: ProcessingJobPersistenceRecord[] = [];
+  const qualitativeCodingReviews = options.qualitativeCodingReviews ?? [];
   const results = options.results ?? [
     {
       id: "result-1",
       uploadMetadataId: "upload-1",
       activityId: "activity-1",
+      datasetProfile: null,
       updatedAt: NOW,
       questions: [],
       qualitativeFindings: [],
@@ -222,11 +251,71 @@ function createDependencies(options: {
       ) ?? null,
   } as unknown as PrivacySafeRepresentationRepository;
 
+  const qualitativeCodingReviewRepository = {
+    findByUploadMetadataId: async (uploadMetadataId: string) =>
+      qualitativeCodingReviews.find(
+        (review) => review.uploadMetadataId === uploadMetadataId,
+      ) ?? null,
+  } as unknown as QualitativeCodingReviewRepository;
+
+  // Fully normalizes a fixture result (which only ever specifies the
+  // fields a given test cares about) into the shape mapInterpretationResult
+  // actually requires — findById/answerQuestion feed the real mapper, not
+  // a mocked one, so a partial object throws deep inside mapping instead of
+  // in the test itself.
+  function normalizeResultForMapper(result: (typeof results)[number]) {
+    return {
+      id: result.id,
+      organizationId: "org-1",
+      projectId: result.projectId ?? "project-1",
+      activityId: result.activityId,
+      uploadMetadataId: result.uploadMetadataId,
+      privacySafeRepresentationId: "psr-1",
+      processingJobId: "job-1",
+      versionNumber: 1,
+      previousInterpretationResultId: null,
+      datasetType: "tabular_structured",
+      overallConfidence: 0.9,
+      evidenceRouting: null,
+      datasetProfile: result.datasetProfile ?? null,
+      entities: result.entities ?? [],
+      indicators: result.indicators ?? [],
+      relationships: [],
+      qualitativeFindings: result.qualitativeFindings ?? [],
+      supportingQuotes: [],
+      questions: (result.questions ?? []).map((question) => ({
+        id: question.id,
+        prompt: `Question ${question.id}`,
+        kind: question.kind ?? "single_choice",
+        questionDomain: "interpretation" as const,
+        options: question.options ?? null,
+        recommendedOption: null,
+        recommendedConfidence: null,
+        isBlocking: question.isBlocking,
+        questionCode: null,
+        targetTableName: null,
+        targetColumnName: null,
+        status: question.status,
+        answeredValue: question.answeredValue ?? null,
+        answeredById: null,
+        answeredAt: null,
+      })),
+      warnings: [],
+      goalAlignment: result.goalAlignment ?? [],
+      llmUsage: null,
+      synthesisStatus: null,
+      synthesisError: null,
+      createdAt: NOW,
+      updatedAt: result.updatedAt ?? NOW,
+    };
+  }
+
   const interpretationResultRepository = {
     findLatestByUploadMetadataIds: async (uploadMetadataIds: string[]) =>
       results
         .filter((result) => uploadMetadataIds.includes(result.uploadMetadataId))
         .map((result) => ({
+          datasetProfile: null,
           qualitativeFindings: [],
           goalAlignment: [],
           indicators: [],
@@ -234,6 +323,30 @@ function createDependencies(options: {
           updatedAt: NOW,
           ...result,
         })),
+    findById: async (interpretationResultId: string) => {
+      const result = results.find(
+        (candidate) => candidate.id === interpretationResultId,
+      );
+      return result ? normalizeResultForMapper(result) : null;
+    },
+    answerQuestion: async (
+      interpretationResultId: string,
+      questionId: string,
+      input: { answeredValue: string; answeredById: string; answeredAt: Date },
+    ) => {
+      const result = results.find(
+        (candidate) => candidate.id === interpretationResultId,
+      );
+      const question = result?.questions?.find(
+        (candidate) => candidate.id === questionId,
+      );
+      if (!result || !question) {
+        return null;
+      }
+      question.status = "answered";
+      question.answeredValue = input.answeredValue;
+      return normalizeResultForMapper(result);
+    },
   } as unknown as InterpretationResultRepository;
 
   const processingJobRepository = {
@@ -499,6 +612,7 @@ function createDependencies(options: {
   return {
     uploadMetadataRepository,
     privacySafeRepresentationRepository,
+    qualitativeCodingReviewRepository,
     interpretationResultRepository,
     processingJobRepository,
     activityRepository,
@@ -531,6 +645,7 @@ test("acknowledging an activity triggers a Project Knowledge Model rebuild for i
   const service = new InterpretationService(
     deps.uploadMetadataRepository,
     deps.privacySafeRepresentationRepository,
+    deps.qualitativeCodingReviewRepository,
     deps.interpretationResultRepository,
     deps.processingJobRepository,
     deps.activityRepository,
@@ -562,6 +677,7 @@ test("a rebuild failure never prevents the acknowledgment from succeeding", asyn
   const service = new InterpretationService(
     deps.uploadMetadataRepository,
     deps.privacySafeRepresentationRepository,
+    deps.qualitativeCodingReviewRepository,
     deps.interpretationResultRepository,
     deps.processingJobRepository,
     deps.activityRepository,
@@ -648,6 +764,7 @@ test("activity interpretation starts from the latest completed evidence job even
   const service = new InterpretationService(
     deps.uploadMetadataRepository,
     deps.privacySafeRepresentationRepository,
+    deps.qualitativeCodingReviewRepository,
     deps.interpretationResultRepository,
     deps.processingJobRepository,
     deps.activityRepository,
@@ -682,6 +799,7 @@ test("activity interpretation blocks reruns when every upload already has a late
   const service = new InterpretationService(
     deps.uploadMetadataRepository,
     deps.privacySafeRepresentationRepository,
+    deps.qualitativeCodingReviewRepository,
     deps.interpretationResultRepository,
     deps.processingJobRepository,
     deps.activityRepository,
@@ -731,6 +849,7 @@ test("getActivityWorkflowStage reports assessment_ready for a fully-interpreted 
   const service = new InterpretationService(
     deps.uploadMetadataRepository,
     deps.privacySafeRepresentationRepository,
+    deps.qualitativeCodingReviewRepository,
     deps.interpretationResultRepository,
     deps.processingJobRepository,
     deps.activityRepository,
@@ -751,6 +870,71 @@ test("getActivityWorkflowStage reports assessment_ready for a fully-interpreted 
   assert.deepEqual(record, {
     activityId: "activity-1",
     stage: "assessment_ready",
+  });
+});
+
+test("getActivityWorkflowStage reports qualitative_review when an interpreted upload still needs coding review approval", async () => {
+  const deps = createDependencies({
+    buildForProject: async () => ({}),
+    activities: [
+      {
+        id: "activity-1",
+        projectId: "project-1",
+        name: "Activity",
+        objectives: "prepare mentors",
+        output: "Two orientation sessions run",
+        outcome: "strong attendance",
+        interpretationAcknowledgedAt: null,
+        aiKnowledgeSnapshot: null,
+      },
+    ],
+    results: [
+      {
+        id: "result-1",
+        uploadMetadataId: "upload-1",
+        activityId: "activity-1",
+        datasetProfile: {
+          tables: [
+            {
+              rowCount: 3,
+              columns: [
+                { epistemicRole: "free_text", nonNullCount: 3 } as never,
+              ],
+            } as never,
+          ],
+        },
+        updatedAt: NOW,
+        qualitativeFindings: [],
+        goalAlignment: [],
+        indicators: [],
+      },
+    ],
+  });
+
+  const service = new InterpretationService(
+    deps.uploadMetadataRepository,
+    deps.privacySafeRepresentationRepository,
+    deps.qualitativeCodingReviewRepository,
+    deps.interpretationResultRepository,
+    deps.processingJobRepository,
+    deps.activityRepository,
+    deps.authorizationService,
+    deps.pythonProcessingClient,
+    deps.logger,
+    deps.datasetPreparationService,
+    deps.deterministicAnalysisService,
+    deps.quantitativeInterpretationSynthesisService,
+    deps.projectKnowledgeBuilderService,
+    deps.projectLlmTokenLedgerService,
+    deps.evidenceLinkageReconciliationService,
+    deps.activityEvidenceLinkageResultRepository,
+  );
+
+  const record = await service.getActivityWorkflowStage("user-1", "activity-1");
+
+  assert.deepEqual(record, {
+    activityId: "activity-1",
+    stage: "qualitative_review",
   });
 });
 
@@ -810,6 +994,7 @@ test("getActivityWorkflowStage reports goal_review for a fully-interpreted multi
   const service = new InterpretationService(
     deps.uploadMetadataRepository,
     deps.privacySafeRepresentationRepository,
+    deps.qualitativeCodingReviewRepository,
     deps.interpretationResultRepository,
     deps.processingJobRepository,
     deps.activityRepository,
@@ -893,7 +1078,8 @@ test("getActivityWorkflowStage keeps a multi-upload activity in goal_review whil
       groups: [],
       proposals: [
         {
-          proposalId: "name_like_column|upload-1:table:schule|upload-2:table:schule",
+          proposalId:
+            "name_like_column|upload-1:table:schule|upload-2:table:schule",
           uploadMetadataIdA: "upload-1",
           uploadMetadataIdB: "upload-2",
           tableNameA: "table",
@@ -913,6 +1099,7 @@ test("getActivityWorkflowStage keeps a multi-upload activity in goal_review whil
   const service = new InterpretationService(
     deps.uploadMetadataRepository,
     deps.privacySafeRepresentationRepository,
+    deps.qualitativeCodingReviewRepository,
     deps.interpretationResultRepository,
     deps.processingJobRepository,
     deps.activityRepository,
@@ -949,6 +1136,7 @@ test("getActivityWorkflowStage reports no_evidence without querying jobs or resu
   const service = new InterpretationService(
     deps.uploadMetadataRepository,
     deps.privacySafeRepresentationRepository,
+    deps.qualitativeCodingReviewRepository,
     deps.interpretationResultRepository,
     deps.processingJobRepository,
     deps.activityRepository,
@@ -968,4 +1156,158 @@ test("getActivityWorkflowStage reports no_evidence without querying jobs or resu
 
   assert.deepEqual(record, { activityId: "activity-1", stage: "no_evidence" });
   assert.equal(jobsQueried, false);
+});
+
+function buildInterpretationService(
+  deps: ReturnType<typeof createDependencies>,
+) {
+  return new InterpretationService(
+    deps.uploadMetadataRepository,
+    deps.privacySafeRepresentationRepository,
+    deps.qualitativeCodingReviewRepository,
+    deps.interpretationResultRepository,
+    deps.processingJobRepository,
+    deps.activityRepository,
+    deps.authorizationService,
+    deps.pythonProcessingClient,
+    deps.logger,
+    deps.datasetPreparationService,
+    deps.deterministicAnalysisService,
+    deps.quantitativeInterpretationSynthesisService,
+    deps.projectKnowledgeBuilderService,
+    deps.projectLlmTokenLedgerService,
+    deps.evidenceLinkageReconciliationService,
+    deps.activityEvidenceLinkageResultRepository,
+  );
+}
+
+test("answerQuestions answers a batch of questions on one InterpretationResult with a single downstream sync", async () => {
+  const deps = createDependencies({
+    buildForProject: async () => ({}),
+    results: [
+      {
+        id: "result-1",
+        uploadMetadataId: "upload-1",
+        activityId: "activity-1",
+        updatedAt: NOW,
+        questions: [
+          {
+            id: "question-1",
+            isBlocking: true,
+            status: "pending",
+            kind: "single_choice",
+            options: ["yes", "no"],
+          },
+          {
+            id: "question-2",
+            isBlocking: true,
+            status: "pending",
+            kind: "free_text",
+            options: null,
+          },
+        ],
+        qualitativeFindings: [],
+        goalAlignment: [],
+        indicators: [],
+      },
+    ],
+  });
+
+  let syncCallCount = 0;
+  deps.datasetPreparationService.syncForInterpretationResult = async () => {
+    syncCallCount += 1;
+    return {
+      id: "prep-1",
+      organizationId: "org-1",
+      projectId: "project-1",
+      activityId: "activity-1",
+      uploadMetadataId: "upload-1",
+      privacySafeRepresentationId: "psr-1",
+      interpretationResultId: "result-1",
+      status: "ready_for_analysis",
+      blockingQuestionCount: 0,
+      answeredBlockingQuestionCount: 0,
+      unansweredBlockingQuestionIds: [],
+      decisions: [],
+      decisionSummary: {
+        normalizationMerges: [],
+        rowGrains: [],
+        duplicateIdentifierResolutions: [],
+        primaryStatusFields: [],
+        positiveStatusDefinitions: [],
+        primaryDateFields: [],
+      },
+      createdAt: NOW,
+      updatedAt: NOW,
+    } as never;
+  };
+
+  const service = buildInterpretationService(deps);
+
+  const result = await service.answerQuestions("user-1", "result-1", [
+    { questionId: "question-1", answeredValue: "yes" },
+    { questionId: "question-2", answeredValue: "Looks complete to me." },
+  ]);
+
+  assert.equal(syncCallCount, 1);
+  assert.equal(result.id, "result-1");
+});
+
+test("answerQuestions rejects the whole batch and persists nothing when one answer is not among the question's options", async () => {
+  const deps = createDependencies({
+    buildForProject: async () => ({}),
+    results: [
+      {
+        id: "result-1",
+        uploadMetadataId: "upload-1",
+        activityId: "activity-1",
+        updatedAt: NOW,
+        questions: [
+          {
+            id: "question-1",
+            isBlocking: true,
+            status: "pending",
+            kind: "single_choice",
+            options: ["yes", "no"],
+          },
+          {
+            id: "question-2",
+            isBlocking: true,
+            status: "pending",
+            kind: "single_choice",
+            options: ["ordinal", "nominal"],
+          },
+        ],
+        qualitativeFindings: [],
+        goalAlignment: [],
+        indicators: [],
+      },
+    ],
+  });
+
+  const service = buildInterpretationService(deps);
+
+  await assert.rejects(
+    () =>
+      service.answerQuestions("user-1", "result-1", [
+        { questionId: "question-1", answeredValue: "yes" },
+        { questionId: "question-2", answeredValue: "some_value_never_offered" },
+      ]),
+    (error: unknown) => {
+      assert.ok(error instanceof AppError);
+      assert.equal(error.code, "interpretation_question_invalid_answer");
+      return true;
+    },
+  );
+
+  const [result] =
+    await deps.interpretationResultRepository.findLatestByUploadMetadataIds(
+      ["upload-1"],
+      {} as never,
+    );
+  assert.ok(result);
+  assert.equal(
+    result.questions.find((question) => question.id === "question-1")?.status,
+    "pending",
+  );
 });

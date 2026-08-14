@@ -2,7 +2,7 @@ import type {
   ActivityAssessmentV2,
   ActivityAnalysisV2CalculationRecord,
   ActivityAnalysisV2Diagnostics,
-  ActivityAnalysisV2ShadowComparison,
+  ActivityAnalysisV2QualitativeFindingRecord,
   ActivityAnalysisV2ToolCallRecord,
   ActivityAnalysisRunV2Status,
   ActivityAnalysisRunV2ValidationStatus,
@@ -52,9 +52,9 @@ export interface ActivityAnalysisRunV2PersistenceRecord {
   clarificationQuestions: InterpretationQuestion[];
   toolCallTrace: ActivityAnalysisV2ToolCallRecord[];
   calculations: ActivityAnalysisV2CalculationRecord[];
+  qualitativeFindings: ActivityAnalysisV2QualitativeFindingRecord[];
   assessment: ActivityAssessmentV2 | null;
   diagnostics: ActivityAnalysisV2Diagnostics;
-  shadowComparison: ActivityAnalysisV2ShadowComparison;
   renderedSummary: string | null;
   recommendationText: string | null;
   validation: ActivityAnalysisRunV2ValidationPersistenceRecord;
@@ -76,9 +76,9 @@ export interface ActivityAnalysisRunV2CreateInput {
   clarificationQuestions: InterpretationQuestion[];
   toolCallTrace: ActivityAnalysisV2ToolCallRecord[];
   calculations: ActivityAnalysisV2CalculationRecord[];
+  qualitativeFindings: ActivityAnalysisV2QualitativeFindingRecord[];
   assessment: ActivityAssessmentV2 | null;
   diagnostics: ActivityAnalysisV2Diagnostics;
-  shadowComparison: ActivityAnalysisV2ShadowComparison;
   renderedSummary: string | null;
   recommendationText: string | null;
   validation: ActivityAnalysisRunV2ValidationPersistenceRecord;

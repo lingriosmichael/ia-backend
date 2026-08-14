@@ -37,13 +37,13 @@ function toActivityAnalysisRunV2Record(
       []) as ActivityAnalysisRunV2PersistenceRecord["toolCallTrace"],
     calculations: (document.calculations ??
       []) as ActivityAnalysisRunV2PersistenceRecord["calculations"],
+    qualitativeFindings: (document.qualitativeFindings ??
+      []) as ActivityAnalysisRunV2PersistenceRecord["qualitativeFindings"],
     assessment:
       (document.assessment as ActivityAnalysisRunV2PersistenceRecord["assessment"]) ??
       null,
     diagnostics:
       document.diagnostics as ActivityAnalysisRunV2PersistenceRecord["diagnostics"],
-    shadowComparison:
-      document.shadowComparison as ActivityAnalysisRunV2PersistenceRecord["shadowComparison"],
     renderedSummary: document.renderedSummary ?? null,
     recommendationText: document.recommendationText ?? null,
     validation:

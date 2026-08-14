@@ -21,6 +21,7 @@ export const activityWorkflowStageValues = [
   "analysis_pending",
   "analysis_running",
   "needs_clarification",
+  "qualitative_review",
   "goal_review",
   "assessment_ready",
   "reviewed",
@@ -71,6 +72,8 @@ export const processingJobTypeValues = [
   "report_generation",
   "chat",
   "other",
+  "activity_analysis_v2",
+  "qualitative_coding_review",
 ] as const;
 export type ProcessingJobType = (typeof processingJobTypeValues)[number];
 
@@ -419,6 +422,69 @@ export interface PrivacyReviewRecord {
   updatedAt: string;
 }
 
+export interface QualitativeCodingReviewSuggestedCode {
+  code: string;
+  label: string;
+  description: string;
+  exampleExcerpts: string[];
+}
+
+export interface QualitativeCodingReviewProposedAssignment {
+  rowIndex: number;
+  assignedCode: string | null;
+}
+
+export interface QualitativeCodingReviewFindingRecord {
+  findingKey: string;
+  tableName: string;
+  textColumnName: string;
+  syntheticCodeColumnName: string;
+  rowCount: number;
+  nonEmptyRowCount: number;
+  sampleExcerpts: string[];
+  existingCodeColumnNames: string[];
+  proposedCodes: QualitativeCodingReviewSuggestedCode[];
+  proposedAssignments: QualitativeCodingReviewProposedAssignment[];
+  sourceCodebookUploadMetadataId: string | null;
+  sourceCodebookOriginalFileName: string | null;
+}
+
+export interface QualitativeCodingReviewColumnDecisionInput {
+  findingKey: string;
+  decision: "approve_as_proposed" | "reject_for_now";
+  note?: string;
+}
+
+export interface QualitativeCodingReviewColumnDecisionRecord extends QualitativeCodingReviewColumnDecisionInput {
+  decidedById: string;
+  decidedAt: string;
+}
+
+export interface QualitativeCodingReviewDecisions {
+  columnDecisions?: QualitativeCodingReviewColumnDecisionRecord[];
+}
+
+export interface QualitativeCodingReviewDecisionsInput {
+  columnDecisions?: QualitativeCodingReviewColumnDecisionInput[];
+}
+
+export interface QualitativeCodingReviewRecord {
+  id: string;
+  organizationId: string;
+  projectId: string;
+  activityId: string | null;
+  uploadMetadataId: string;
+  privacySafeRepresentationId: string;
+  interpretationResultId: string;
+  status: "pending" | "approved" | "rejected";
+  findings: Record<string, unknown>;
+  decisions: QualitativeCodingReviewDecisions | null;
+  approvedById: string | null;
+  approvedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface PrivacySafeRepresentationRecord {
   id: string;
   organizationId: string;
@@ -457,6 +523,8 @@ export const interpretationQuestionCodeValues = [
   "primary_status_field",
   "positive_status_values",
   "primary_date_field",
+  "epistemic_role_clarification",
+  "validated_scale_confirmation",
 ] as const;
 export type InterpretationQuestionCode =
   (typeof interpretationQuestionCodeValues)[number];
@@ -496,6 +564,24 @@ export const datasetProfileColumnTypeValues = [
 ] as const;
 export type DatasetProfileColumnType =
   (typeof datasetProfileColumnTypeValues)[number];
+
+// Who produced this value, and about whom — orthogonal to
+// DatasetProfileColumnType. A deterministic calculation and a cited
+// qualitative excerpt are both "grounded," but a subjective_code/free_text
+// column must never be allowed to carry outcome-claim language the way a
+// validated_scale or metric_count column can (see
+// QUALITATIVE_MIXED_EVIDENCE_PLAN.md Section 3).
+export const epistemicRoleValues = [
+  "identifier",
+  "temporal",
+  "validated_scale",
+  "metric_count",
+  "subjective_code",
+  "free_text",
+  "flag",
+  "categorical",
+] as const;
+export type EpistemicRole = (typeof epistemicRoleValues)[number];
 
 export interface InterpretationEntity {
   id: string;
@@ -759,6 +845,14 @@ export interface DatasetProfileColumn {
   numericSummary: DatasetProfileNumericSummary | null;
   dateSummary: DatasetProfileDateSummary | null;
   duplicateNonNullValueCount: number;
+  // null when the deterministic classifier couldn't confidently decide —
+  // an epistemic_role_clarification question is generated for that column
+  // instead of guessing (see datasetPreparationService.ts).
+  epistemicRole: EpistemicRole | null;
+  // True only for a numeric+bounded+name-pattern column that looks like a
+  // validated self-report scale but still needs a human-confirmed
+  // validated_scale_confirmation answer before it can be treated as one.
+  isValidatedScaleCandidate: boolean;
 }
 
 export const datasetProfileIssueCodeValues = [
@@ -844,6 +938,8 @@ export interface DatasetPreparationDecisionSummary {
   primaryStatusFields: DatasetPreparationDecisionSelection[];
   positiveStatusDefinitions: DatasetPreparationDecisionSelection[];
   primaryDateFields: DatasetPreparationDecisionSelection[];
+  epistemicRoleClarifications: DatasetPreparationDecisionSelection[];
+  validatedScaleConfirmations: DatasetPreparationDecisionSelection[];
 }
 
 export const preparedDatasetColumnRoleValues = [
@@ -874,6 +970,10 @@ export interface PreparedDatasetColumn {
   positiveStatusValues: string[];
   positiveStatusDefinitionText: string | null;
   normalizationAccepted: boolean | null;
+  // Persisted for later use by the tool-execution/assessment layers; not
+  // consumed by anything yet (Phase 1a of
+  // QUALITATIVE_MIXED_EVIDENCE_PLAN.md).
+  epistemicRole: EpistemicRole | null;
 }
 
 export interface PreparedDatasetTable {
@@ -1334,17 +1434,6 @@ export interface LlmUsageSummary {
   calls: LlmUsageCall[];
 }
 
-export interface ActivityAiKnowledgeRecord {
-  activityId: string;
-  projectId: string;
-  activityName: string;
-  interpretedEvidenceCount: number;
-  totalEvidenceCount: number;
-  generatedAt: string | null;
-  summaryText: string;
-  insights: ActivityAiKnowledgeInsight[];
-}
-
 export type ActivityAnalysisRunV2Status =
   "collected" | "running" | "needs_clarification" | "completed" | "failed";
 
@@ -1353,6 +1442,7 @@ export type ActivityAnalysisRunV2ValidationStatus =
 
 export const activityAnalysisV2ToolNameValues = [
   "describe_evidence",
+  "excerpt_retrieval",
   "create_cohort",
   "filter_result",
   "join_tables",
@@ -1397,6 +1487,7 @@ export interface ActivityAnalysisV2ToolCallRecord {
   toolName: ActivityAnalysisV2ToolName;
   arguments: Record<string, unknown>;
   calculationIds: string[];
+  qualitativeFindingIds?: string[];
   status: ActivityAnalysisV2ToolCallStatus;
   errorMessage: string | null;
   startedAt: string;
@@ -1415,12 +1506,49 @@ export interface ActivityAnalysisV2CalculationRecord {
   sourceUploadMetadataIds: string[];
   sourceTableNames: string[];
   sourceColumns: string[];
+  sourceColumnEpistemicRoles?: Array<{
+    columnName: string;
+    epistemicRole: EpistemicRole | null;
+  }>;
   grain?: DeterministicAnalysisMetricGrain;
   numerator?: number | null;
   denominator?: number | null;
   denominatorType?: DeterministicAnalysisDenominatorType;
   identifierColumn?: string | null;
   result: Record<string, unknown>;
+}
+
+export interface ActivityAnalysisV2QualitativeFindingRecord {
+  findingId: string;
+  toolName: ActivityAnalysisV2ToolName;
+  label: string;
+  description: string;
+  themeOrCode: string | null;
+  excerpts: Array<{
+    sourceRowId: string | null;
+    verbatimText: string;
+    sourceColumn: string;
+  }>;
+  totalMatchingRows: number;
+  excerptsReturned: number;
+  frequency: {
+    count: number;
+    denominator: number | null;
+    denominatorType: DeterministicAnalysisDenominatorType | null;
+  } | null;
+  codingMethod: "source_provided" | "llm_assisted_reviewed";
+  reliabilitySignal: {
+    missingValuePct: number | null;
+    raterCount: number | "unknown" | null;
+  };
+  sourceUploadMetadataIds: string[];
+  sourceTableNames: string[];
+  sourceColumns: string[];
+  sourceColumnEpistemicRoles?: Array<{
+    columnName: string;
+    epistemicRole: EpistemicRole | null;
+  }>;
+  identifierColumn: string | null;
 }
 
 export interface ActivityAnalysisV2MissingCapability {
@@ -1433,6 +1561,8 @@ export type ActivityAnalysisV2GoalAssessmentStatus =
   | "achieved"
   | "not_achieved"
   | "evidence_compiled"
+  | "qualitative_evidence_only"
+  | "mixed_evidence"
   | "requires_clarification"
   | "requires_capability";
 
@@ -1448,6 +1578,8 @@ export interface ActivityAnalysisV2GoalAssessmentRecord {
   findingText: string;
   missingCapabilities: ActivityAnalysisV2MissingCapability[];
   supportingCalculationIds: string[];
+  supportingQualitativeFindingIds: string[];
+  evidenceTensionFlag: boolean;
   measuredValue: number | null;
   targetValue: number | null;
   comparison: "at_least" | "at_most" | "equal" | null;
@@ -1474,41 +1606,11 @@ export interface ActivityAnalysisV2Diagnostics {
     achieved: number;
     notAchieved: number;
     evidenceCompiled: number;
+    qualitativeEvidenceOnly: number;
+    mixedEvidence: number;
     requiresClarification: number;
     requiresCapability: number;
   };
-}
-
-export type ActivityAnalysisV2ShadowComparisonStatus =
-  "shadow_ready" | "review_recommended" | "v1_missing" | "v2_invalid";
-
-export interface ActivityAnalysisV2ShadowComparison {
-  status: ActivityAnalysisV2ShadowComparisonStatus;
-  notes: string[];
-  v1GeneratedAt: string | null;
-  v1InterpretedEvidenceCount: number | null;
-  v1TotalEvidenceCount: number | null;
-  v1InsightCount: number | null;
-  v2GoalAssessmentCount: number;
-  noOutcomeSectionOmitted: boolean;
-}
-
-export type ActivityAnalysisV2CutoverStatus = "eligible" | "not_eligible";
-
-export interface ActivityAnalysisV2CutoverCriterion {
-  key:
-    | "validation_passed"
-    | "all_goals_assessed"
-    | "summary_rendered"
-    | "shadow_comparison_clear"
-    | "no_outcome_section_omitted";
-  passed: boolean;
-  detail: string;
-}
-
-export interface ActivityAnalysisV2CutoverReadiness {
-  status: ActivityAnalysisV2CutoverStatus;
-  criteria: ActivityAnalysisV2CutoverCriterion[];
 }
 
 export interface ActivityAnalysisRunV2GoalsSnapshot {
@@ -1553,10 +1655,9 @@ export interface ActivityAnalysisRunV2Record {
   clarificationQuestions: InterpretationQuestion[];
   toolCallTrace: ActivityAnalysisV2ToolCallRecord[];
   calculations: ActivityAnalysisV2CalculationRecord[];
+  qualitativeFindings: ActivityAnalysisV2QualitativeFindingRecord[];
   assessment: ActivityAssessmentV2 | null;
   diagnostics: ActivityAnalysisV2Diagnostics;
-  shadowComparison: ActivityAnalysisV2ShadowComparison;
-  cutoverReadiness: ActivityAnalysisV2CutoverReadiness;
   validation: ActivityAnalysisRunV2Validation;
   renderedSummary: string | null;
   recommendationText: string | null;
@@ -1633,6 +1734,14 @@ export interface StartEvidenceAnalysisResponse {
 export interface ApprovePrivacyReviewResponse {
   review: PrivacyReviewRecord;
   job: ProcessingJobRecord;
+}
+
+export interface GenerateQualitativeCodingReviewResponse {
+  review: QualitativeCodingReviewRecord;
+}
+
+export interface ApproveQualitativeCodingReviewResponse {
+  review: QualitativeCodingReviewRecord;
 }
 
 export interface ApiErrorPayload {

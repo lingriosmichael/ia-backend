@@ -1,5 +1,7 @@
 import { databaseSession } from "../../shared/database/databaseClient.js";
 import { classifyEvidenceModalityFromPayload } from "../../shared/utils/evidenceModality.js";
+import type { QualitativeCodingReviewRepository } from "../processing/qualitativeCodingReviewRepository.js";
+import { augmentPrivacySafePayloadWithApprovedQualitativeCodingReview } from "../processing/qualitativeCodingReviewSupport.js";
 import type { PrivacySafeRepresentationRepository } from "../processing/privacySafeRepresentationRepository.js";
 import type { UploadMetadataRepository } from "../upload/uploadMetadataRepository.js";
 
@@ -31,6 +33,7 @@ export class CurrentActivityEvidenceLoader {
   constructor(
     private readonly uploadMetadataRepository: UploadMetadataRepository,
     private readonly privacySafeRepresentationRepository: PrivacySafeRepresentationRepository,
+    private readonly qualitativeCodingReviewRepository: QualitativeCodingReviewRepository,
   ) {}
 
   async load(activityId: string): Promise<CurrentActivityEvidenceSnapshot> {
@@ -76,17 +79,26 @@ export class CurrentActivityEvidenceLoader {
         continue;
       }
 
+      const qualitativeCodingReview =
+        await this.qualitativeCodingReviewRepository.findByUploadMetadataId(
+          upload.id,
+          databaseSession,
+        );
+      const augmentedPayload =
+        augmentPrivacySafePayloadWithApprovedQualitativeCodingReview(
+          representation.payload,
+          qualitativeCodingReview,
+        );
+
       evidence.push({
         uploadMetadataId: upload.id,
         privacySafeRepresentationId: representation.id,
         logicalEvidenceId: upload.logicalEvidenceId,
         versionNumber: upload.versionNumber,
         originalFileName: upload.originalFileName,
-        evidenceModality: classifyEvidenceModalityFromPayload(
-          representation.payload,
-        ),
+        evidenceModality: classifyEvidenceModalityFromPayload(augmentedPayload),
         uploadedAt: upload.createdAt,
-        payload: representation.payload,
+        payload: augmentedPayload,
       });
     }
 

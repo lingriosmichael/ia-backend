@@ -13,6 +13,7 @@ import { registerInterpretationRoutes } from "./modules/interpretation/interpret
 import { registerOrganizationRoutes } from "./modules/organization/organizationRoutes.js";
 import { registerProjectRoutes } from "./modules/project/projectRoutes.js";
 import { registerPrivacyReviewRoutes } from "./modules/processing/privacyReviewRoutes.js";
+import { registerQualitativeCodingReviewRoutes } from "./modules/processing/qualitativeCodingReviewRoutes.js";
 import { registerActivityUploadRoutes } from "./modules/upload/activityUploadRoutes.js";
 import { registerUploadMetadataRoutes } from "./modules/upload/uploadMetadataRoutes.js";
 import type { BackendConfig } from "./shared/config/env.js";
@@ -228,6 +229,11 @@ export async function buildApp(config: BackendConfig) {
   await registerPrivacyReviewRoutes(
     app,
     context.privacyReviewController,
+    context.authenticate,
+  );
+  await registerQualitativeCodingReviewRoutes(
+    app,
+    context.qualitativeCodingReviewController,
     context.authenticate,
   );
   await registerInterpretationRoutes(

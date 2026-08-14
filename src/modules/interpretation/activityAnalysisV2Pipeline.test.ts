@@ -9,6 +9,7 @@ import type { ActivityAnalysisRunV2Repository } from "./activityAnalysisRunV2Rep
 import { ActivityAnalysisV2Service } from "./activityAnalysisV2Service.js";
 import { ActivityAnalysisV2ToolExecutor } from "./activityAnalysisV2ToolExecutor.js";
 import type { PythonProcessingClient } from "../processing/pythonProcessingClient.js";
+import type { QualitativeCodingReviewRepository } from "../processing/qualitativeCodingReviewRepository.js";
 import { CurrentActivityEvidenceLoader } from "./currentActivityEvidenceLoader.js";
 import type { UploadMetadataRepository } from "../upload/uploadMetadataRepository.js";
 import type { PrivacySafeRepresentationRepository } from "../processing/privacySafeRepresentationRepository.js";
@@ -178,10 +179,14 @@ function createFixture(options: {
 
   const datasetPreparationService =
     datasetPreparationRepository as unknown as DatasetPreparationService;
+  const qualitativeCodingReviewRepository = {
+    findByUploadMetadataId: async () => null,
+  } as unknown as QualitativeCodingReviewRepository;
 
   const currentActivityEvidenceLoader = new CurrentActivityEvidenceLoader(
     uploadMetadataRepository,
     privacySafeRepresentationRepository,
+    qualitativeCodingReviewRepository,
   );
   const activityAnalysisV2ToolExecutor = new ActivityAnalysisV2ToolExecutor(
     interpretationResultRepository,
@@ -304,16 +309,20 @@ function createFixture(options: {
     warn: () => undefined,
     error: () => undefined,
   };
+  const noopLlmTokenLedgerService = { recordUsage: async () => undefined };
 
   const service = new ActivityAnalysisV2Service(
     authorizationService,
     activityRepository,
     currentActivityEvidenceLoader,
+    qualitativeCodingReviewRepository,
     activityAnalysisRunV2Repository,
     activityAnalysisV2ToolExecutor,
     interpretationResultRepository,
     datasetPreparationService,
     pythonProcessingClient,
+    noopLlmTokenLedgerService as never,
+    noopLlmTokenLedgerService as never,
     logger as never,
   );
 

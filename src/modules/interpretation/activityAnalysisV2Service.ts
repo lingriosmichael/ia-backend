@@ -3,32 +3,35 @@ import { databaseSession } from "../../shared/database/databaseClient.js";
 import { AppError } from "../../shared/errors/appError.js";
 import type { FastifyBaseLogger } from "fastify";
 import type {
-  ActivityAiKnowledgeRecord,
   ActivityAnalysisRunV2Record,
   ActivityAnalysisRunV2RunLimits,
   InterpretationQuestion,
+  InterpretationQuestionCode,
+  LlmUsageSummary,
 } from "../../shared/contracts.js";
 import type { AuthorizationService } from "../../shared/auth/authorizationService.js";
 import {
+  extractSyntheticQualitativeCodeColumnMetadata,
+  preparedDatasetTableWithSyntheticColumns,
+  qualitativeCodingReviewRequirementStatus,
+} from "../processing/qualitativeCodingReviewSupport.js";
+import type { QualitativeCodingReviewRepository } from "../processing/qualitativeCodingReviewRepository.js";
+import {
   PythonProcessingClient,
-  type ActivityAnalysisV2EvidenceTableInput,
   type ActivityAnalysisV2ClarificationQuestionDraft,
   type ActivityAnalysisV2GoalInput,
-  type ActivityAnalysisV2PlanResponse,
 } from "../processing/pythonProcessingClient.js";
+import type { ActivityLlmTokenLedgerService } from "../activity/activityLlmTokenLedgerService.js";
 import type { ActivityRepository } from "../activity/activityRepository.js";
 import type {
   ActivityAnalysisV2ClarificationAnswerPersistenceRecord,
   ActivityPersistenceRecord,
 } from "../activity/activityPersistence.js";
+import type { ProjectLlmTokenLedgerService } from "../project/projectLlmTokenLedgerService.js";
 import type { ActivityAnalysisRunV2Repository } from "./activityAnalysisRunV2Repository.js";
 import type { ActivityAnalysisRunV2PersistenceRecord } from "./activityAnalysisRunV2Persistence.js";
 import { buildActivityAssessmentV2 } from "./activityAnalysisV2Assessment.js";
-import { buildActivityAnalysisV2CutoverReadiness } from "./activityAnalysisV2Cutover.js";
-import {
-  buildActivityAnalysisV2Diagnostics,
-  buildActivityAnalysisV2ShadowComparison,
-} from "./activityAnalysisV2Shadow.js";
+import { buildActivityAnalysisV2Diagnostics } from "./activityAnalysisV2Diagnostics.js";
 import { ActivityAnalysisV2ToolExecutor } from "./activityAnalysisV2ToolExecutor.js";
 import type { ActivityAnalysisV2ToolRequest } from "./activityAnalysisV2ToolTypes.js";
 import type {
@@ -41,6 +44,7 @@ import {
 } from "./deterministicAnalysisService.js";
 import type { DatasetPreparationService } from "./datasetPreparationService.js";
 import type { InterpretationResultRepository } from "./interpretationResultRepository.js";
+import { validateAnswerAgainstQuestionOptions } from "./interpretationQuestionAnswerValidation.js";
 
 // All four limits below are now actually enforced (see the evidence-item
 // cap in previewActivityAnalysis and the tool-call-count/wall-clock checks
@@ -130,6 +134,31 @@ function buildPlannerClarificationAnswer(
   };
 }
 
+// The V2 planner (analyst.py) only ever generates the six question codes
+// below; epistemic_role_clarification/validated_scale_confirmation are
+// generated exclusively by the dataset-preparation stage
+// (interpretation_pipeline.py) and are resolved before V2 ever runs — they
+// should never reach the planner's clarification-answer request. Narrowing
+// here (rather than widening PlannerClarificationAnswer's questionCode) is
+// deliberate: a prep-only code showing up on an activity's stored V2
+// answers would indicate a bug upstream, not a new legitimate V2 code.
+const PLANNER_QUESTION_CODES: readonly string[] = [
+  "normalization_merge",
+  "row_grain",
+  "duplicate_identifier_resolution",
+  "primary_status_field",
+  "positive_status_values",
+  "primary_date_field",
+];
+
+function toPlannerQuestionCode(
+  questionCode: InterpretationQuestionCode | null | undefined,
+): PlannerClarificationAnswer["questionCode"] {
+  return questionCode && PLANNER_QUESTION_CODES.includes(questionCode)
+    ? (questionCode as PlannerClarificationAnswer["questionCode"])
+    : null;
+}
+
 function mergePlannerClarificationAnswers(
   ...groups: PlannerClarificationAnswer[][]
 ): PlannerClarificationAnswer[] {
@@ -142,7 +171,9 @@ function mergePlannerClarificationAnswers(
   return [...merged.values()];
 }
 
-function extractPlannerErrorLogContext(error: unknown): Record<string, unknown> {
+function extractPlannerErrorLogContext(
+  error: unknown,
+): Record<string, unknown> {
   if (!(error instanceof AppError)) {
     return {
       errorMessage:
@@ -173,10 +204,8 @@ function extractPlannerErrorLogContext(error: unknown): Record<string, unknown> 
       typeof details?.upstreamBody === "string"
         ? details.upstreamBody
         : undefined,
-    requestUrl:
-      typeof details?.url === "string" ? details.url : undefined,
-    requestPath:
-      typeof details?.path === "string" ? details.path : undefined,
+    requestUrl: typeof details?.url === "string" ? details.url : undefined,
+    requestPath: typeof details?.path === "string" ? details.path : undefined,
     requestMethod:
       typeof details?.method === "string" ? details.method : undefined,
     requestTimeoutMs:
@@ -243,15 +272,9 @@ function buildRecommendationPolicy(
   };
 }
 
-
 function mapActivityAnalysisRunV2Record(
   run: ActivityAnalysisRunV2PersistenceRecord,
 ): ActivityAnalysisRunV2Record {
-  const cutoverReadiness = buildActivityAnalysisV2CutoverReadiness({
-    diagnostics: run.diagnostics,
-    shadowComparison: run.shadowComparison,
-    validation: run.validation,
-  });
   return {
     analysisRunId: run.id,
     activityId: run.activityId,
@@ -289,6 +312,7 @@ function mapActivityAnalysisRunV2Record(
       toolName: toolCall.toolName,
       arguments: toolCall.arguments,
       calculationIds: [...toolCall.calculationIds],
+      qualitativeFindingIds: [...(toolCall.qualitativeFindingIds ?? [])],
       status: toolCall.status,
       errorMessage: toolCall.errorMessage,
       startedAt: toolCall.startedAt,
@@ -306,6 +330,12 @@ function mapActivityAnalysisRunV2Record(
       sourceUploadMetadataIds: [...calculation.sourceUploadMetadataIds],
       sourceTableNames: [...calculation.sourceTableNames],
       sourceColumns: [...calculation.sourceColumns],
+      sourceColumnEpistemicRoles: (
+        calculation.sourceColumnEpistemicRoles ?? []
+      ).map((entry) => ({
+        columnName: entry.columnName,
+        epistemicRole: entry.epistemicRole ?? null,
+      })),
       grain: calculation.grain,
       numerator: calculation.numerator ?? null,
       denominator: calculation.denominator ?? null,
@@ -313,10 +343,44 @@ function mapActivityAnalysisRunV2Record(
       identifierColumn: calculation.identifierColumn ?? null,
       result: calculation.result,
     })),
+    qualitativeFindings: (run.qualitativeFindings ?? []).map((finding) => ({
+      findingId: finding.findingId,
+      toolName: finding.toolName,
+      label: finding.label,
+      description: finding.description,
+      themeOrCode: finding.themeOrCode,
+      excerpts: finding.excerpts.map((excerpt) => ({
+        sourceRowId: excerpt.sourceRowId ?? null,
+        verbatimText: excerpt.verbatimText,
+        sourceColumn: excerpt.sourceColumn,
+      })),
+      totalMatchingRows: finding.totalMatchingRows,
+      excerptsReturned: finding.excerptsReturned,
+      frequency: finding.frequency
+        ? {
+            count: finding.frequency.count,
+            denominator: finding.frequency.denominator ?? null,
+            denominatorType: finding.frequency.denominatorType ?? null,
+          }
+        : null,
+      codingMethod: finding.codingMethod,
+      reliabilitySignal: {
+        missingValuePct: finding.reliabilitySignal.missingValuePct ?? null,
+        raterCount: finding.reliabilitySignal.raterCount ?? null,
+      },
+      sourceUploadMetadataIds: [...finding.sourceUploadMetadataIds],
+      sourceTableNames: [...finding.sourceTableNames],
+      sourceColumns: [...finding.sourceColumns],
+      sourceColumnEpistemicRoles: (
+        finding.sourceColumnEpistemicRoles ?? []
+      ).map((entry) => ({
+        columnName: entry.columnName,
+        epistemicRole: entry.epistemicRole ?? null,
+      })),
+      identifierColumn: finding.identifierColumn ?? null,
+    })),
     assessment: run.assessment,
     diagnostics: run.diagnostics,
-    shadowComparison: run.shadowComparison,
-    cutoverReadiness,
     validation: {
       status: run.validation.status,
       issues: [...run.validation.issues],
@@ -363,54 +427,42 @@ function buildClarificationQuestionId(input: {
     .slice(0, 16)}`;
 }
 
-function mapLegacyActivityAiKnowledgeRecord(
-  run: ActivityAnalysisRunV2Record,
-): ActivityAiKnowledgeRecord {
-  const calculationsById = new Map(
-    run.calculations.map((calculation) => [
-      calculation.calculationId,
-      calculation.sourceUploadMetadataIds,
-    ]),
-  );
-  const insights =
-    run.assessment?.goalAssessments.map((goalAssessment) => ({
-      id: `v2_goal_${goalAssessment.goalId}`,
-      sourceType: "goal_alignment" as const,
-      text: goalAssessment.findingText,
-      isGoalRelevant: true,
-      sourceUploadMetadataIds: Array.from(
-        new Set(
-          goalAssessment.supportingCalculationIds.flatMap(
-            (calculationId) => calculationsById.get(calculationId) ?? [],
-          ),
-        ),
-      ),
-    })) ?? [];
-
-  return {
-    activityId: run.activityId,
-    projectId: run.projectId,
-    activityName: run.activityName,
-    interpretedEvidenceCount: run.evidence.length,
-    totalEvidenceCount: run.evidence.length,
-    generatedAt: run.createdAt,
-    summaryText: run.renderedSummary ?? "",
-    insights,
-  };
-}
-
 export class ActivityAnalysisV2Service {
   constructor(
     private readonly authorizationService: AuthorizationService,
     private readonly activityRepository: ActivityRepository,
     private readonly currentActivityEvidenceLoader: CurrentActivityEvidenceLoader,
+    private readonly qualitativeCodingReviewRepository: QualitativeCodingReviewRepository,
     private readonly activityAnalysisRunV2Repository: ActivityAnalysisRunV2Repository,
     private readonly activityAnalysisV2ToolExecutor: ActivityAnalysisV2ToolExecutor,
     private readonly interpretationResultRepository: InterpretationResultRepository,
     private readonly datasetPreparationService: DatasetPreparationService,
     private readonly pythonProcessingClient: PythonProcessingClient,
+    private readonly projectLlmTokenLedgerService: ProjectLlmTokenLedgerService,
+    private readonly activityLlmTokenLedgerService: ActivityLlmTokenLedgerService,
     private readonly logger: FastifyBaseLogger,
   ) {}
+
+  // Shared by every Python call site in this service (planner, replans,
+  // narrative/recommendation) so usage is recorded the same way regardless
+  // of which call produced it, including calls that happen more than once
+  // per run (the auto-resolved clarification replan loop).
+  private async recordActivityAnalysisV2Usage(
+    activityId: string,
+    projectId: string,
+    usage: LlmUsageSummary | null | undefined,
+  ): Promise<void> {
+    await this.projectLlmTokenLedgerService.recordUsage(
+      projectId,
+      usage,
+      databaseSession,
+    );
+    await this.activityLlmTokenLedgerService.recordUsage(
+      activityId,
+      usage,
+      databaseSession,
+    );
+  }
 
   private buildEvidenceSnapshotRecords(
     evidenceSnapshot: Awaited<
@@ -491,8 +543,20 @@ export class ActivityAnalysisV2Service {
       if (
         !recommendedOption ||
         typeof draft.recommendedConfidence !== "number" ||
-        draft.recommendedConfidence <
-          PLANNER_CLARIFICATION_CONFIDENCE_THRESHOLD
+        draft.recommendedConfidence < PLANNER_CLARIFICATION_CONFIDENCE_THRESHOLD
+      ) {
+        return [];
+      }
+      // The planner (analyst.py) should only ever emit the six
+      // PLANNER_QUESTION_CODES — epistemic_role_clarification/
+      // validated_scale_confirmation are prep-stage-only and are always
+      // resolved before V2 runs (see the comment on PLANNER_QUESTION_CODES).
+      // If one shows up here anyway, treat it like any other anomaly:
+      // don't silently auto-resolve it, let it surface as a normal pending
+      // question for a human instead of guessing.
+      if (
+        draft.questionCode &&
+        !PLANNER_QUESTION_CODES.includes(draft.questionCode)
       ) {
         return [];
       }
@@ -502,7 +566,7 @@ export class ActivityAnalysisV2Service {
           goalId: draft.goalId ?? null,
           prompt: draft.prompt,
           answeredValue: recommendedOption,
-          questionCode: draft.questionCode ?? null,
+          questionCode: toPlannerQuestionCode(draft.questionCode),
           targetTableName: draft.targetTableName ?? null,
           targetColumnName: draft.targetColumnName ?? null,
         }),
@@ -519,7 +583,7 @@ export class ActivityAnalysisV2Service {
         goalId: answer.goalId ?? null,
         prompt: answer.prompt,
         answeredValue: answer.answeredValue,
-        questionCode: answer.questionCode ?? null,
+        questionCode: toPlannerQuestionCode(answer.questionCode),
         targetTableName: answer.targetTableName ?? null,
         targetColumnName: answer.targetColumnName ?? null,
       }),
@@ -528,19 +592,21 @@ export class ActivityAnalysisV2Service {
 
   private async generateNarrativeTexts(input: {
     activityId: string;
+    projectId: string;
     activityName: string;
     language: "de" | "en";
-    assessment: NonNullable<ActivityAnalysisRunV2PersistenceRecord["assessment"]>;
+    assessment: NonNullable<
+      ActivityAnalysisRunV2PersistenceRecord["assessment"]
+    >;
     calculations: ActivityAnalysisRunV2PersistenceRecord["calculations"];
+    qualitativeFindings: ActivityAnalysisRunV2PersistenceRecord["qualitativeFindings"];
   }): Promise<{
     renderedSummary: string;
     recommendationText: string | null;
   }> {
     try {
       const { recommendationPolicy, actionableLimitations } =
-        buildRecommendationPolicy(
-        input.assessment,
-      );
+        buildRecommendationPolicy(input.assessment);
       const response =
         await this.pythonProcessingClient.generateActivityAnalysisV2Recommendation(
           {
@@ -559,6 +625,7 @@ export class ActivityAnalysisV2Service {
                 targetValue: goalAssessment.targetValue,
                 comparison: goalAssessment.comparison,
                 achieved: goalAssessment.achieved,
+                evidenceTensionFlag: goalAssessment.evidenceTensionFlag,
               }),
             ),
             limitations: actionableLimitations,
@@ -571,6 +638,8 @@ export class ActivityAnalysisV2Service {
               unit: calculation.unit,
               sourceTableNames: calculation.sourceTableNames,
               sourceColumns: calculation.sourceColumns,
+              sourceColumnEpistemicRoles:
+                calculation.sourceColumnEpistemicRoles ?? [],
               grain: calculation.grain,
               numerator: calculation.numerator ?? null,
               denominator: calculation.denominator ?? null,
@@ -578,8 +647,31 @@ export class ActivityAnalysisV2Service {
               identifierColumn: calculation.identifierColumn ?? null,
               result: calculation.result,
             })),
+            qualitativeFindings: input.qualitativeFindings.map((finding) => ({
+              findingId: finding.findingId,
+              toolName: finding.toolName,
+              label: finding.label,
+              description: finding.description,
+              themeOrCode: finding.themeOrCode,
+              excerpts: finding.excerpts,
+              totalMatchingRows: finding.totalMatchingRows,
+              excerptsReturned: finding.excerptsReturned,
+              frequency: finding.frequency,
+              codingMethod: finding.codingMethod,
+              reliabilitySignal: finding.reliabilitySignal,
+              sourceTableNames: finding.sourceTableNames,
+              sourceColumns: finding.sourceColumns,
+              sourceColumnEpistemicRoles:
+                finding.sourceColumnEpistemicRoles ?? [],
+              identifierColumn: finding.identifierColumn ?? null,
+            })),
           },
         );
+      await this.recordActivityAnalysisV2Usage(
+        input.activityId,
+        input.projectId,
+        response.llmUsage,
+      );
       const renderedSummary = response.summaryText.trim();
       const recommendationText = response.recommendationText.trim();
       if (renderedSummary.length === 0) {
@@ -601,7 +693,8 @@ export class ActivityAnalysisV2Service {
       }
       return {
         renderedSummary,
-        recommendationText: recommendationText.length > 0 ? recommendationText : null,
+        recommendationText:
+          recommendationText.length > 0 ? recommendationText : null,
       };
     } catch (error) {
       this.logger.warn(
@@ -701,6 +794,16 @@ export class ActivityAnalysisV2Service {
           | "boolean"
           | "unknown"
           | null;
+        epistemicRole:
+          | "identifier"
+          | "temporal"
+          | "validated_scale"
+          | "metric_count"
+          | "subjective_code"
+          | "free_text"
+          | "flag"
+          | "categorical"
+          | null;
       }>;
     }>
   > {
@@ -737,8 +840,22 @@ export class ActivityAnalysisV2Service {
 
       return readTableRecords(evidence.payload).map((table) => {
         const tableName = typeof table.name === "string" ? table.name : "table";
-        const preparedTable = preparedTablesByName.get(tableName) ?? null;
+        const syntheticColumns =
+          extractSyntheticQualitativeCodeColumnMetadata(table);
+        const preparedTable = preparedDatasetTableWithSyntheticColumns(
+          preparedTablesByName.get(tableName) ?? null,
+          syntheticColumns,
+        );
         const rows = readRowRecords(table.rows);
+        const syntheticColumnByName = new Map(
+          syntheticColumns.map((column) => [column.name, column]),
+        );
+        const fallbackColumnNames = Array.from(
+          new Set([
+            ...Object.keys(rows[0] ?? {}),
+            ...syntheticColumns.map((column) => column.name),
+          ]),
+        );
         return {
           uploadMetadataId: evidence.uploadMetadataId,
           originalFileName: evidence.originalFileName,
@@ -754,23 +871,35 @@ export class ActivityAnalysisV2Service {
               name: column.name,
               role: column.role,
               inferredType: column.inferredType,
+              epistemicRole: column.epistemicRole,
             })) ??
-            Object.keys(rows[0] ?? {}).map((columnName) => ({
-              name: columnName,
-              role: null,
-              inferredType: null,
-            })),
+            fallbackColumnNames.map((columnName) => {
+              const syntheticColumn =
+                syntheticColumnByName.get(columnName) ?? null;
+              return {
+                name: columnName,
+                role: syntheticColumn ? ("other" as const) : null,
+                inferredType: syntheticColumn?.inferredType ?? null,
+                epistemicRole: syntheticColumn?.epistemicRole ?? null,
+              };
+            }),
         };
       });
     });
   }
 
-  async previewActivityAnalysis(
-    userId: string,
-    activityId: string,
-    language: "de" | "en" = "de",
-  ): Promise<ActivityAnalysisRunV2Record> {
-    const runStartedAt = Date.now();
+  /**
+   * The synchronous precondition gate for an ActivityAnalystV2 run: auth,
+   * evidence load, and the three 409s that must reject before any Python
+   * call is made. Called both as the synchronous pre-flight check (so a
+   * caller gets an immediate 4xx instead of a queued job that only fails
+   * once claimed) and again, defensively, at the top of
+   * previewActivityAnalysis itself right before the real work — state can
+   * drift between when a job is enqueued and when it's actually claimed
+   * and run (e.g. new evidence uploaded in the interim), so re-validating
+   * at execution time is the correct choice, not just a formality.
+   */
+  async assertReadyForV2Run(userId: string, activityId: string) {
     const { activity, project } =
       await this.authorizationService.canEditActivity(userId, activityId);
     const evidenceSnapshot =
@@ -796,6 +925,74 @@ export class ActivityAnalysisV2Service {
       );
     }
 
+    const qualitativeCodingReviewStatuses = await Promise.all([
+      this.interpretationResultRepository.findLatestByUploadMetadataIds(
+        evidenceSnapshot.evidence.map((item) => item.uploadMetadataId),
+        databaseSession,
+      ),
+      Promise.all(
+        evidenceSnapshot.evidence.map((item) =>
+          this.qualitativeCodingReviewRepository.findByUploadMetadataId(
+            item.uploadMetadataId,
+            databaseSession,
+          ),
+        ),
+      ),
+    ]);
+    const interpretationResultsByUploadMetadataId = new Map(
+      qualitativeCodingReviewStatuses[0].map((result) => [
+        result.uploadMetadataId,
+        result,
+      ]),
+    );
+    const qualitativeCodingReviewByUploadMetadataId = new Map(
+      evidenceSnapshot.evidence.map((item, index) => [
+        item.uploadMetadataId,
+        qualitativeCodingReviewStatuses[1][index] ?? null,
+      ]),
+    );
+    const pendingQualitativeCodingReviewUploads =
+      evidenceSnapshot.evidence.flatMap((item) => {
+        const interpretationResult =
+          interpretationResultsByUploadMetadataId.get(item.uploadMetadataId) ??
+          null;
+        const requirementStatus = qualitativeCodingReviewRequirementStatus(
+          interpretationResult?.datasetProfile ?? null,
+          qualitativeCodingReviewByUploadMetadataId.get(
+            item.uploadMetadataId,
+          ) ?? null,
+        );
+        if (requirementStatus !== "required_pending") {
+          return [];
+        }
+        return [
+          {
+            uploadMetadataId: item.uploadMetadataId,
+            originalFileName: item.originalFileName,
+          },
+        ];
+      });
+    if (pendingQualitativeCodingReviewUploads.length > 0) {
+      throw new AppError(
+        "Every current evidence file that still requires qualitative coding review must be approved before ActivityAnalystV2 preview is available.",
+        409,
+        "activity_analysis_v2_qualitative_review_required",
+        { pendingQualitativeCodingReviewUploads },
+      );
+    }
+
+    return { activity, project, evidenceSnapshot };
+  }
+
+  async previewActivityAnalysis(
+    userId: string,
+    activityId: string,
+    language: "de" | "en" = "de",
+  ): Promise<ActivityAnalysisRunV2Record> {
+    const runStartedAt = Date.now();
+    const { activity, project, evidenceSnapshot } =
+      await this.assertReadyForV2Run(userId, activityId);
+
     const goals = this.buildGoals(activity);
     this.logger.info(
       {
@@ -813,12 +1010,21 @@ export class ActivityAnalysisV2Service {
     });
     const persistedClarificationAnswers =
       activity.activityAnalysisV2ClarificationAnswers ?? [];
-    let plannerClarificationAnswers = this.buildPlannerClarificationAnswers(
-      activity,
-    );
+    // Needed so a planner-call failure (network error, timeout, malformed
+    // response) can still show the previously known clarification
+    // questions instead of wiping them to an empty list — see the
+    // exception handler below.
+    const previousRun =
+      await this.activityAnalysisRunV2Repository.findLatestByActivityId(
+        activityId,
+        databaseSession,
+      );
+    let plannerClarificationAnswers =
+      this.buildPlannerClarificationAnswers(activity);
 
-    const planWithClarificationAnswers = async () =>
-      this.pythonProcessingClient.planActivityAnalysisV2({
+    const planWithClarificationAnswers = async () => {
+      const response = await this.pythonProcessingClient.planActivityAnalysisV2(
+        {
           activityId: activity.id,
           activityName: activity.name,
           language,
@@ -826,7 +1032,18 @@ export class ActivityAnalysisV2Service {
           evidenceTables,
           clarificationAnswers: plannerClarificationAnswers,
           runLimits: PHASE_1_RUN_LIMITS,
-        });
+        },
+      );
+      // Recorded per call, not once per run — this can be invoked multiple
+      // times by the auto-resolved clarification replan loop below, and
+      // each call is separately billed.
+      await this.recordActivityAnalysisV2Usage(
+        activity.id,
+        project.id,
+        response.llmUsage,
+      );
+      return response;
+    };
 
     let plannerResponse: Awaited<
       ReturnType<typeof this.pythonProcessingClient.planActivityAnalysisV2>
@@ -905,14 +1122,13 @@ export class ActivityAnalysisV2Service {
         renderedSummary: null,
         assessment: null,
       });
-      const shadowComparison = buildActivityAnalysisV2ShadowComparison({
-        hasOutcomeGoals: goals.some((goal) => goal.goalType === "outcome"),
-        currentEvidenceCount: evidenceSnapshot.evidence.length,
-        validation: failedValidation,
-        renderedSummary: null,
-        assessment: null,
-        v1Snapshot: activity.aiKnowledgeSnapshot ?? null,
-      });
+      // The planner call threw before producing a new plan, so there are no
+      // fresh drafts to build a question list from. Re-derive from the
+      // previous run's questions (re-merged against the answers persisted
+      // so far, including whichever one was just answered) instead of
+      // wiping the list to empty — otherwise every remaining unanswered
+      // question becomes permanently unreachable: the next PATCH looks it
+      // up in *this* failed run and 404s, since it's no longer there.
       const failedRun = await this.activityAnalysisRunV2Repository.create(
         {
           organizationId: project.organizationId,
@@ -929,12 +1145,16 @@ export class ActivityAnalysisV2Service {
           },
           evidence: this.buildEvidenceSnapshotRecords(evidenceSnapshot),
           runLimits: PHASE_1_RUN_LIMITS,
-          clarificationQuestions: [],
+          clarificationQuestions: this.buildClarificationQuestions(
+            previousRun?.clarificationQuestions ?? [],
+            persistedClarificationAnswers,
+            new Set(),
+          ),
           toolCallTrace: [],
           calculations: [],
+          qualitativeFindings: [],
           assessment: null,
           diagnostics,
-          shadowComparison,
           renderedSummary: null,
           recommendationText: null,
           validation: failedValidation,
@@ -975,14 +1195,6 @@ export class ActivityAnalysisV2Service {
         renderedSummary: null,
         assessment: null,
       });
-      const shadowComparison = buildActivityAnalysisV2ShadowComparison({
-        hasOutcomeGoals: goals.some((goal) => goal.goalType === "outcome"),
-        currentEvidenceCount: evidenceSnapshot.evidence.length,
-        validation: timeoutValidation,
-        renderedSummary: null,
-        assessment: null,
-        v1Snapshot: activity.aiKnowledgeSnapshot ?? null,
-      });
       const timedOutRun = await this.activityAnalysisRunV2Repository.create(
         {
           organizationId: project.organizationId,
@@ -1002,9 +1214,9 @@ export class ActivityAnalysisV2Service {
           clarificationQuestions,
           toolCallTrace: [],
           calculations: [],
+          qualitativeFindings: [],
           assessment: null,
           diagnostics,
-          shadowComparison,
           renderedSummary: null,
           recommendationText: null,
           validation: timeoutValidation,
@@ -1031,14 +1243,6 @@ export class ActivityAnalysisV2Service {
         renderedSummary: null,
         assessment: null,
       });
-      const shadowComparison = buildActivityAnalysisV2ShadowComparison({
-        hasOutcomeGoals: goals.some((goal) => goal.goalType === "outcome"),
-        currentEvidenceCount: evidenceSnapshot.evidence.length,
-        validation: plannerResponse.validation,
-        renderedSummary: null,
-        assessment: null,
-        v1Snapshot: activity.aiKnowledgeSnapshot ?? null,
-      });
       run = await this.activityAnalysisRunV2Repository.create(
         {
           organizationId: project.organizationId,
@@ -1058,9 +1262,9 @@ export class ActivityAnalysisV2Service {
           clarificationQuestions,
           toolCallTrace: [],
           calculations: [],
+          qualitativeFindings: [],
           assessment: null,
           diagnostics,
-          shadowComparison,
           renderedSummary: null,
           recommendationText: null,
           validation: plannerResponse.validation,
@@ -1072,7 +1276,6 @@ export class ActivityAnalysisV2Service {
         {
           activityId: activity.id,
           validationIssues: plannerResponse.validation.issues,
-          shadowComparisonStatus: shadowComparison.status,
         },
         "ActivityAnalystV2 planner returned an invalid shadow plan",
       );
@@ -1096,14 +1299,6 @@ export class ActivityAnalysisV2Service {
         renderedSummary: null,
         assessment: null,
       });
-      const shadowComparison = buildActivityAnalysisV2ShadowComparison({
-        hasOutcomeGoals: goals.some((goal) => goal.goalType === "outcome"),
-        currentEvidenceCount: evidenceSnapshot.evidence.length,
-        validation: pausedValidation,
-        renderedSummary: null,
-        assessment: null,
-        v1Snapshot: activity.aiKnowledgeSnapshot ?? null,
-      });
       run = await this.activityAnalysisRunV2Repository.create(
         {
           organizationId: project.organizationId,
@@ -1123,9 +1318,9 @@ export class ActivityAnalysisV2Service {
           clarificationQuestions,
           toolCallTrace: [],
           calculations: [],
+          qualitativeFindings: [],
           assessment: null,
           diagnostics,
-          shadowComparison,
           renderedSummary: null,
           recommendationText: null,
           validation: pausedValidation,
@@ -1140,6 +1335,7 @@ export class ActivityAnalysisV2Service {
       plannerResponse.toolRequests.map(
         (toolRequest) =>
           ({
+            goalId: toolRequest.goalId,
             alias: toolRequest.alias ?? undefined,
             toolName: toolRequest.toolName,
             arguments: toolRequest.arguments,
@@ -1158,6 +1354,7 @@ export class ActivityAnalysisV2Service {
           : {
               toolCallTrace: [],
               calculations: [],
+              qualitativeFindings: [],
             };
       const assessmentResult = buildActivityAssessmentV2({
         language,
@@ -1165,71 +1362,124 @@ export class ActivityAnalysisV2Service {
         plannedToolRequests: plannerResponse.toolRequests,
         toolCallTrace: execution.toolCallTrace,
         calculations: execution.calculations,
+        qualitativeFindings: execution.qualitativeFindings,
         limitations: plannerResponse.limitations,
       });
-      const narrative = await this.generateNarrativeTexts({
-        activityId: activity.id,
-        activityName: activity.name,
-        language,
-        assessment: assessmentResult.assessment,
-        calculations: execution.calculations,
-      });
-      const diagnostics = buildActivityAnalysisV2Diagnostics({
-        goals,
-        evidenceCount: evidenceSnapshot.evidence.length,
-        plannedToolRequestCount: plannerResponse.toolRequests.length,
-        executedToolCallCount: execution.toolCallTrace.length,
-        calculationCount: execution.calculations.length,
-        validation: assessmentResult.validation,
-        renderedSummary: narrative.renderedSummary,
-        assessment: assessmentResult.assessment,
-      });
-      const shadowComparison = buildActivityAnalysisV2ShadowComparison({
-        hasOutcomeGoals: goals.some((goal) => goal.goalType === "outcome"),
-        currentEvidenceCount: evidenceSnapshot.evidence.length,
-        validation: assessmentResult.validation,
-        renderedSummary: narrative.renderedSummary,
-        assessment: assessmentResult.assessment,
-        v1Snapshot: activity.aiKnowledgeSnapshot ?? null,
-      });
-      run = await this.activityAnalysisRunV2Repository.create(
-        {
-          organizationId: project.organizationId,
+
+      // Tool execution and assessment above are already computed (and, for
+      // tool execution, already paid for) by this point. Narrative
+      // generation gets its own try/catch so a failure here persists that
+      // work instead of discarding it — the outer catch below only knows
+      // how to recover state from a failed tool executor's error, not from
+      // a narrative-generation failure.
+      try {
+        const narrative = await this.generateNarrativeTexts({
+          activityId: activity.id,
           projectId: project.id,
-          activityId: activity.id,
           activityName: activity.name,
-          phase: "phase_4_rendering",
-          status: "completed",
-          goalsSnapshot: {
-            activityType: activity.activityType,
-            objectives: activity.objectives,
-            output: activity.output,
-            outcome: activity.outcome,
-          },
-          evidence: evidenceRecords,
-          runLimits: PHASE_1_RUN_LIMITS,
-          clarificationQuestions: [],
-          toolCallTrace: execution.toolCallTrace,
-          calculations: execution.calculations,
+          language,
           assessment: assessmentResult.assessment,
-          diagnostics,
-          shadowComparison,
-          renderedSummary: narrative.renderedSummary,
-          recommendationText: narrative.recommendationText,
+          calculations: execution.calculations,
+          qualitativeFindings: execution.qualitativeFindings,
+        });
+        const diagnostics = buildActivityAnalysisV2Diagnostics({
+          goals,
+          evidenceCount: evidenceSnapshot.evidence.length,
+          plannedToolRequestCount: plannerResponse.toolRequests.length,
+          executedToolCallCount: execution.toolCallTrace.length,
+          calculationCount: execution.calculations.length,
           validation: assessmentResult.validation,
-          errorMessage: null,
-        },
-        databaseSession,
-      );
-      this.logger.info(
-        {
-          activityId: activity.id,
-          analysisRunId: run.id,
-          diagnostics,
-          shadowComparisonStatus: shadowComparison.status,
-        },
-        "ActivityAnalystV2 shadow preview completed",
-      );
+          renderedSummary: narrative.renderedSummary,
+          assessment: assessmentResult.assessment,
+        });
+        run = await this.activityAnalysisRunV2Repository.create(
+          {
+            organizationId: project.organizationId,
+            projectId: project.id,
+            activityId: activity.id,
+            activityName: activity.name,
+            phase: "phase_4_rendering",
+            status: "completed",
+            goalsSnapshot: {
+              activityType: activity.activityType,
+              objectives: activity.objectives,
+              output: activity.output,
+              outcome: activity.outcome,
+            },
+            evidence: evidenceRecords,
+            runLimits: PHASE_1_RUN_LIMITS,
+            clarificationQuestions: [],
+            toolCallTrace: execution.toolCallTrace,
+            calculations: execution.calculations,
+            qualitativeFindings: execution.qualitativeFindings,
+            assessment: assessmentResult.assessment,
+            diagnostics,
+            renderedSummary: narrative.renderedSummary,
+            recommendationText: narrative.recommendationText,
+            validation: assessmentResult.validation,
+            errorMessage: null,
+          },
+          databaseSession,
+        );
+        this.logger.info(
+          {
+            activityId: activity.id,
+            analysisRunId: run.id,
+            diagnostics,
+          },
+          "ActivityAnalystV2 shadow preview completed",
+        );
+      } catch (narrativeError) {
+        const diagnostics = buildActivityAnalysisV2Diagnostics({
+          goals,
+          evidenceCount: evidenceSnapshot.evidence.length,
+          plannedToolRequestCount: plannerResponse.toolRequests.length,
+          executedToolCallCount: execution.toolCallTrace.length,
+          calculationCount: execution.calculations.length,
+          validation: assessmentResult.validation,
+          renderedSummary: null,
+          assessment: assessmentResult.assessment,
+        });
+        run = await this.activityAnalysisRunV2Repository.create(
+          {
+            organizationId: project.organizationId,
+            projectId: project.id,
+            activityId: activity.id,
+            activityName: activity.name,
+            phase: "phase_4_rendering",
+            status: "failed",
+            goalsSnapshot: {
+              activityType: activity.activityType,
+              objectives: activity.objectives,
+              output: activity.output,
+              outcome: activity.outcome,
+            },
+            evidence: evidenceRecords,
+            runLimits: PHASE_1_RUN_LIMITS,
+            clarificationQuestions: [],
+            toolCallTrace: execution.toolCallTrace,
+            calculations: execution.calculations,
+            qualitativeFindings: execution.qualitativeFindings,
+            assessment: assessmentResult.assessment,
+            diagnostics,
+            renderedSummary: null,
+            recommendationText: null,
+            validation: assessmentResult.validation,
+            errorMessage:
+              narrativeError instanceof Error
+                ? narrativeError.message
+                : "ActivityAnalystV2 narrative generation failed.",
+          },
+          databaseSession,
+        );
+        this.logger.error(
+          {
+            activityId: activity.id,
+            error: narrativeError,
+          },
+          "ActivityAnalystV2 narrative generation failed after successful tool execution",
+        );
+      }
     } catch (error) {
       const toolCallTrace =
         error &&
@@ -1244,6 +1494,13 @@ export class ActivityAnalysisV2Service {
         "calculations" in error &&
         Array.isArray(error.calculations)
           ? (error.calculations as ActivityAnalysisRunV2PersistenceRecord["calculations"])
+          : [];
+      const qualitativeFindings =
+        error &&
+        typeof error === "object" &&
+        "qualitativeFindings" in error &&
+        Array.isArray(error.qualitativeFindings)
+          ? (error.qualitativeFindings as ActivityAnalysisRunV2PersistenceRecord["qualitativeFindings"])
           : [];
       const failedValidation = {
         status: "failed" as const,
@@ -1262,14 +1519,6 @@ export class ActivityAnalysisV2Service {
         validation: failedValidation,
         renderedSummary: null,
         assessment: null,
-      });
-      const shadowComparison = buildActivityAnalysisV2ShadowComparison({
-        hasOutcomeGoals: goals.some((goal) => goal.goalType === "outcome"),
-        currentEvidenceCount: evidenceSnapshot.evidence.length,
-        validation: failedValidation,
-        renderedSummary: null,
-        assessment: null,
-        v1Snapshot: activity.aiKnowledgeSnapshot ?? null,
       });
       run = await this.activityAnalysisRunV2Repository.create(
         {
@@ -1290,9 +1539,9 @@ export class ActivityAnalysisV2Service {
           clarificationQuestions: [],
           toolCallTrace,
           calculations,
+          qualitativeFindings,
           assessment: null,
           diagnostics,
-          shadowComparison,
           renderedSummary: null,
           recommendationText: null,
           validation: failedValidation,
@@ -1307,7 +1556,6 @@ export class ActivityAnalysisV2Service {
         {
           activityId: activity.id,
           error,
-          shadowComparisonStatus: shadowComparison.status,
         },
         "ActivityAnalystV2 shadow preview failed",
       );
@@ -1316,13 +1564,51 @@ export class ActivityAnalysisV2Service {
     return mapActivityAnalysisRunV2Record(run);
   }
 
+  private async persistClarificationAnswer(
+    activityId: string,
+    userId: string,
+    question: InterpretationQuestion,
+    answeredValue: string,
+  ): Promise<void> {
+    await this.activityRepository.upsertClarificationAnswer(
+      activityId,
+      {
+        questionId: question.id,
+        goalId: question.goalId ?? null,
+        prompt: question.prompt,
+        kind: question.kind,
+        questionDomain: question.questionDomain,
+        options: question.options ?? null,
+        recommendedOption: question.recommendedOption ?? null,
+        recommendedConfidence: question.recommendedConfidence ?? null,
+        isBlocking: question.isBlocking,
+        questionCode: question.questionCode ?? null,
+        targetTableName: question.targetTableName ?? null,
+        targetColumnName: question.targetColumnName ?? null,
+        answeredValue,
+        answeredById: userId,
+        answeredAt: new Date(),
+      },
+      databaseSession,
+    );
+  }
+
+  /**
+   * Validates and persists a single clarification answer. Does NOT trigger
+   * a replan — that used to happen inline here (a full previewActivityAnalysis
+   * call), but replanning is LLM-round-trip-bound work that now runs inside
+   * an activity_analysis_v2 processing job instead of a live HTTP request
+   * (see activityAnalysisWorker.ts). Persisting the answer stays synchronous
+   * (fast, deterministic, Mongo-only) so the caller (InterpretationController)
+   * can create that job immediately afterward with the answer already
+   * durably saved.
+   */
   async answerClarificationQuestion(
     userId: string,
     activityId: string,
     questionId: string,
     answeredValue: string,
-    language: "de" | "en" = "de",
-  ): Promise<ActivityAnalysisRunV2Record> {
+  ): Promise<void> {
     await this.authorizationService.canEditActivity(userId, activityId);
     const latestRun =
       await this.activityAnalysisRunV2Repository.findLatestByActivityId(
@@ -1349,47 +1635,84 @@ export class ActivityAnalysisV2Service {
       );
     }
 
-    // The HTTP schema only checks that answeredValue is a non-empty string
-    // — it can't know this question's specific kind/options, since those
-    // only exist once the question is loaded here. Whenever the question
-    // offers a fixed set of options (single_choice, merge_confirmation),
-    // that's the only UI the frontend ever renders for it, so the backend
-    // must reject anything else instead of forwarding an arbitrary string
-    // to the planner as if it were one of the offered choices.
-    if (question.options && question.options.length > 0) {
-      if (!question.options.includes(answeredValue)) {
-        throw new AppError(
-          "This answer is not one of the options offered for this clarification question.",
-          422,
-          "activity_analysis_v2_question_invalid_answer",
-          { allowedOptions: question.options },
-        );
-      }
+    validateAnswerAgainstQuestionOptions(
+      question,
+      answeredValue,
+      "activity_analysis_v2_question_invalid_answer",
+    );
+    await this.persistClarificationAnswer(
+      activityId,
+      userId,
+      question,
+      answeredValue,
+    );
+  }
+
+  /**
+   * Validates and persists a batch of clarification answers in one call, so
+   * a run with several outstanding questions only triggers one replan job
+   * instead of one per question — each replan re-plans every goal for the
+   * activity, so answering N questions one at a time would cost N full
+   * replans, most of them wasted because the other questions were still
+   * unanswered anyway. Does NOT trigger the replan itself; see
+   * answerClarificationQuestion's doc comment for why.
+   */
+  async answerClarificationQuestions(
+    userId: string,
+    activityId: string,
+    answers: Array<{ questionId: string; answeredValue: string }>,
+  ): Promise<void> {
+    await this.authorizationService.canEditActivity(userId, activityId);
+    const latestRun =
+      await this.activityAnalysisRunV2Repository.findLatestByActivityId(
+        activityId,
+        databaseSession,
+      );
+
+    if (!latestRun) {
+      throw new AppError(
+        "No ActivityAnalystV2 run exists for this activity yet.",
+        404,
+        "activity_analysis_v2_not_found",
+      );
     }
 
-    await this.activityRepository.upsertClarificationAnswer(
-      activityId,
-      {
-        questionId,
-        goalId: question.goalId ?? null,
-        prompt: question.prompt,
-        kind: question.kind,
-        questionDomain: question.questionDomain,
-        options: question.options ?? null,
-        recommendedOption: question.recommendedOption ?? null,
-        recommendedConfidence: question.recommendedConfidence ?? null,
-        isBlocking: question.isBlocking,
-        questionCode: question.questionCode ?? null,
-        targetTableName: question.targetTableName ?? null,
-        targetColumnName: question.targetColumnName ?? null,
-        answeredValue,
-        answeredById: userId,
-        answeredAt: new Date(),
-      },
-      databaseSession,
+    const questionById = new Map(
+      latestRun.clarificationQuestions.map((question) => [
+        question.id,
+        question,
+      ]),
     );
 
-    return this.previewActivityAnalysis(userId, activityId, language);
+    // Validate every answer before persisting any of them — a batch must
+    // not partially apply, or the user is left guessing which of their
+    // selections actually took effect.
+    const resolvedAnswers = answers.map((answer) => {
+      const question = questionById.get(answer.questionId);
+      if (!question) {
+        throw new AppError(
+          "This ActivityAnalystV2 clarification question was not found.",
+          404,
+          "activity_analysis_v2_question_not_found",
+          { questionId: answer.questionId },
+        );
+      }
+      validateAnswerAgainstQuestionOptions(
+        question,
+        answer.answeredValue,
+        "activity_analysis_v2_question_invalid_answer",
+      );
+      return { question, answeredValue: answer.answeredValue };
+    });
+
+    for (const { question, answeredValue } of resolvedAnswers) {
+      await this.persistClarificationAnswer(
+        activityId,
+        userId,
+        question,
+        answeredValue,
+      );
+    }
   }
 
   async getLatestActivityAnalysis(
@@ -1412,51 +1735,6 @@ export class ActivityAnalysisV2Service {
     }
 
     return mapActivityAnalysisRunV2Record(run);
-  }
-
-  /**
-   * Deprecated compatibility shape for older `/ai-knowledge` readers.
-   * The source of truth is now the latest ActivityAnalystV2 run, not
-   * `activity.aiKnowledgeSnapshot`.
-   */
-  async getLegacyActivityAiKnowledge(
-    userId: string,
-    activityId: string,
-  ): Promise<ActivityAiKnowledgeRecord> {
-    try {
-      const run = await this.getLatestActivityAnalysis(userId, activityId);
-      return mapLegacyActivityAiKnowledgeRecord(run);
-    } catch (error) {
-      if (
-        error instanceof AppError &&
-        error.code === "activity_analysis_v2_not_found"
-      ) {
-        throw new AppError(
-          "This activity has no generated activity analysis yet.",
-          404,
-          "activity_ai_knowledge_not_found",
-        );
-      }
-      throw error;
-    }
-  }
-
-  /**
-   * Deprecated compatibility wrapper for older `/ai-knowledge` writers.
-   * It now runs ActivityAnalystV2 and maps the result into the legacy
-   * response shape instead of generating a separate AI-knowledge snapshot.
-   */
-  async previewLegacyActivityAiKnowledge(
-    userId: string,
-    activityId: string,
-    language: "de" | "en" = "de",
-  ): Promise<ActivityAiKnowledgeRecord> {
-    const run = await this.previewActivityAnalysis(
-      userId,
-      activityId,
-      language,
-    );
-    return mapLegacyActivityAiKnowledgeRecord(run);
   }
 
   async listActivityAnalyses(
