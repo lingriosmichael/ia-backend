@@ -5,14 +5,14 @@ import { isMongoDuplicateKeyError } from "../../shared/database/mongoErrors.js";
 import type { TransactionManager } from "../../shared/database/transactionManager.js";
 import type { UploadMetadataRecord } from "../../shared/contracts.js";
 import type { ProcessingJobRepository } from "../ai/execution/processingJobRepository.js";
-import { ProjectDerivedStateInvalidationService } from "../analytics/projectDerivedStateInvalidationService.js";
 import { AppError } from "../../shared/errors/appError.js";
 import { AuthorizationService } from "../../shared/auth/authorizationService.js";
 import type { ActivityRepository } from "../activity/activityRepository.js";
 import { mapUploadMetadata } from "../../shared/utils/mappers.js";
 import { ActivityService } from "../activity/activityService.js";
-import { clearActivityAiKnowledgeStateIfPresent } from "../interpretation/interpretationReviewState.js";
+import { clearActivityInterpretationReviewStateIfPresent } from "../interpretation/interpretationReviewState.js";
 import { ProcessingResourceCleanupService } from "../processing/processingResourceCleanupService.js";
+import { ProjectDerivedStateInvalidationService } from "../project/projectDerivedStateInvalidationService.js";
 import type { UserRepository } from "../user/userRepository.js";
 import { FileStorageService } from "./fileStorageService.js";
 import type { UploadMetadataPersistenceRecord } from "./uploadMetadataPersistence.js";
@@ -47,11 +47,12 @@ export class UploadMetadataService {
     projectId: string;
     session: DatabaseSession;
   }) {
-    const clearedActivityState = await clearActivityAiKnowledgeStateIfPresent(
-      this.activityRepository,
-      input.activityId,
-      input.session,
-    );
+    const clearedActivityState =
+      await clearActivityInterpretationReviewStateIfPresent(
+        this.activityRepository,
+        input.activityId,
+        input.session,
+      );
 
     await this.processingResourceCleanupService.deleteActivityAggregateStateByActivityId(
       input.activityId,

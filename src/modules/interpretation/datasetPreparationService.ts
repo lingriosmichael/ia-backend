@@ -12,6 +12,7 @@ import type {
   PreparedDatasetTable,
 } from "../../shared/contracts.js";
 import { classifyEvidenceModalityFromPayload } from "../../shared/utils/evidenceModality.js";
+import { shouldIgnoreInterpretationQuestion } from "../../shared/utils/interpretationQuestionFilters.js";
 import type { PrivacySafeRepresentationRepository } from "../processing/privacySafeRepresentationRepository.js";
 import type { DatasetPreparationRepository } from "./datasetPreparationRepository.js";
 import type {
@@ -37,6 +38,17 @@ function isPreparationQuestionCode(
 function isPreparationQuestion(
   question: InterpretationResultPersistenceRecord["questions"][number],
 ): boolean {
+  // A stale epistemic_role_clarification question on a structural
+  // identifier column (e.g. 'vorname') is ignored elsewhere as
+  // non-blocking and hidden from the API (see
+  // shouldIgnoreInterpretationQuestion) — it must be excluded here too,
+  // otherwise it stays an unanswerable, permanently pending preparation
+  // requirement and dataset preparation can never reach
+  // "ready_for_analysis" even though nothing surfaces that to the user.
+  if (shouldIgnoreInterpretationQuestion(question)) {
+    return false;
+  }
+
   return (
     question.questionDomain === "preparation" &&
     question.isBlocking &&
@@ -140,10 +152,17 @@ function parseEpistemicRoleClarificationAnswer(
     return null;
   }
   const normalized = normalizeText(answer);
-  if (normalized.includes("reviewer") || normalized.includes("prüfende")) {
+  if (
+    normalized.includes("person's judgement") ||
+    normalized.includes("einschätzung durch eine person") ||
+    normalized.includes("reviewer") ||
+    normalized.includes("prüfende")
+  ) {
     return "subjective_code";
   }
   if (
+    normalized.includes("free text") ||
+    normalized.includes("freie texte") ||
     normalized.includes("quote") ||
     normalized.includes("comment") ||
     normalized.includes("zitat") ||
@@ -152,6 +171,10 @@ function parseEpistemicRoleClarificationAnswer(
     return "free_text";
   }
   if (
+    normalized.includes("fixed choice values") ||
+    normalized.includes("feste auswahlwerte") ||
+    normalized.includes("something else") ||
+    normalized.includes("etwas anderes") ||
     normalized.includes("plain descriptive") ||
     normalized.includes("normales datenfeld")
   ) {

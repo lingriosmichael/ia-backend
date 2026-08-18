@@ -208,11 +208,22 @@ export function normalizeComparableText(value: string): string {
   return value.trim().toLowerCase();
 }
 
+function normalizeBooleanLikeText(value: string): boolean | null {
+  const normalized = normalizeComparableText(value);
+  if (["true", "yes", "ja", "y", "1"].includes(normalized)) {
+    return true;
+  }
+  if (["false", "no", "nein", "n", "0"].includes(normalized)) {
+    return false;
+  }
+  return null;
+}
+
 export function normalizeFilterValue(
   value: ActivityAnalysisV2FilterValue,
 ): string | number | boolean | null {
   if (typeof value === "string") {
-    return normalizeComparableText(value);
+    return normalizeBooleanLikeText(value) ?? normalizeComparableText(value);
   }
   return value;
 }

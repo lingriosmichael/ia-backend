@@ -132,7 +132,7 @@ export class ProjectKnowledgeBuilderService {
         databaseSession,
       );
     // Atomically claims the build lock — this is what actually prevents two
-    // concurrent callers (e.g. an analytics generation and a report
+    // concurrent callers (e.g. a project-story build and a report
     // readiness check firing seconds apart) from both deciding to rebuild
     // from their own stale in-memory snapshot and duplicating entities.
     const claimedLock = await this.projectKnowledgeModelRepository.markBuilding(

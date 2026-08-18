@@ -10,6 +10,12 @@ export type ProjectStatus = (typeof projectStatusValues)[number];
 export const activityStatusValues = ["active", "completed"] as const;
 export type ActivityStatus = (typeof activityStatusValues)[number];
 
+export const activitySystemTypeValues = [
+  "baseline",
+  "impact_measurement",
+] as const;
+export type ActivitySystemType = (typeof activitySystemTypeValues)[number];
+
 // cross-evidence-linkage-design.md §11. Computed fresh on every request
 // from uploads/jobs/results/linkage state (see
 // ia_backend/src/modules/activity/activityWorkflowStage.ts) — not stored,
@@ -74,6 +80,7 @@ export const processingJobTypeValues = [
   "other",
   "activity_analysis_v2",
   "qualitative_coding_review",
+  "project_impact_story",
 ] as const;
 export type ProcessingJobType = (typeof processingJobTypeValues)[number];
 
@@ -167,6 +174,7 @@ export interface ProjectSummary {
 export interface ActivitySummary {
   id: string;
   projectId: string;
+  systemType: ActivitySystemType | null;
   name: string;
   description: string | null;
   activityType: string | null;
@@ -175,7 +183,6 @@ export interface ActivitySummary {
   targetAudience: string | null;
   objectives: string | null;
   output: string | null;
-  outcome: string | null;
   // Free text, in the activity author's own words, describing what a
   // narrow safeguarding/concern-tagging pass over this activity's
   // free-text evidence columns should watch for (e.g. "flag any note
@@ -580,6 +587,7 @@ export const epistemicRoleValues = [
   "free_text",
   "flag",
   "categorical",
+  "constant",
 ] as const;
 export type EpistemicRole = (typeof epistemicRoleValues)[number];
 
@@ -1401,22 +1409,6 @@ export interface StartActivityInterpretationResponse {
   skippedCount: number;
 }
 
-export type ActivityAiKnowledgeInsightSourceType =
-  | "goal_alignment"
-  | "qualitative_finding"
-  | "indicator"
-  | "distribution_signal"
-  | "linkage_contradiction"
-  | "linkage_coverage_issue";
-
-export interface ActivityAiKnowledgeInsight {
-  id: string;
-  sourceType: ActivityAiKnowledgeInsightSourceType;
-  text: string;
-  isGoalRelevant: boolean;
-  sourceUploadMetadataIds: string[];
-}
-
 export interface LlmUsageCall {
   stageName: string;
   model: string;
@@ -1568,7 +1560,7 @@ export type ActivityAnalysisV2GoalAssessmentStatus =
 
 export interface ActivityAnalysisV2GoalAssessmentRecord {
   goalId: string;
-  goalType: "output" | "outcome";
+  goalType: "output";
   goalText: string;
   evaluationMode:
     "numeric_target" | "condition" | "directional_change" | "evidence_only";
@@ -1594,14 +1586,11 @@ export interface ActivityAssessmentV2 {
 export interface ActivityAnalysisV2Diagnostics {
   goalCount: number;
   outputGoalCount: number;
-  outcomeGoalCount: number;
   evidenceCount: number;
   plannedToolRequestCount: number;
   executedToolCallCount: number;
   calculationCount: number;
   validationIssueCount: number;
-  renderedSummarySectionCount: number;
-  renderedSummaryCharacterCount: number;
   goalStatusCounts: {
     achieved: number;
     notAchieved: number;
@@ -1617,7 +1606,6 @@ export interface ActivityAnalysisRunV2GoalsSnapshot {
   activityType: string | null;
   objectives: string | null;
   output: string | null;
-  outcome: string | null;
 }
 
 export interface ActivityAnalysisRunV2EvidenceItem {
@@ -1659,8 +1647,130 @@ export interface ActivityAnalysisRunV2Record {
   assessment: ActivityAssessmentV2 | null;
   diagnostics: ActivityAnalysisV2Diagnostics;
   validation: ActivityAnalysisRunV2Validation;
-  renderedSummary: string | null;
-  recommendationText: string | null;
+  errorMessage: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+// Project-level "impact story" dashboard — a read model over already-
+// grounded ActivityAnalystV2 calculations (never recomputed here), grouped
+// per activity with no cross-activity summation. See
+// projectImpactStoryAssembly.ts for how tiles are derived.
+export type ImpactIndicatorTileFormat = "number" | "percentage";
+
+export interface ImpactStoryKpiTile {
+  kind: "kpi";
+  indicatorId: string;
+  label: string;
+  description: string;
+  value: number | null;
+  formatAs: ImpactIndicatorTileFormat;
+}
+
+export interface ImpactStoryCategoryRankTile {
+  kind: "category_rank";
+  indicatorId: string;
+  label: string;
+  description: string;
+  buckets: Array<{ category: string; count: number }>;
+}
+
+export interface ImpactStoryTrendPoint {
+  period: string;
+  count: number | null;
+  numeratorCount: number | null;
+  denominatorCount: number | null;
+}
+
+export interface ImpactStoryTrendTile {
+  kind: "line_series";
+  indicatorId: string;
+  label: string;
+  description: string;
+  points: ImpactStoryTrendPoint[];
+}
+
+export type ImpactIndicatorTile =
+  ImpactStoryKpiTile | ImpactStoryCategoryRankTile | ImpactStoryTrendTile;
+
+export interface ActivityImpactStoryCard {
+  activityId: string;
+  activityName: string;
+  tiles: ImpactIndicatorTile[];
+}
+
+export interface ProjectImpactStorySourceSnapshotItem {
+  activityId: string;
+  activityAnalysisRunId: string;
+}
+
+export interface ProjectImpactStoryDiagnostics {
+  activityCount: number;
+  indicatorCount: number;
+  excludedIndicatorCount: number;
+  activitiesWithNoGroundedIndicators: string[];
+}
+
+export type ProjectImpactStoryStatus = "completed" | "failed";
+
+// Project-level headline KPIs and chart plan — the LLM-planned, backend-
+// executed story layer on top of activityCards (see
+// projectImpactStoryChartPlanExecution.ts). Every `value`/`data` field here
+// is computed entirely by ia_backend from real catalog entries; the LLM
+// only ever nominates which catalog entries to feature and how to group
+// them (see ia_python_service/CLAUDE.md's chart-plan route documentation).
+export interface ProjectImpactStoryHeadlineKpi {
+  kpiId: string;
+  label: string;
+  value: number;
+  formatAs: ImpactIndicatorTileFormat;
+  narrativeReason: string;
+}
+
+export type ProjectImpactStoryChartType =
+  "bar" | "pie" | "line" | "comparison" | "distribution";
+
+export interface ProjectImpactStoryChartDatum {
+  label: string;
+  value: number;
+}
+
+// What each ProjectImpactStoryChartDatum.label actually means, set
+// deterministically by which of executeProjectImpactStoryChartPlan's data-
+// building branches produced it (see projectImpactStoryChartPlanExecution.ts)
+// — never inferred by the frontend from the label text. "status" datums use
+// ActivityAnalysisV2GoalAssessmentStatus values as their label and should be
+// rendered with the reserved status palette + a legend, since each segment
+// is a genuinely distinct identity a viewer needs to recognize; the other
+// three kinds are the same measure repeated across categories/periods/
+// activities and should stay single-hue, per "color follows the entity,
+// never its rank."
+export type ProjectImpactStoryChartDataKind =
+  "category" | "period" | "status" | "activity";
+
+export interface ProjectImpactStoryChartSpec {
+  chartId: string;
+  chartType: ProjectImpactStoryChartType;
+  dataKind: ProjectImpactStoryChartDataKind;
+  valueFormat: ImpactIndicatorTileFormat;
+  title: string;
+  subtitle: string | null;
+  narrativeReason: string;
+  data: ProjectImpactStoryChartDatum[];
+}
+
+export interface ProjectImpactStoryRecord {
+  id: string;
+  organizationId: string;
+  projectId: string;
+  status: ProjectImpactStoryStatus;
+  sourceSnapshot: ProjectImpactStorySourceSnapshotItem[];
+  activityCards: ActivityImpactStoryCard[];
+  headlineKpis: ProjectImpactStoryHeadlineKpi[];
+  chartPlan: ProjectImpactStoryChartSpec[];
+  narrativeSummary: string | null;
+  diagnostics: ProjectImpactStoryDiagnostics;
+  llmUsage: LlmUsageSummary | null;
   errorMessage: string | null;
   createdAt: string;
   updatedAt: string;

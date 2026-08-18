@@ -174,7 +174,7 @@ test("runConcernTagging posts to the concern-tagging endpoint and returns the pa
   assert.equal(result.results[1]?.flagged, true);
 });
 
-test("planActivityAnalysisV2 posts to the dedicated planner endpoint and uses the extended LLM timeout budget", async (t) => {
+test("planActivityAnalysisV2 posts to the dedicated planner endpoint and uses its own dedicated background-job timeout budget", async (t) => {
   let capturedTimeoutMs: number | null = null;
   let capturedUrl = "";
   let capturedBody: unknown;
@@ -241,6 +241,7 @@ test("planActivityAnalysisV2 posts to the dedicated planner endpoint and uses th
       timeoutMs: 30_000,
       maxEvidenceItems: 10,
     },
+    planningTimeBudgetMs: 270_000,
   });
 
   assert.equal(
@@ -285,8 +286,12 @@ test("planActivityAnalysisV2 posts to the dedicated planner endpoint and uses th
       timeoutMs: 30_000,
       maxEvidenceItems: 10,
     },
+    planningTimeBudgetMs: 270_000,
   });
-  assert.equal(capturedTimeoutMs, 120_000);
+  // Uses the planner's own dedicated timeout, not the generic llmTimeoutMs
+  // passed to the constructor (120_000 above) — confirms the two ceilings
+  // are independent now that the planner runs in a background job.
+  assert.equal(capturedTimeoutMs, 300_000);
   assert.equal(result.validation.status, "passed");
 });
 
@@ -318,10 +323,15 @@ test("planActivityAnalysisV2 accepts clarificationQuestions using the epistemicR
         },
         {
           goalId: null,
-          prompt: "Welche Art von Information enthält 'theme_code'?",
+          prompt: "Was steht in der Spalte 'theme_code'?",
           kind: "single_choice",
           questionDomain: "preparation",
-          options: ["Code", "Freitext"],
+          options: [
+            "Feste Auswahlwerte",
+            "Freie Texte",
+            "Einschätzung durch eine Person",
+            "Etwas anderes",
+          ],
           recommendedOption: null,
           recommendedConfidence: null,
           isBlocking: true,
@@ -357,6 +367,7 @@ test("planActivityAnalysisV2 accepts clarificationQuestions using the epistemicR
       timeoutMs: 30_000,
       maxEvidenceItems: 10,
     },
+    planningTimeBudgetMs: 270_000,
   });
 
   assert.equal(result.validation.status, "passed");
@@ -420,6 +431,7 @@ test("planActivityAnalysisV2 rejects a malformed plan response instead of trusti
           timeoutMs: 30_000,
           maxEvidenceItems: 10,
         },
+        planningTimeBudgetMs: 270_000,
       }),
     (error: unknown) => {
       assert.ok(error instanceof AppError);
@@ -462,6 +474,7 @@ test("planActivityAnalysisV2 preserves upstream failure details for debugging", 
           timeoutMs: 30_000,
           maxEvidenceItems: 10,
         },
+        planningTimeBudgetMs: 270_000,
       }),
     (error: unknown) => {
       assert.ok(error instanceof AppError);
@@ -473,7 +486,7 @@ test("planActivityAnalysisV2 preserves upstream failure details for debugging", 
         url: "https://python.example/internal/interpretation/activity-analysis-v2-plan",
         path: "/internal/interpretation/activity-analysis-v2-plan",
         method: "POST",
-        timeoutMs: 120_000,
+        timeoutMs: 300_000,
         upstreamStatus: 404,
         upstreamStatusText: "Not Found",
         upstreamBody: '{"detail":"Not Found"}',

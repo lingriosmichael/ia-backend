@@ -31,11 +31,7 @@ function createDependencies(options: {
     name: string;
     objectives?: string | null;
     output?: string | null;
-    outcome?: string | null;
     interpretationAcknowledgedAt: Date | null;
-    aiKnowledgeSnapshot?: {
-      generatedAt: Date;
-    } | null;
   }>;
   uploads?: Array<{
     id: string;
@@ -189,9 +185,7 @@ function createDependencies(options: {
       name: "Activity",
       objectives: "prepare mentors",
       output: "Two orientation sessions run",
-      outcome: "strong attendance",
       interpretationAcknowledgedAt: NOW,
-      aiKnowledgeSnapshot: null,
     },
   ];
   const uploads = options.uploads ?? [
@@ -428,7 +422,6 @@ function createDependencies(options: {
       input: {
         interpretationAcknowledgedAt?: Date | null;
         interpretationAcknowledgedById?: string | null;
-        aiKnowledgeSnapshot?: unknown;
       },
     ) => ({
       id: activityId,
@@ -439,7 +432,6 @@ function createDependencies(options: {
       interpretationAcknowledgedAt: input.interpretationAcknowledgedAt ?? NOW,
       interpretationAcknowledgedById:
         input.interpretationAcknowledgedById ?? "user-1",
-      aiKnowledgeSnapshot: input.aiKnowledgeSnapshot ?? null,
       createdAt: NOW,
       updatedAt: NOW,
     }),
@@ -839,9 +831,7 @@ test("getActivityWorkflowStage reports assessment_ready for a fully-interpreted 
         name: "Activity",
         objectives: "prepare mentors",
         output: "Two orientation sessions run",
-        outcome: "strong attendance",
         interpretationAcknowledgedAt: null,
-        aiKnowledgeSnapshot: null,
       },
     ],
   });
@@ -873,6 +863,84 @@ test("getActivityWorkflowStage reports assessment_ready for a fully-interpreted 
   });
 });
 
+test("getActivityWorkflowStage waits for every upload before reporting clarification questions", async () => {
+  const deps = createDependencies({
+    buildForProject: async () => ({}),
+    activities: [
+      {
+        id: "activity-1",
+        projectId: "project-1",
+        name: "Activity",
+        objectives: "prepare mentors",
+        output: "Two orientation sessions run",
+        interpretationAcknowledgedAt: null,
+      },
+    ],
+    uploads: [
+      {
+        id: "upload-1",
+        organizationId: "org-1",
+        projectId: "project-1",
+        activityId: "activity-1",
+        originalFileName: "upload-1.csv",
+      },
+      {
+        id: "upload-2",
+        organizationId: "org-1",
+        projectId: "project-1",
+        activityId: "activity-1",
+        originalFileName: "upload-2.csv",
+      },
+    ],
+    results: [
+      {
+        id: "result-1",
+        uploadMetadataId: "upload-1",
+        activityId: "activity-1",
+        updatedAt: NOW,
+        qualitativeFindings: [],
+        goalAlignment: [],
+        indicators: [],
+        questions: [
+          {
+            id: "question-1",
+            isBlocking: true,
+            status: "pending",
+            kind: "single_choice",
+            options: ["Yes", "No"],
+          },
+        ],
+      },
+    ],
+  });
+
+  const service = new InterpretationService(
+    deps.uploadMetadataRepository,
+    deps.privacySafeRepresentationRepository,
+    deps.qualitativeCodingReviewRepository,
+    deps.interpretationResultRepository,
+    deps.processingJobRepository,
+    deps.activityRepository,
+    deps.authorizationService,
+    deps.pythonProcessingClient,
+    deps.logger,
+    deps.datasetPreparationService,
+    deps.deterministicAnalysisService,
+    deps.quantitativeInterpretationSynthesisService,
+    deps.projectKnowledgeBuilderService,
+    deps.projectLlmTokenLedgerService,
+    deps.evidenceLinkageReconciliationService,
+    deps.activityEvidenceLinkageResultRepository,
+  );
+
+  const record = await service.getActivityWorkflowStage("user-1", "activity-1");
+
+  assert.deepEqual(record, {
+    activityId: "activity-1",
+    stage: "analysis_pending",
+  });
+});
+
 test("getActivityWorkflowStage reports qualitative_review when an interpreted upload still needs coding review approval", async () => {
   const deps = createDependencies({
     buildForProject: async () => ({}),
@@ -883,9 +951,7 @@ test("getActivityWorkflowStage reports qualitative_review when an interpreted up
         name: "Activity",
         objectives: "prepare mentors",
         output: "Two orientation sessions run",
-        outcome: "strong attendance",
         interpretationAcknowledgedAt: null,
-        aiKnowledgeSnapshot: null,
       },
     ],
     results: [
@@ -948,9 +1014,7 @@ test("getActivityWorkflowStage reports goal_review for a fully-interpreted multi
         name: "Activity",
         objectives: "prepare mentors",
         output: "Two orientation sessions run",
-        outcome: "strong attendance",
         interpretationAcknowledgedAt: null,
-        aiKnowledgeSnapshot: null,
       },
     ],
     uploads: [
@@ -1025,9 +1089,7 @@ test("getActivityWorkflowStage keeps a multi-upload activity in goal_review whil
         name: "Activity",
         objectives: "prepare mentors",
         output: "Two orientation sessions run",
-        outcome: "strong attendance",
         interpretationAcknowledgedAt: null,
-        aiKnowledgeSnapshot: null,
       },
     ],
     uploads: [

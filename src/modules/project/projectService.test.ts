@@ -693,6 +693,29 @@ test(
           updatedAt: new Date("2026-01-06T00:00:00.000Z"),
         },
       ],
+      ensureSystemActivity: async (input: {
+        projectId: string;
+        systemType: "baseline" | "impact_measurement";
+        name: string;
+      }) => ({
+        id: `system-${input.systemType}`,
+        projectId: input.projectId,
+        systemType: input.systemType,
+        name: input.name,
+        description: null,
+        activityType: null,
+        startDate: null,
+        endDate: null,
+        targetAudience: null,
+        objectives: null,
+        output: null,
+        concernTaggingInstruction: null,
+        status: "active",
+        interpretationAcknowledgedAt: null,
+        interpretationAcknowledgedById: null,
+        createdAt: new Date("2026-01-04T00:00:00.000Z"),
+        updatedAt: new Date("2026-01-04T00:00:00.000Z"),
+      }),
     } as unknown as ActivityRepository;
 
     const uploadMetadataRepository = {
@@ -767,8 +790,12 @@ test(
 
     const overview = await projectService.getOverview("user-1", "project-1");
 
-    assert.equal(overview.activities[0]?.uploadMetadataCount, 2);
-    assert.equal(overview.activities[0]?.processingJobCount, 0);
+    const activity = overview.activities.find(
+      (item) => item.id === "activity-1",
+    );
+
+    assert.equal(activity?.uploadMetadataCount, 2);
+    assert.equal(activity?.processingJobCount, 0);
     assert.equal(overview.metrics.insightCount, 1);
     assert.equal(overview.metrics.pendingInsightCount, 1);
     assert.equal(overview.metrics.failedJobCount, 1);

@@ -26,7 +26,6 @@ interface BuildActivityAssessmentV2Input {
 interface BuildActivityAssessmentV2Result {
   assessment: ActivityAssessmentV2;
   validation: ActivityAnalysisRunV2Validation;
-  renderedSummary: string | null;
 }
 
 interface TargetComparisonResult {
@@ -556,6 +555,5 @@ export function buildActivityAssessmentV2(
           : "passed",
       issues: [...issues, ...validation.issues],
     },
-    renderedSummary: null,
   };
 }

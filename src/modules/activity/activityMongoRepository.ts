@@ -15,6 +15,7 @@ import type {
   ActivityAnalysisV2ClarificationAnswerPersistenceRecord,
   ActivityLlmTokenLedgerIncrement,
   ActivityPersistenceRecord,
+  SystemActivityEnsureInput,
   ActivityUpdateInput,
 } from "./activityPersistence.js";
 
@@ -49,6 +50,7 @@ function toActivityRecord(
   return {
     id: document._id.toString(),
     projectId: document.projectId,
+    systemType: document.systemType ?? null,
     name: document.name,
     description: document.description ?? null,
     activityType: document.activityType ?? null,
@@ -57,32 +59,11 @@ function toActivityRecord(
     targetAudience: document.targetAudience ?? null,
     objectives: document.objectives ?? null,
     output: document.output ?? null,
-    outcome: document.outcome ?? null,
     concernTaggingInstruction: document.concernTaggingInstruction ?? null,
     status: document.status,
     interpretationAcknowledgedAt: document.interpretationAcknowledgedAt ?? null,
     interpretationAcknowledgedById:
       document.interpretationAcknowledgedById ?? null,
-    aiKnowledgeSnapshot: document.aiKnowledgeSnapshot
-      ? {
-          generatedAt: document.aiKnowledgeSnapshot.generatedAt,
-          summaryText: document.aiKnowledgeSnapshot.summaryText ?? "",
-          interpretedEvidenceCount:
-            document.aiKnowledgeSnapshot.interpretedEvidenceCount,
-          totalEvidenceCount: document.aiKnowledgeSnapshot.totalEvidenceCount,
-          insights: (document.aiKnowledgeSnapshot.insights ?? []).map(
-            (insight) => ({
-              id: insight.id,
-              sourceType: insight.sourceType,
-              text: insight.text,
-              isGoalRelevant: insight.isGoalRelevant,
-              sourceUploadMetadataIds: [
-                ...(insight.sourceUploadMetadataIds ?? []),
-              ],
-            }),
-          ),
-        }
-      : null,
     activityAnalysisV2ClarificationAnswers: clarificationAnswers,
     llmTokenLedger: {
       totalPromptTokensLifetime:
@@ -111,6 +92,47 @@ export class MongoActivityRepository implements ActivityRepository {
       ],
       getMongoSessionOptions(session),
     );
+
+    return toActivityRecord(document) as ActivityPersistenceRecord;
+  }
+
+  async ensureSystemActivity(
+    input: SystemActivityEnsureInput,
+    session: DatabaseSession,
+  ): Promise<ActivityPersistenceRecord> {
+    const document = await applyMongoSession(
+      ActivityMongoModel.findOneAndUpdate(
+        {
+          projectId: input.projectId,
+          systemType: input.systemType,
+        },
+        {
+          $set: {
+            name: input.name,
+            systemType: input.systemType,
+          },
+          $setOnInsert: {
+            _id: createDocumentId(),
+            projectId: input.projectId,
+            createdById: input.createdById,
+            description: null,
+            activityType: null,
+            startDate: null,
+            endDate: null,
+            targetAudience: null,
+            objectives: null,
+            output: null,
+            concernTaggingInstruction: null,
+            status: "active",
+          },
+        },
+        {
+          upsert: true,
+          returnDocument: "after",
+        },
+      ),
+      session,
+    ).exec();
 
     return toActivityRecord(document) as ActivityPersistenceRecord;
   }

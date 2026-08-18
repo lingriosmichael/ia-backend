@@ -4,12 +4,12 @@ import cors from "@fastify/cors";
 import multipart from "@fastify/multipart";
 import rateLimit from "@fastify/rate-limit";
 import { registerActivityRoutes } from "./modules/activity/activityRoutes.js";
-import { registerAnalyticsRoutes } from "./modules/analytics/analyticsRoutes.js";
 import { registerProcessingJobRoutes } from "./modules/ai/execution/processingJobRoutes.js";
 import { registerAuthRoutes } from "./modules/auth/authRoutes.js";
 import { registerHealthRoutes } from "./modules/health/healthRoutes.js";
 import { registerInvitationRoutes } from "./modules/invitation/invitationRoutes.js";
 import { registerInterpretationRoutes } from "./modules/interpretation/interpretationRoutes.js";
+import { registerProjectImpactStoryRoutes } from "./modules/projectImpactStory/projectImpactStoryRoutes.js";
 import { registerOrganizationRoutes } from "./modules/organization/organizationRoutes.js";
 import { registerProjectRoutes } from "./modules/project/projectRoutes.js";
 import { registerPrivacyReviewRoutes } from "./modules/processing/privacyReviewRoutes.js";
@@ -241,9 +241,9 @@ export async function buildApp(config: BackendConfig) {
     context.interpretationController,
     context.authenticate,
   );
-  await registerAnalyticsRoutes(
+  await registerProjectImpactStoryRoutes(
     app,
-    context.analyticsController,
+    context.projectImpactStoryController,
     context.authenticate,
   );
 

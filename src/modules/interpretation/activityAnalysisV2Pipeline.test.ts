@@ -114,14 +114,9 @@ function createFixture(options: {
   activityType?: string | null;
   activityObjectives?: string | null;
   activityOutput: string | null;
-  activityOutcome: string | null;
   plannerResponse: Awaited<
     ReturnType<PythonProcessingClient["planActivityAnalysisV2"]>
   >;
-  narrativeResponse?: {
-    summaryText: string;
-    recommendationText: string;
-  };
 }) {
   const uploadRecords = options.uploads.map((upload) => ({
     id: upload.id,
@@ -214,9 +209,6 @@ function createFixture(options: {
         calculations: input.calculations,
         assessment: input.assessment,
         diagnostics: input.diagnostics,
-        shadowComparison: input.shadowComparison,
-        renderedSummary: input.renderedSummary,
-        recommendationText: input.recommendationText,
         validation: input.validation,
         errorMessage: input.errorMessage,
         createdAt: NOW,
@@ -240,12 +232,10 @@ function createFixture(options: {
       targetAudience: null,
       objectives: options.activityObjectives ?? null,
       output: options.activityOutput,
-      outcome: options.activityOutcome,
       concernTaggingInstruction: null,
       status: "completed",
       interpretationAcknowledgedAt: null,
       interpretationAcknowledgedById: null,
-      aiKnowledgeSnapshot: null,
       activityAnalysisV2ClarificationAnswers:
         input.activityAnalysisV2ClarificationAnswers ?? [],
       createdAt: NOW,
@@ -265,9 +255,7 @@ function createFixture(options: {
         activityType: options.activityType ?? "other",
         objectives: options.activityObjectives ?? null,
         output: options.activityOutput,
-        outcome: options.activityOutcome,
         activityAnalysisV2ClarificationAnswers: [],
-        aiKnowledgeSnapshot: null,
       },
     }),
     canViewActivity: async () => ({
@@ -289,19 +277,11 @@ function createFixture(options: {
 
   const plannerInputs: Array<Record<string, unknown>> = [];
   const pythonProcessingClient = {
+    activityAnalysisV2PlanTimeoutMs: 300_000,
     planActivityAnalysisV2: async (input: Record<string, unknown>) => {
       plannerInputs.push(input);
       return options.plannerResponse;
     },
-    generateActivityAnalysisV2Recommendation: async () => ({
-      summaryText:
-        options.narrativeResponse?.summaryText ??
-        "Die aktuelle Evidenz zeigt, dass die Aktivität anhand der verfügbaren Daten nachvollziehbar eingeordnet werden kann.",
-      recommendationText:
-        options.narrativeResponse?.recommendationText ??
-        "Die offenen Fälle sollten gezielt geklärt werden, damit die Aktivität auf belastbarer Evidenz weitergeführt werden kann.",
-      llmUsage: null,
-    }),
   } as unknown as PythonProcessingClient;
 
   const logger = {
@@ -385,13 +365,6 @@ test("full V2 pipeline counts recruitment applications from the real recruitment
     activityObjectives: "Mentor:innen gewinnen und prüfen",
     activityOutput:
       "Mindestens 70 Bewerbungen von interessierten Mentor:innen sammeln",
-    activityOutcome: null,
-    narrativeResponse: {
-      summaryText:
-        "Die aktuelle Evidenz zeigt, dass das Bewerbungsziel erreicht wurde.",
-      recommendationText:
-        "Die Auswahlentscheidungen sollten jetzt auf die noch offenen und bedingten Fälle fokussiert werden.",
-    },
     plannerResponse: {
       goalPlans: [
         {
@@ -471,12 +444,150 @@ test("full V2 pipeline counts recruitment applications from the real recruitment
     record.assessment?.goalAssessments[0]?.assessmentStatus,
     "achieved",
   );
-  assert.equal(
-    record.renderedSummary,
-    "Die aktuelle Evidenz zeigt, dass das Bewerbungsziel erreicht wurde.",
-  );
-  assert.equal(record.renderedSummary?.includes("Wirkung"), false);
   assert.equal(fixture.createdRuns.length, 1);
+});
+
+test("previewActivityAnalysis includes date coverage and explicit goal-support hints in planner input", async () => {
+  const fixture = createFixture({
+    uploads: [
+      {
+        id: "upload-meetings",
+        logicalEvidenceId: "meetings-1",
+        originalFileName: "mentoring_treffen_log_april_juni.csv",
+        payload: buildPayload({
+          tableName: "mentoring_treffen_log_april_juni",
+          rows: [
+            {
+              treffen_id: "t-1",
+              tandem_id: "ta-1",
+              datum: "2026-04-02",
+              ziel_output_90_prozent_tandems_10_treffen_unterstuetzt: "ja",
+            },
+            {
+              treffen_id: "t-2",
+              tandem_id: "ta-2",
+              datum: "2026-06-30",
+              ziel_output_90_prozent_tandems_10_treffen_unterstuetzt: "nein",
+            },
+          ],
+        }),
+      },
+    ],
+    preparedDatasetsByUploadId: {
+      "upload-meetings": {
+        tables: [
+          {
+            name: "mentoring_treffen_log_april_juni",
+            rowCount: 2,
+            columnCount: 4,
+            selectedRowGrain: "meeting event",
+            identifierColumn: "treffen_id",
+            identifierHandling: "allow_duplicate_rows_as_events",
+            primaryStatusColumn: null,
+            primaryDateColumn: "datum",
+            columns: [
+              {
+                name: "treffen_id",
+                inferredType: "identifier",
+                role: "identifier",
+                epistemicRole: "identifier",
+              },
+              {
+                name: "tandem_id",
+                inferredType: "identifier",
+                role: "other",
+                epistemicRole: "identifier",
+              },
+              {
+                name: "datum",
+                inferredType: "date",
+                role: "primary_date",
+                epistemicRole: "temporal",
+              },
+              {
+                name: "ziel_output_90_prozent_tandems_10_treffen_unterstuetzt",
+                inferredType: "boolean",
+                role: "other",
+                epistemicRole: "flag",
+              },
+            ],
+            notes: [],
+          },
+        ],
+      },
+    },
+    activityName:
+      "Regelmäßige Tandemtreffen zwischen Jugendlichen und Mentor:innen",
+    activityOutput:
+      "90 % der Tandems führen mindestens 10 Treffen durch innerhalb eines Jahres",
+    plannerResponse: {
+      goalPlans: [
+        {
+          goalId: "output_1",
+          goalType: "output",
+          goalText:
+            "90 % der Tandems führen mindestens 10 Treffen durch innerhalb eines Jahres",
+          evaluationMode: "numeric_target",
+          status: "requires_clarification",
+          rationale: "Only the planner input is under test here.",
+          plannedToolNames: [],
+        },
+      ],
+      toolRequests: [],
+      clarificationQuestions: [],
+      limitations: [],
+      validation: {
+        status: "failed",
+        issues: ["Synthetic validation failure for planner-input test."],
+      },
+    },
+  });
+
+  await fixture.service.previewActivityAnalysis("user-1", "activity-1");
+
+  const plannerInput = fixture.plannerInputs[0] as {
+    planningTimeBudgetMs: number;
+    evidenceTables: Array<{
+      plannerHints?: {
+        dateCoverage: Array<{
+          columnName: string;
+          min: string;
+          max: string;
+          years: number[];
+        }>;
+        goalSupportColumns: Array<{
+          name: string;
+          goalType: string | null;
+          inferredType: string | null;
+          epistemicRole: string | null;
+        }>;
+      };
+    }>;
+  };
+  // The planner's own grounding-retry loop needs to know it's on a clock —
+  // this must always land strictly below the fixture's
+  // activityAnalysisV2PlanTimeoutMs (300_000) so Python has a real chance
+  // to return a graceful failure before this HTTP call's own timeout fires.
+  assert.equal(plannerInput.planningTimeBudgetMs, 270_000);
+  assert.deepEqual(plannerInput.evidenceTables[0]?.plannerHints?.dateCoverage, [
+    {
+      columnName: "datum",
+      min: "2026-04-02",
+      max: "2026-06-30",
+      years: [2026],
+    },
+  ]);
+  assert.deepEqual(
+    plannerInput.evidenceTables[0]?.plannerHints?.goalSupportColumns,
+    [
+      {
+        name: "ziel_output_90_prozent_tandems_10_treffen_unterstuetzt",
+        goalType: "output",
+        inferredType: "boolean",
+        epistemicRole: "flag",
+      },
+    ],
+  );
 });
 
 test("full V2 pipeline uses the real training fixtures for cross-file cohort calculations", async () => {
@@ -573,14 +684,6 @@ test("full V2 pipeline uses the real training fixtures for cross-file cohort cal
     activityObjectives: "Mentor:innen schulen",
     activityOutput:
       "Mindestens 80 % der Teilnehmenden nehmen an beiden Schulungstagen teil",
-    activityOutcome:
-      "Die Mentor:innen fühlen sich nach der Schulung sicher genug für den Programmstart",
-    narrativeResponse: {
-      summaryText:
-        "Die Teilnahmequote liegt über dem Ziel. Für die angestrebte Wirkung fehlen in diesem Fixture jedoch belastbare Kompetenz- oder Sicherheitsindikatoren.",
-      recommendationText:
-        "Für die Wirkungsbewertung sollten zusätzlich belastbare Kompetenz- oder Sicherheitsnachweise erhoben werden.",
-    },
     plannerResponse: {
       goalPlans: [
         {
@@ -598,17 +701,6 @@ test("full V2 pipeline uses the real training fixtures for cross-file cohort cal
             "calculate_ratio",
             "compare_target",
           ],
-        },
-        {
-          goalId: "outcome_1",
-          goalType: "outcome",
-          goalText:
-            "Die Mentor:innen fühlen sich nach der Schulung sicher genug für den Programmstart",
-          evaluationMode: "evidence_only",
-          status: "requires_clarification",
-          rationale:
-            "In diesem Fixture liegen nur Anwesenheitsdaten vor, keine belastbaren Kompetenz- oder Sicherheitsindikatoren.",
-          plannedToolNames: [],
         },
       ],
       toolRequests: [
@@ -690,24 +782,16 @@ test("full V2 pipeline uses the real training fixtures for cross-file cohort cal
   );
   assert.equal(record.status, "completed");
   assert.equal(record.validation.status, "passed");
-  assert.equal(record.diagnostics.goalCount, 2);
+  assert.equal(record.diagnostics.goalCount, 1);
   assert.equal(record.diagnostics.evidenceCount, 2);
   assert.equal(record.toolCallTrace.length, 4);
   assert.equal(record.calculations[0]?.value, 65);
   assert.equal(record.calculations[1]?.value, 55);
   assert.equal(record.calculations[2]?.value, 55 / 65);
-  assert.equal(record.assessment?.goalAssessments.length, 2);
+  assert.equal(record.assessment?.goalAssessments.length, 1);
   assert.equal(
     record.assessment?.goalAssessments[0]?.assessmentStatus,
     "achieved",
-  );
-  assert.equal(
-    record.assessment?.goalAssessments[1]?.assessmentStatus,
-    "requires_clarification",
-  );
-  assert.equal(
-    record.renderedSummary,
-    "Die Teilnahmequote liegt über dem Ziel. Für die angestrebte Wirkung fehlen in diesem Fixture jedoch belastbare Kompetenz- oder Sicherheitsindikatoren.",
   );
 });
 

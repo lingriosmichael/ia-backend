@@ -14,6 +14,7 @@ const heartbeatIntervalMs = 30_000;
 const supportedJobTypes = [
   "activity_analysis_v2",
   "qualitative_coding_review",
+  "project_impact_story",
 ] as const;
 
 function sleep(milliseconds: number) {
@@ -49,7 +50,7 @@ async function runClaimedJob(
   // gated on checkpoints between Python calls — network I/O doesn't block
   // Node's event loop or its timers, so this heartbeats correctly straight
   // through one arbitrarily long blocking call or several sequential ones.
-  // Mirrors analyticsWorker.ts's heartbeat pattern.
+  // Uses the same lease-renewal pattern as the other backend workers.
   const heartbeat = setInterval(() => {
     void context.processingJobService
       .renewLease(job.id, workerId)
@@ -89,6 +90,15 @@ async function runClaimedJob(
       await context.qualitativeCodingReviewService.generate(
         job.triggeredById,
         job.uploadMetadataId,
+        language,
+      );
+    } else if (job.jobType === "project_impact_story") {
+      // buildProjectImpactStory re-validates readiness itself
+      // (assertReadyForImpactStoryRun) before doing any Python call, same
+      // reasoning as the activity_analysis_v2 branch above.
+      await context.projectImpactStoryService.buildProjectImpactStory(
+        job.triggeredById,
+        job.projectId,
         language,
       );
     } else {

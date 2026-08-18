@@ -8,11 +8,9 @@
   },
   "scripts": {
     "dev": "tsx watch src/server.ts",
-    "dev:analytics-worker": "tsx watch src/workers/analyticsWorker.ts",
     "dev:activity-analysis-worker": "tsx watch src/workers/activityAnalysisWorker.ts",
     "build": "tsc -p tsconfig.json",
     "start": "node dist/src/server.js",
-    "start:analytics-worker": "node dist/src/workers/analyticsWorker.js",
     "start:activity-analysis-worker": "node dist/src/workers/activityAnalysisWorker.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "eslint . && npm run typecheck",
@@ -23,6 +21,9 @@
     "migrate:roles": "tsx src/scripts/migrateOrganizationRoleModel.ts",
     "migrate:remove-activity-additional-context": "tsx src/scripts/removeActivityAdditionalContext.ts",
     "migrate:privacy-review-decisions": "tsx src/scripts/migratePrivacyReviewDecisionValues.ts",
+    "migrate:remove-activity-outcome-field": "tsx src/scripts/removeDeprecatedActivityOutcomeField.ts",
+    "migrate:remove-activity-analysis-narrative-fields": "tsx src/scripts/removeDeprecatedActivityAnalysisNarrativeFields.ts",
+    "migrate:remove-activity-analysis-outcome-goals": "tsx src/scripts/removeDeprecatedActivityAnalysisOutcomeGoals.ts",
     "reset:structure-only": "tsx src/scripts/resetWorkspaceToStructureOnly.ts"
   },
   "dependencies": {

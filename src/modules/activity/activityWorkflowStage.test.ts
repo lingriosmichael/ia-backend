@@ -27,6 +27,7 @@ function makeResult(
       kind: "single_choice" | "free_text" | "merge_confirmation";
       status: "pending" | "answered";
       questionCode?: InterpretationQuestionCode | null;
+      targetColumnName?: string | null;
     }>;
   }> = {},
 ) {
@@ -130,6 +131,27 @@ test("a pending blocking question means needs_clarification", () => {
   assert.equal(stage, "needs_clarification");
 });
 
+test("a stale structural identifier epistemic-role question does not block clarification", () => {
+  const stage = computeActivityWorkflowStage(
+    makeInput({
+      results: [
+        makeResult({
+          questions: [
+            {
+              isBlocking: true,
+              kind: "single_choice",
+              status: "pending",
+              questionCode: "epistemic_role_clarification",
+              targetColumnName: "vorname",
+            },
+          ],
+        }),
+      ],
+    }),
+  );
+  assert.notEqual(stage, "needs_clarification");
+});
+
 test("a non-blocking pending question does not trigger needs_clarification", () => {
   const stage = computeActivityWorkflowStage(
     makeInput({
@@ -170,6 +192,24 @@ test("some but not all uploads interpreted is analysis_pending", () => {
     makeInput({
       uploadIds: ["upload-1", "upload-2"],
       results: [makeResult({ uploadMetadataId: "upload-1" })],
+      hasLinkageResultIfApplicable: true,
+    }),
+  );
+  assert.equal(stage, "analysis_pending");
+});
+
+test("partial interpretation waits for every upload before surfacing blocking questions", () => {
+  const stage = computeActivityWorkflowStage(
+    makeInput({
+      uploadIds: ["upload-1", "upload-2"],
+      results: [
+        makeResult({
+          uploadMetadataId: "upload-1",
+          questions: [
+            { isBlocking: true, kind: "single_choice", status: "pending" },
+          ],
+        }),
+      ],
       hasLinkageResultIfApplicable: true,
     }),
   );

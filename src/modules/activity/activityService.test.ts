@@ -5,7 +5,7 @@ import type { AuthorizationService } from "../../shared/auth/authorizationServic
 import type { TransactionManager } from "../../shared/database/transactionManager.js";
 import type { UploadMetadataRepository } from "../upload/uploadMetadataRepository.js";
 import { FileStorageService } from "../upload/fileStorageService.js";
-import type { ProjectDerivedStateInvalidationService } from "../analytics/projectDerivedStateInvalidationService.js";
+import type { ProjectDerivedStateInvalidationService } from "../project/projectDerivedStateInvalidationService.js";
 import type { ProcessingResourceCleanupService } from "../processing/processingResourceCleanupService.js";
 import type { ActivityRepository } from "./activityRepository.js";
 import { ActivityService } from "./activityService.js";
@@ -24,7 +24,6 @@ test("activity getById authorizes access through the project service", async () 
       targetAudience: null,
       objectives: null,
       output: null,
-      outcome: null,
       status: "active",
       createdAt: new Date("2026-01-01T00:00:00.000Z"),
       updatedAt: new Date("2026-01-02T00:00:00.000Z"),
@@ -81,7 +80,6 @@ test("activity getById authorizes access through the project service", async () 
           targetAudience: null,
           objectives: null,
           output: null,
-          outcome: null,
           status: "active",
           createdAt: new Date("2026-01-01T00:00:00.000Z"),
           updatedAt: new Date("2026-01-02T00:00:00.000Z"),
@@ -126,7 +124,6 @@ test("activity create trims text fields and collapses whitespace-only optional t
         targetAudience: input.targetAudience,
         objectives: input.objectives,
         output: input.output,
-        outcome: input.outcome,
         status: "active",
         interpretationAcknowledgedAt: null,
         interpretationAcknowledgedById: null,
@@ -196,15 +193,13 @@ test("activity create trims text fields and collapses whitespace-only optional t
   await activityService.create("user-1", "project-1", {
     name: "  My Activity  ",
     output: "   ",
-    outcome: "  Real outcome text  ",
   });
 
   assert.equal(captured.input?.name, "My Activity");
   assert.equal(captured.input?.output, null);
-  assert.equal(captured.input?.outcome, "Real outcome text");
 });
 
-test("activity update invalidates AI knowledge state when output/outcome actually change", async () => {
+test("activity update invalidates AI knowledge state when output actually changes", async () => {
   const calls: string[] = [];
   const captured: { input: Record<string, unknown> | null } = { input: null };
 
@@ -219,7 +214,6 @@ test("activity update invalidates AI knowledge state when output/outcome actuall
       targetAudience: null,
       objectives: null,
       output: "old output",
-      outcome: "old outcome",
       status: "active",
       interpretationAcknowledgedAt: new Date("2026-01-03T00:00:00.000Z"),
       interpretationAcknowledgedById: "user-1",
@@ -238,7 +232,6 @@ test("activity update invalidates AI knowledge state when output/outcome actuall
         targetAudience: null,
         objectives: null,
         output: "new output",
-        outcome: "old outcome",
         status: "active",
         interpretationAcknowledgedAt: null,
         interpretationAcknowledgedById: null,
@@ -280,7 +273,7 @@ test("activity update invalidates AI knowledge state when output/outcome actuall
 
   assert.equal(captured.input?.interpretationAcknowledgedAt, null);
   assert.equal(captured.input?.interpretationAcknowledgedById, null);
-  assert.equal(captured.input?.aiKnowledgeSnapshot, null);
+  assert.deepEqual(captured.input?.activityAnalysisV2ClarificationAnswers, []);
   assert.deepEqual(calls, ["invalidate:project-1"]);
 });
 
@@ -299,7 +292,6 @@ test("activity update invalidates AI knowledge state when concernTaggingInstruct
       targetAudience: null,
       objectives: null,
       output: null,
-      outcome: null,
       concernTaggingInstruction: null,
       status: "active",
       interpretationAcknowledgedAt: new Date("2026-01-03T00:00:00.000Z"),
@@ -319,7 +311,6 @@ test("activity update invalidates AI knowledge state when concernTaggingInstruct
         targetAudience: null,
         objectives: null,
         output: null,
-        outcome: null,
         concernTaggingInstruction: "Flag any note suggesting a safety concern.",
         status: "active",
         interpretationAcknowledgedAt: null,
@@ -365,7 +356,7 @@ test("activity update invalidates AI knowledge state when concernTaggingInstruct
     "Flag any note suggesting a safety concern.",
   );
   assert.equal(captured.input?.interpretationAcknowledgedAt, null);
-  assert.equal(captured.input?.aiKnowledgeSnapshot, null);
+  assert.deepEqual(captured.input?.activityAnalysisV2ClarificationAnswers, []);
   assert.deepEqual(calls, ["invalidate:project-1"]);
 });
 
@@ -384,7 +375,6 @@ test("activity update does not invalidate AI knowledge state when the only chang
       targetAudience: null,
       objectives: null,
       output: "Same output",
-      outcome: null,
       status: "active",
       interpretationAcknowledgedAt: new Date("2026-01-03T00:00:00.000Z"),
       interpretationAcknowledgedById: "user-1",
@@ -403,7 +393,6 @@ test("activity update does not invalidate AI knowledge state when the only chang
         targetAudience: null,
         objectives: null,
         output: "Same output",
-        outcome: null,
         status: "active",
         interpretationAcknowledgedAt: new Date("2026-01-03T00:00:00.000Z"),
         interpretationAcknowledgedById: "user-1",
@@ -445,7 +434,10 @@ test("activity update does not invalidate AI knowledge state when the only chang
 
   assert.equal(captured.input?.interpretationAcknowledgedAt, undefined);
   assert.equal(captured.input?.interpretationAcknowledgedById, undefined);
-  assert.equal(captured.input?.aiKnowledgeSnapshot, undefined);
+  assert.equal(
+    captured.input?.activityAnalysisV2ClarificationAnswers,
+    undefined,
+  );
   assert.deepEqual(calls, []);
 });
 
@@ -479,7 +471,6 @@ test("activity delete clears acknowledgment and invalidates project derived stat
       targetAudience: null,
       objectives: null,
       output: null,
-      outcome: null,
       status: "active",
       interpretationAcknowledgedAt: new Date("2026-01-03T00:00:00.000Z"),
       interpretationAcknowledgedById: "user-1",

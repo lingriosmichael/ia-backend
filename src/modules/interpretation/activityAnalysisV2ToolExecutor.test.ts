@@ -38,6 +38,7 @@ function createExecutorFixture(options?: {
                     safeguarding_status: "ok",
                     motivation_score: "4",
                     eingang_datum: "2026-03-03",
+                    ziel_erreicht: "ja",
                   },
                   {
                     bewerbungs_id: "A1",
@@ -45,6 +46,7 @@ function createExecutorFixture(options?: {
                     safeguarding_status: "ok",
                     motivation_score: "4",
                     eingang_datum: "2026-03-03",
+                    ziel_erreicht: "ja",
                   },
                   {
                     bewerbungs_id: "A2",
@@ -52,6 +54,7 @@ function createExecutorFixture(options?: {
                     safeguarding_status: "ausstehend",
                     motivation_score: "3",
                     eingang_datum: "2026-03-07",
+                    ziel_erreicht: "nein",
                   },
                   {
                     bewerbungs_id: "A3",
@@ -59,6 +62,7 @@ function createExecutorFixture(options?: {
                     safeguarding_status: "ausstehend",
                     motivation_score: "5",
                     eingang_datum: "2026-04-01",
+                    ziel_erreicht: "ja",
                   },
                 ],
               },
@@ -85,7 +89,7 @@ function createExecutorFixture(options?: {
             {
               name: "applications",
               rowCount: 4,
-              columnCount: 5,
+              columnCount: 6,
               selectedRowGrain: "application record",
               identifierColumn: "bewerbungs_id",
               identifierHandling: "deduplicate_by_identifier",
@@ -130,6 +134,15 @@ function createExecutorFixture(options?: {
                   role: "primary_date",
                   positiveStatusValues: [],
                   positiveStatusDefinitionText: null,
+                  normalizationAccepted: true,
+                },
+                {
+                  name: "ziel_erreicht",
+                  inferredType: "boolean",
+                  role: "other",
+                  epistemicRole: "flag",
+                  positiveStatusValues: ["ja"],
+                  positiveStatusDefinitionText: "ja",
                   normalizationAccepted: true,
                 },
               ],
@@ -315,7 +328,7 @@ test("describe_evidence reports analysis-row counts on deduplicated entity-grain
   assert.deepEqual(result.calculations[0]?.result, {
     rawRowCount: 4,
     analysisRowCount: 3,
-    columnCount: 5,
+    columnCount: 6,
     identifierColumn: "bewerbungs_id",
     identifierHandling: "deduplicate_by_identifier",
     identifierDistinctCount: 3,
@@ -362,13 +375,13 @@ test("count_rows can distinguish raw rows from prepared analysis rows", async ()
   assert.equal(result.calculations[1]?.result.basis, "analysis_rows");
 });
 
-test("aggregate_numeric rejects subjective-code columns for outcome-style claims", async () => {
+test("aggregate_numeric rejects subjective-code columns for goal claims", async () => {
   const fixture = createEpistemicRoleGateFixture();
 
   const result = await fixture.executor.execute(
     [
       {
-        goalId: "outcome_1",
+        goalId: "output_1",
         toolName: "aggregate_numeric",
         arguments: {
           uploadMetadataId: "upload-qual-1",
@@ -401,7 +414,7 @@ test("a goal downgraded by the epistemic-role gate still executes its later exce
   const result = await fixture.executor.execute(
     [
       {
-        goalId: "outcome_1",
+        goalId: "output_1",
         toolName: "aggregate_numeric",
         arguments: {
           uploadMetadataId: "upload-qual-1",
@@ -411,7 +424,7 @@ test("a goal downgraded by the epistemic-role gate still executes its later exce
         },
       },
       {
-        goalId: "outcome_1",
+        goalId: "output_1",
         toolName: "excerpt_retrieval",
         arguments: {
           uploadMetadataId: "upload-qual-1",
@@ -449,7 +462,7 @@ test("paired_change is blocked when its pre/post columns are subjective_code", a
   const result = await fixture.executor.execute(
     [
       {
-        goalId: "outcome_1",
+        goalId: "output_1",
         toolName: "paired_change",
         alias: "confidence_change",
         arguments: {
@@ -485,7 +498,7 @@ test("compare_target is blocked when a scalar alias comes from a qualitative-fil
   const result = await fixture.executor.execute(
     [
       {
-        goalId: "outcome_1",
+        goalId: "output_1",
         toolName: "create_cohort",
         alias: "improved_theme_rows",
         arguments: {
@@ -501,7 +514,7 @@ test("compare_target is blocked when a scalar alias comes from a qualitative-fil
         },
       },
       {
-        goalId: "outcome_1",
+        goalId: "output_1",
         toolName: "count_rows",
         alias: "improved_theme_count",
         arguments: {
@@ -509,7 +522,7 @@ test("compare_target is blocked when a scalar alias comes from a qualitative-fil
         },
       },
       {
-        goalId: "outcome_1",
+        goalId: "output_1",
         toolName: "compare_target",
         arguments: {
           valueAlias: "improved_theme_count",
@@ -637,7 +650,7 @@ test("synthetic qualitative code columns are treated as subjective_code by the e
   const result = await fixture.executor.execute(
     [
       {
-        goalId: "outcome_1",
+        goalId: "output_1",
         toolName: "create_cohort",
         alias: "improved_synthetic_rows",
         arguments: {
@@ -653,7 +666,7 @@ test("synthetic qualitative code columns are treated as subjective_code by the e
         },
       },
       {
-        goalId: "outcome_1",
+        goalId: "output_1",
         toolName: "count_rows",
         alias: "improved_synthetic_count",
         arguments: {
@@ -661,7 +674,7 @@ test("synthetic qualitative code columns are treated as subjective_code by the e
         },
       },
       {
-        goalId: "outcome_1",
+        goalId: "output_1",
         toolName: "compare_target",
         arguments: {
           valueAlias: "improved_synthetic_count",
@@ -696,7 +709,7 @@ test("excerpt_retrieval returns grounded qualitative findings with excerpt prove
   const result = await fixture.executor.execute(
     [
       {
-        goalId: "outcome_1",
+        goalId: "output_1",
         toolName: "excerpt_retrieval",
         arguments: {
           uploadMetadataId: "upload-qual-1",
@@ -1254,6 +1267,21 @@ test("table tools can filter on categorical and numeric conditions over analysis
           ],
         },
       },
+      {
+        toolName: "count_rows",
+        arguments: {
+          uploadMetadataId: "upload-1",
+          tableName: "applications",
+          useAnalysisRows: true,
+          filters: [
+            {
+              columnName: "ziel_erreicht",
+              operator: "equals",
+              value: true,
+            },
+          ],
+        },
+      },
     ],
     fixture.evidence,
     {
@@ -1274,6 +1302,14 @@ test("table tools can filter on categorical and numeric conditions over analysis
   ]);
   assert.equal(result.calculations[1]?.value, 4.5);
   assert.equal(result.calculations[1]?.result.numericValueCount, 2);
+  assert.equal(result.calculations[2]?.value, 2);
+  assert.deepEqual(result.calculations[2]?.result.filters, [
+    {
+      columnName: "ziel_erreicht",
+      operator: "equals",
+      value: true,
+    },
+  ]);
 });
 
 test("group_count and crosstab_count can describe filtered subgroups", async () => {

@@ -1,6 +1,4 @@
 import mongoose from "mongoose";
-import { AnalyticsExecutionMongoModel } from "../modules/analytics/analyticsExecutionModel.js";
-import { AnalyticsResultMongoModel } from "../modules/analytics/analyticsResultModel.js";
 import { ProcessingJobMongoModel } from "../modules/ai/execution/processingJobModel.js";
 import { ActivityMongoModel } from "../modules/activity/activityModel.js";
 import { DatasetPreparationMongoModel } from "../modules/interpretation/datasetPreparationModel.js";
@@ -101,11 +99,19 @@ const deletedCollections: CollectionResetTarget[] = [
   },
   {
     label: "analytics executions",
-    collectionName: AnalyticsExecutionMongoModel.collection.collectionName,
+    collectionName: "analytics_executions",
   },
   {
     label: "analytics results",
-    collectionName: AnalyticsResultMongoModel.collection.collectionName,
+    collectionName: "analytics_results",
+  },
+  {
+    label: "analytics dashboard preferences",
+    collectionName: "analytics_dashboard_preferences",
+  },
+  {
+    label: "analytics dashboard events",
+    collectionName: "analytics_dashboard_events",
   },
 ];
 

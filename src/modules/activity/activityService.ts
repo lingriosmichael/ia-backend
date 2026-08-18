@@ -2,16 +2,20 @@ import type { FastifyBaseLogger } from "fastify";
 import { databaseSession } from "../../shared/database/databaseClient.js";
 import type { TransactionManager } from "../../shared/database/transactionManager.js";
 import type { ProcessingJobRepository } from "../ai/execution/processingJobRepository.js";
-import { ProjectDerivedStateInvalidationService } from "../analytics/projectDerivedStateInvalidationService.js";
 import { AppError } from "../../shared/errors/appError.js";
 import { AuthorizationService } from "../../shared/auth/authorizationService.js";
-import { clearActivityAiKnowledgeStateIfPresent } from "../interpretation/interpretationReviewState.js";
+import { clearActivityInterpretationReviewStateIfPresent } from "../interpretation/interpretationReviewState.js";
 import { FileStorageService } from "../upload/fileStorageService.js";
 import { ProcessingResourceCleanupService } from "../processing/processingResourceCleanupService.js";
+import { ProjectDerivedStateInvalidationService } from "../project/projectDerivedStateInvalidationService.js";
 import type { UploadMetadataRepository } from "../upload/uploadMetadataRepository.js";
 import { mapActivity } from "../../shared/utils/mappers.js";
 import { trimNullableText, trimRequiredText } from "../../shared/utils/text.js";
 import type { ActivityRepository } from "./activityRepository.js";
+import {
+  ensureProjectSystemActivities,
+  sortActivitiesForDisplay,
+} from "./systemActivities.js";
 
 export class ActivityService {
   constructor(
@@ -35,15 +39,29 @@ export class ActivityService {
       project.id,
       databaseSession,
     );
-    return activities.map((activity) =>
-      mapActivity(
-        {
-          ...activity,
-          projectOwnerId: project.ownerId,
-          projectStatus: project.status,
-        },
-        userId,
-      ),
+    const systemActivities = await ensureProjectSystemActivities({
+      activityRepository: this.activityRepository,
+      projectId: project.id,
+      createdById: project.ownerId,
+      session: databaseSession,
+    });
+    const activitiesById = new Map(
+      [...activities, ...systemActivities].map((activity) => [
+        activity.id,
+        activity,
+      ]),
+    );
+
+    return sortActivitiesForDisplay([...activitiesById.values()]).map(
+      (activity) =>
+        mapActivity(
+          {
+            ...activity,
+            projectOwnerId: project.ownerId,
+            projectStatus: project.status,
+          },
+          userId,
+        ),
     );
   }
 
@@ -59,7 +77,6 @@ export class ActivityService {
       targetAudience?: string;
       objectives?: string;
       output?: string;
-      outcome?: string;
       concernTaggingInstruction?: string;
       status?: "active" | "completed";
     },
@@ -81,7 +98,6 @@ export class ActivityService {
         targetAudience: trimNullableText(input.targetAudience) ?? null,
         objectives: trimNullableText(input.objectives) ?? null,
         output: trimNullableText(input.output) ?? null,
-        outcome: trimNullableText(input.outcome) ?? null,
         concernTaggingInstruction:
           trimNullableText(input.concernTaggingInstruction) ?? null,
         status: input.status,
@@ -111,7 +127,6 @@ export class ActivityService {
       targetAudience?: string | null;
       objectives?: string | null;
       output?: string | null;
-      outcome?: string | null;
       concernTaggingInstruction?: string | null;
       status?: "active" | "completed";
     },
@@ -123,6 +138,14 @@ export class ActivityService {
 
     if (!activity) {
       throw new AppError("Activity not found.", 404, "activity_not_found");
+    }
+
+    if (activity.systemType) {
+      throw new AppError(
+        "System activities cannot be edited.",
+        403,
+        "system_activity_read_only",
+      );
     }
 
     const { project } = await this.authorizationService.canEditActivity(
@@ -151,25 +174,20 @@ export class ActivityService {
       input.output === undefined
         ? activity.output
         : (trimNullableText(input.output) ?? null);
-    const nextOutcome =
-      input.outcome === undefined
-        ? activity.outcome
-        : (trimNullableText(input.outcome) ?? null);
     const nextConcernTaggingInstruction =
       input.concernTaggingInstruction === undefined
         ? activity.concernTaggingInstruction
         : (trimNullableText(input.concernTaggingInstruction) ?? null);
-    const shouldClearAiKnowledgeState =
+    const shouldClearInterpretationReviewState =
       nextName !== activity.name ||
       nextDescription !== activity.description ||
       nextActivityType !== activity.activityType ||
       nextTargetAudience !== activity.targetAudience ||
       nextObjectives !== activity.objectives ||
       nextOutput !== activity.output ||
-      nextOutcome !== activity.outcome ||
       nextConcernTaggingInstruction !== activity.concernTaggingInstruction;
     const shouldInvalidateDerivedState = Boolean(
-      shouldClearAiKnowledgeState &&
+      shouldClearInterpretationReviewState &&
       (activity.interpretationAcknowledgedAt ||
         activity.interpretationAcknowledgedById),
     );
@@ -196,18 +214,18 @@ export class ActivityService {
         targetAudience: trimNullableText(input.targetAudience),
         objectives: trimNullableText(input.objectives),
         output: trimNullableText(input.output),
-        outcome: trimNullableText(input.outcome),
         concernTaggingInstruction: trimNullableText(
           input.concernTaggingInstruction,
         ),
         status: input.status,
-        interpretationAcknowledgedAt: shouldClearAiKnowledgeState
+        interpretationAcknowledgedAt: shouldClearInterpretationReviewState
           ? null
           : undefined,
-        interpretationAcknowledgedById: shouldClearAiKnowledgeState
+        interpretationAcknowledgedById: shouldClearInterpretationReviewState
           ? null
           : undefined,
-        aiKnowledgeSnapshot: shouldClearAiKnowledgeState ? null : undefined,
+        activityAnalysisV2ClarificationAnswers:
+          shouldClearInterpretationReviewState ? [] : undefined,
       },
       databaseSession,
     );
@@ -247,6 +265,14 @@ export class ActivityService {
     const { activity, project } =
       await this.authorizationService.canEditActivity(userId, activityId);
 
+    if (activity.systemType) {
+      throw new AppError(
+        "System activities cannot be deleted.",
+        403,
+        "system_activity_read_only",
+      );
+    }
+
     const storageKeys =
       await this.uploadMetadataRepository.listStorageKeysByActivity(
         activityId,
@@ -260,7 +286,7 @@ export class ActivityService {
 
     await this.transactionManager.runInTransaction(async (session) => {
       if (shouldInvalidateDerivedState) {
-        await clearActivityAiKnowledgeStateIfPresent(
+        await clearActivityInterpretationReviewStateIfPresent(
           this.activityRepository,
           activityId,
           session,

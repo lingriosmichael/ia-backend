@@ -31,7 +31,7 @@ import type { ActivityEvidenceLinkageResultRepository } from "../linkage/activit
 import { computeActivityWorkflowStage } from "../activity/activityWorkflowStage.js";
 import type { InterpretationResultRepository } from "./interpretationResultRepository.js";
 import {
-  clearActivityAiKnowledgeStateIfPresent,
+  clearActivityInterpretationReviewStateIfPresent,
   hasPendingBlockingQuestions,
   isBlockingQuestion,
 } from "./interpretationReviewState.js";
@@ -204,6 +204,7 @@ export class InterpretationService {
         jobType: "dataset_interpretation",
         payload: {
           source: "phase_3_dataset_interpretation",
+          stage: "dataset_interpretation_pipeline",
           privacySafeRepresentationId: privacySafeRepresentation.id,
           language,
         },
@@ -229,7 +230,7 @@ export class InterpretationService {
       : null;
 
     if (uploadMetadata.activityId) {
-      await clearActivityAiKnowledgeStateIfPresent(
+      await clearActivityInterpretationReviewStateIfPresent(
         this.activityRepository,
         uploadMetadata.activityId,
         databaseSession,
@@ -246,7 +247,6 @@ export class InterpretationService {
                 activityType: activity.activityType,
                 objectives: activity.objectives,
                 output: activity.output,
-                outcome: activity.outcome,
               }
             : null,
           projectGoals: {
@@ -674,7 +674,7 @@ export class InterpretationService {
     });
 
     let updated = result;
-    let shouldClearAiKnowledge = false;
+    let shouldClearInterpretationReviewState = false;
     for (const { question, answeredValue } of resolvedAnswers) {
       const updatedDocument =
         await this.interpretationResultRepository.answerQuestion(
@@ -700,12 +700,12 @@ export class InterpretationService {
           isBlockingQuestion(question)) ||
         question.status !== "answered"
       ) {
-        shouldClearAiKnowledge = true;
+        shouldClearInterpretationReviewState = true;
       }
     }
 
-    if (result.activityId && shouldClearAiKnowledge) {
-      await clearActivityAiKnowledgeStateIfPresent(
+    if (result.activityId && shouldClearInterpretationReviewState) {
+      await clearActivityInterpretationReviewStateIfPresent(
         this.activityRepository,
         result.activityId,
         databaseSession,

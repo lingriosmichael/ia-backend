@@ -5,7 +5,7 @@ import type {
 } from "../../shared/contracts.js";
 
 interface GoalDefinition {
-  goalType: "output" | "outcome";
+  goalType: "output";
 }
 
 interface BuildActivityAnalysisV2DiagnosticsInput {
@@ -15,41 +15,20 @@ interface BuildActivityAnalysisV2DiagnosticsInput {
   executedToolCallCount: number;
   calculationCount: number;
   validation: ActivityAnalysisRunV2Validation;
-  renderedSummary: string | null;
   assessment: ActivityAssessmentV2 | null;
-}
-
-function countRenderedSections(renderedSummary: string | null): number {
-  if (!renderedSummary) {
-    return 0;
-  }
-  return renderedSummary
-    .split(/\n+/)
-    .map((line) => line.trim())
-    .filter((line) =>
-      ["Ergebnisse", "Wirkung", "Outputs", "Outcomes"].includes(line),
-    ).length;
 }
 
 export function buildActivityAnalysisV2Diagnostics(
   input: BuildActivityAnalysisV2DiagnosticsInput,
 ): ActivityAnalysisV2Diagnostics {
-  const outputGoalCount = input.goals.filter(
-    (goal) => goal.goalType === "output",
-  ).length;
-  const outcomeGoalCount = input.goals.length - outputGoalCount;
-
   return {
     goalCount: input.goals.length,
-    outputGoalCount,
-    outcomeGoalCount,
+    outputGoalCount: input.goals.length,
     evidenceCount: input.evidenceCount,
     plannedToolRequestCount: input.plannedToolRequestCount,
     executedToolCallCount: input.executedToolCallCount,
     calculationCount: input.calculationCount,
     validationIssueCount: input.validation.issues.length,
-    renderedSummarySectionCount: countRenderedSections(input.renderedSummary),
-    renderedSummaryCharacterCount: input.renderedSummary?.length ?? 0,
     goalStatusCounts: {
       achieved:
         input.assessment?.goalAssessments.filter(

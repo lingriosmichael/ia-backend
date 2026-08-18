@@ -80,7 +80,10 @@ export class InterpretationController {
       {
         activityId: params.activityId!,
         jobType: "activity_analysis_v2",
-        payload: { language },
+        payload: {
+          language,
+          stage: "activity_analysis_v2_pipeline",
+        },
       },
     );
     return successResponse(job);
@@ -96,29 +99,6 @@ export class InterpretationController {
         params.activityId!,
       );
     return successResponse(response);
-  }
-
-  async answerActivityAnalysisV2Question(request: FastifyRequest) {
-    const auth = requireAuthenticatedUser(request);
-
-    const params = idParamSchema.parse(request.params);
-    const payload = answerInterpretationQuestionSchema.parse(request.body);
-    // Validating and persisting the answer is fast, deterministic, Mongo-only
-    // work and stays synchronous. The replan it triggers is LLM-round-trip
-    // work and moves into a job — see answerClarificationQuestion's doc
-    // comment.
-    await this.activityAnalysisV2Service.answerClarificationQuestion(
-      auth.userId,
-      params.activityId!,
-      params.questionId!,
-      payload.answeredValue,
-    );
-    const job = await this.createActivityAnalysisV2ReplanJob(
-      request,
-      auth.userId,
-      params.activityId!,
-    );
-    return successResponse(job);
   }
 
   async answerActivityAnalysisV2Questions(request: FastifyRequest) {
@@ -153,7 +133,10 @@ export class InterpretationController {
     return this.processingJobService.create(userId, project.id, {
       activityId,
       jobType: "activity_analysis_v2",
-      payload: { language },
+      payload: {
+        language,
+        stage: "activity_analysis_v2_pipeline",
+      },
     });
   }
 

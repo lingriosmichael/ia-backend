@@ -12,20 +12,6 @@ import { ActivityController } from "../../modules/activity/activityController.js
 import { ActivityLlmTokenLedgerService } from "../../modules/activity/activityLlmTokenLedgerService.js";
 import { MongoActivityRepository } from "../../modules/activity/activityMongoRepository.js";
 import { ActivityService } from "../../modules/activity/activityService.js";
-import { AnalyticsController } from "../../modules/analytics/analyticsController.js";
-import { AnalyticsExecutionService } from "../../modules/analytics/analyticsExecutionService.js";
-import { MongoAnalyticsExecutionRepository } from "../../modules/analytics/analyticsExecutionMongoRepository.js";
-import { AnalyticsQueryService } from "../../modules/analytics/analyticsQueryService.js";
-import { MongoAnalyticsDashboardEventRepository } from "../../modules/analytics/analyticsDashboardEventMongoRepository.js";
-import { MongoAnalyticsResultRepository } from "../../modules/analytics/analyticsResultMongoRepository.js";
-import { AnalyticsDashboardExportService } from "../../modules/analytics/analyticsDashboardExportService.js";
-import { AnalyticsDashboardEventService } from "../../modules/analytics/analyticsDashboardEventService.js";
-import { MongoAnalyticsDashboardPreferenceRepository } from "../../modules/analytics/analyticsDashboardPreferenceMongoRepository.js";
-import { AnalyticsDashboardPreferenceService } from "../../modules/analytics/analyticsDashboardPreferenceService.js";
-import { ProjectDerivedStateInvalidationService } from "../../modules/analytics/projectDerivedStateInvalidationService.js";
-import { DashboardCatalogAssemblerService } from "../../modules/analytics/dashboardCatalogAssemblerService.js";
-import { AnalyticsDashboardBuilderService } from "../../modules/analytics/analyticsDashboardBuilderService.js";
-import { PythonAnalyticsCurationClient } from "../../modules/analytics/pythonAnalyticsCurationClient.js";
 import { MongoProcessingJobRepository } from "../../modules/ai/execution/processingJobMongoRepository.js";
 import { ProcessingJobController } from "../../modules/ai/execution/processingJobController.js";
 import { ProcessingJobService } from "../../modules/ai/execution/processingJobService.js";
@@ -40,6 +26,9 @@ import { ActivityAnalysisV2Service } from "../../modules/interpretation/activity
 import { MongoActivityAnalysisRunV2Repository } from "../../modules/interpretation/activityAnalysisRunV2MongoRepository.js";
 import { ActivityAnalysisV2ToolExecutor } from "../../modules/interpretation/activityAnalysisV2ToolExecutor.js";
 import { InterpretationController } from "../../modules/interpretation/interpretationController.js";
+import { MongoProjectImpactStoryRepository } from "../../modules/projectImpactStory/projectImpactStoryMongoRepository.js";
+import { ProjectImpactStoryService } from "../../modules/projectImpactStory/projectImpactStoryService.js";
+import { ProjectImpactStoryController } from "../../modules/projectImpactStory/projectImpactStoryController.js";
 import { MongoDeterministicAnalysisRepository } from "../../modules/interpretation/deterministicAnalysisMongoRepository.js";
 import { MongoDatasetPreparationRepository } from "../../modules/interpretation/datasetPreparationMongoRepository.js";
 import { DatasetPreparationService } from "../../modules/interpretation/datasetPreparationService.js";
@@ -70,6 +59,7 @@ import { MongoPrivacySafeRepresentationRepository } from "../../modules/processi
 import { ProcessingResourceCleanupService } from "../../modules/processing/processingResourceCleanupService.js";
 import { PythonProcessingClient } from "../../modules/processing/pythonProcessingClient.js";
 import { ProjectController } from "../../modules/project/projectController.js";
+import { ProjectDerivedStateInvalidationService } from "../../modules/project/projectDerivedStateInvalidationService.js";
 import { ProjectLlmTokenLedgerService } from "../../modules/project/projectLlmTokenLedgerService.js";
 import { MongoProjectRepository } from "../../modules/project/projectMongoRepository.js";
 import { ProjectService } from "../../modules/project/projectService.js";
@@ -108,25 +98,15 @@ export function createApplicationContext(
     new MongoDeterministicAnalysisRepository();
   const activityAnalysisRunV2Repository =
     new MongoActivityAnalysisRunV2Repository();
+  const projectImpactStoryRepository = new MongoProjectImpactStoryRepository();
   const activityEvidenceLinkageResultRepository =
     new MongoActivityEvidenceLinkageResultRepository();
   const projectKnowledgeModelRepository =
     new MongoProjectKnowledgeModelRepository();
   const knowledgeEntityRepository = new MongoKnowledgeEntityRepository();
   const knowledgeIndicatorRepository = new MongoKnowledgeIndicatorRepository();
-  const analyticsExecutionRepository = new MongoAnalyticsExecutionRepository();
-  const analyticsResultRepository = new MongoAnalyticsResultRepository();
-  const analyticsDashboardEventRepository =
-    new MongoAnalyticsDashboardEventRepository();
-  const analyticsDashboardPreferenceRepository =
-    new MongoAnalyticsDashboardPreferenceRepository();
   const projectDerivedStateInvalidationService =
-    new ProjectDerivedStateInvalidationService(
-      projectKnowledgeModelRepository,
-      analyticsExecutionRepository,
-      analyticsResultRepository,
-      analyticsDashboardPreferenceRepository,
-    );
+    new ProjectDerivedStateInvalidationService(projectKnowledgeModelRepository);
   const projectKnowledgeBuilderService = new ProjectKnowledgeBuilderService(
     projectRepository,
     activityRepository,
@@ -147,12 +127,9 @@ export function createApplicationContext(
     projectKnowledgeModelRepository,
     knowledgeEntityRepository,
     knowledgeIndicatorRepository,
-    analyticsExecutionRepository,
-    analyticsResultRepository,
-    analyticsDashboardPreferenceRepository,
-    analyticsDashboardEventRepository,
     activityEvidenceLinkageResultRepository,
     activityAnalysisRunV2Repository,
+    projectImpactStoryRepository,
   );
   const authorizationService = new AuthorizationService(
     organizationRepository,
@@ -225,7 +202,7 @@ export function createApplicationContext(
     config.PYTHON_SERVICE_URL,
     config.PYTHON_SERVICE_SHARED_SECRET,
     config.PYTHON_SERVICE_TIMEOUT_MS,
-    config.PYTHON_ANALYTICS_TIMEOUT_MS,
+    config.PYTHON_LLM_TIMEOUT_MS,
   );
   const evidenceProcessingArtifactService =
     new EvidenceProcessingArtifactService(
@@ -357,53 +334,15 @@ export function createApplicationContext(
     activityLlmTokenLedgerService,
     logger,
   );
-  const dashboardCatalogAssemblerService = new DashboardCatalogAssemblerService(
-    projectKnowledgeModelRepository,
-    knowledgeEntityRepository,
-    knowledgeIndicatorRepository,
-    datasetPreparationRepository,
-    deterministicAnalysisRepository,
-  );
-  const pythonAnalyticsCurationClient = new PythonAnalyticsCurationClient(
-    config.PYTHON_SERVICE_URL,
-    config.PYTHON_SERVICE_SHARED_SECRET,
-    config.PYTHON_ANALYTICS_TIMEOUT_MS,
-  );
-  const analyticsDashboardBuilderService =
-    new AnalyticsDashboardBuilderService();
-  const analyticsDashboardPreferenceService =
-    new AnalyticsDashboardPreferenceService(
-      authorizationService,
-      analyticsResultRepository,
-      analyticsDashboardPreferenceRepository,
-    );
-  const analyticsDashboardEventService = new AnalyticsDashboardEventService(
+  const projectImpactStoryService = new ProjectImpactStoryService(
     authorizationService,
-    analyticsDashboardEventRepository,
-  );
-  const analyticsExecutionService = new AnalyticsExecutionService(
-    authorizationService,
-    dashboardCatalogAssemblerService,
-    analyticsExecutionRepository,
-    analyticsResultRepository,
-    pythonAnalyticsCurationClient,
-    projectKnowledgeBuilderService,
-    deterministicAnalysisRepository,
-    analyticsDashboardBuilderService,
+    activityRepository,
+    uploadMetadataRepository,
+    activityAnalysisRunV2Repository,
+    projectImpactStoryRepository,
+    pythonProcessingClient,
     projectLlmTokenLedgerService,
-    projectRepository,
     logger,
-  );
-  const analyticsQueryService = new AnalyticsQueryService(
-    authorizationService,
-    projectKnowledgeModelRepository,
-    analyticsExecutionRepository,
-    analyticsResultRepository,
-    analyticsDashboardPreferenceRepository,
-    analyticsDashboardEventRepository,
-  );
-  const analyticsDashboardExportService = new AnalyticsDashboardExportService(
-    analyticsQueryService,
   );
   const invitationService = new InvitationService(
     invitationRepository,
@@ -449,20 +388,13 @@ export function createApplicationContext(
       activityAnalysisV2Service,
       processingJobService,
     ),
-    analyticsController: new AnalyticsController(
-      analyticsExecutionService,
-      analyticsQueryService,
-      analyticsDashboardExportService,
-      analyticsDashboardEventService,
-      analyticsDashboardPreferenceService,
+    projectImpactStoryController: new ProjectImpactStoryController(
+      projectImpactStoryService,
+      processingJobService,
     ),
-    analyticsExecutionService,
-    // Exposed directly (not just wrapped in a controller) so standalone
-    // worker entrypoints under src/workers/ can call them in-process — see
-    // analyticsWorker.ts's use of context.analyticsExecutionService for the
-    // existing precedent this follows.
     processingJobService,
     activityAnalysisV2Service,
     qualitativeCodingReviewService,
+    projectImpactStoryService,
   };
 }

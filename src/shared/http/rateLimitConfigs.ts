@@ -28,11 +28,3 @@ export const processingKickoffRateLimitConfig = byAuthenticatedUser(
   12,
   "10 minutes",
 );
-export const analyticsGenerationRateLimitConfig = byAuthenticatedUser(
-  8,
-  "10 minutes",
-);
-export const analyticsExportRateLimitConfig = byAuthenticatedUser(
-  20,
-  "10 minutes",
-);

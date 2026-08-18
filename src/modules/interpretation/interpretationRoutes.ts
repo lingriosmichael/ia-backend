@@ -47,25 +47,12 @@ export async function registerInterpretationRoutes(
   );
 
   app.patch(
-    "/activities/:activityId/analysis-v2/questions/:questionId",
-    {
-      preHandler: authenticate,
-      // Answering a clarification question triggers the same
-      // previewActivityAnalysis pipeline as POST .../analysis-v2 (plan +
-      // deterministic execution), so it needs the same rate limit — this
-      // route was previously unguarded despite being equally expensive.
-      config: processingKickoffRateLimitConfig,
-    },
-    controller.answerActivityAnalysisV2Question.bind(controller),
-  );
-
-  app.patch(
     "/activities/:activityId/analysis-v2/questions",
     {
       preHandler: authenticate,
-      // Same pipeline cost as the single-question route above — this one
-      // just answers several questions before triggering the one replan
-      // instead of triggering a replan per question.
+      // Same pipeline cost as POST .../analysis-v2 — this route just
+      // answers one or more questions before triggering the single replan
+      // instead of one replan per answer.
       config: processingKickoffRateLimitConfig,
     },
     controller.answerActivityAnalysisV2Questions.bind(controller),

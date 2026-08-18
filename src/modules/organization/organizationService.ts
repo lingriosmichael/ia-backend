@@ -7,6 +7,10 @@ import {
   mapWorkspace,
 } from "../../shared/utils/mappers.js";
 import type { ActivityRepository } from "../activity/activityRepository.js";
+import {
+  ensureProjectSystemActivities,
+  sortActivitiesForDisplay,
+} from "../activity/systemActivities.js";
 import type { ProjectRepository } from "../project/projectRepository.js";
 import { AuthorizationService } from "../../shared/auth/authorizationService.js";
 import { FileStorageService } from "../upload/fileStorageService.js";
@@ -266,10 +270,31 @@ export class OrganizationService {
     const ownerNamesById = new Map(
       ownerUsers.map((user) => [user.id, user.fullName] as const),
     );
-    const projectActivities = await this.activityRepository.listByProjectIds(
-      organizationProjects.map((project) => project.id),
-      databaseSession,
-    );
+    const existingProjectActivities =
+      await this.activityRepository.listByProjectIds(
+        organizationProjects.map((project) => project.id),
+        databaseSession,
+      );
+    const systemActivities = (
+      await Promise.all(
+        organizationProjects.map((project) =>
+          ensureProjectSystemActivities({
+            activityRepository: this.activityRepository,
+            projectId: project.id,
+            createdById: project.ownerId,
+            session: databaseSession,
+          }),
+        ),
+      )
+    ).flat();
+    const projectActivities = sortActivitiesForDisplay([
+      ...new Map(
+        [...existingProjectActivities, ...systemActivities].map((activity) => [
+          activity.id,
+          activity,
+        ]),
+      ).values(),
+    ]);
     const activityUploadCounts =
       await this.uploadMetadataRepository.countByActivityIds(
         projectActivities.map((activity) => activity.id),

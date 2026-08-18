@@ -17,6 +17,10 @@ export interface ActivityAnalysisRunV2Repository {
     activityId: string,
     session: DatabaseSession,
   ): Promise<ActivityAnalysisRunV2PersistenceRecord | null>;
+  findLatestCompletedByActivityId(
+    activityId: string,
+    session: DatabaseSession,
+  ): Promise<ActivityAnalysisRunV2PersistenceRecord | null>;
   listByActivityId(
     activityId: string,
     limit: number,

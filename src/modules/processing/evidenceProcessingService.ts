@@ -94,6 +94,9 @@ export class EvidenceProcessingService {
           source: isWorkbookUpload(uploadMetadata)
             ? "phase_2_workbook_split"
             : "phase_2_evidence_processing",
+          stage: isWorkbookUpload(uploadMetadata)
+            ? "workbook_split"
+            : "evidence_parse_and_privacy_detect",
         },
       },
       databaseSession,

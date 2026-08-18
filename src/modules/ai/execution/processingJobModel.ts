@@ -25,6 +25,7 @@ const processingJobSchema = new Schema(
         "other",
         "activity_analysis_v2",
         "qualitative_coding_review",
+        "project_impact_story",
       ],
       required: true,
     },
@@ -111,6 +112,22 @@ processingJobSchema.index(
     partialFilterExpression: {
       activityId: { $type: "string" },
       jobType: "activity_analysis_v2",
+      status: { $in: [...activeProcessingJobStatusValues] },
+    },
+  },
+);
+
+// Enforces "only one active impact-story rollup per project" at the
+// database level, the project-scoped analog of the activityId/jobType
+// index above — a project can otherwise queue overlapping rollup jobs from
+// two browser tabs, each reading a stale snapshot of the same source data.
+processingJobSchema.index(
+  { projectId: 1, jobType: 1 },
+  {
+    unique: true,
+    partialFilterExpression: {
+      projectId: { $type: "string" },
+      jobType: "project_impact_story",
       status: { $in: [...activeProcessingJobStatusValues] },
     },
   },

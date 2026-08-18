@@ -284,7 +284,6 @@ export class QuantitativeInterpretationSynthesisService {
             activityType: activity.activityType,
             objectives: activity.objectives,
             output: activity.output,
-            outcome: activity.outcome,
           }
         : null,
       projectGoals: project

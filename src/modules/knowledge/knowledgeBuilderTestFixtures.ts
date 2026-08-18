@@ -28,6 +28,7 @@ export function makeActivity(
   return {
     id: "activity-1",
     projectId: "project-1",
+    systemType: null,
     name: "Activity",
     description: null,
     activityType: null,
@@ -36,7 +37,6 @@ export function makeActivity(
     targetAudience: null,
     objectives: null,
     output: null,
-    outcome: null,
     concernTaggingInstruction: null,
     status: "active",
     interpretationAcknowledgedAt: NOW,

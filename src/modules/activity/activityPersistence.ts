@@ -1,26 +1,10 @@
 import type {
-  ActivityAiKnowledgeInsightSourceType,
   InterpretationQuestionCode,
   InterpretationQuestionDomain,
   InterpretationQuestionKind,
   ActivityStatus,
+  ActivitySystemType,
 } from "../../shared/contracts.js";
-
-export interface ActivityAiKnowledgeInsightPersistenceRecord {
-  id: string;
-  sourceType: ActivityAiKnowledgeInsightSourceType;
-  text: string;
-  isGoalRelevant: boolean;
-  sourceUploadMetadataIds: string[];
-}
-
-export interface ActivityAiKnowledgeSnapshotPersistenceRecord {
-  generatedAt: Date;
-  summaryText: string;
-  interpretedEvidenceCount: number;
-  totalEvidenceCount: number;
-  insights: ActivityAiKnowledgeInsightPersistenceRecord[];
-}
 
 export interface ActivityAnalysisV2ClarificationAnswerPersistenceRecord {
   questionId: string;
@@ -49,6 +33,7 @@ export interface ActivityLlmTokenLedgerPersistence {
 export interface ActivityPersistenceRecord {
   id: string;
   projectId: string;
+  systemType: ActivitySystemType | null;
   name: string;
   description: string | null;
   activityType: string | null;
@@ -57,12 +42,10 @@ export interface ActivityPersistenceRecord {
   targetAudience: string | null;
   objectives: string | null;
   output: string | null;
-  outcome: string | null;
   concernTaggingInstruction: string | null;
   status: ActivityStatus;
   interpretationAcknowledgedAt: Date | null;
   interpretationAcknowledgedById: string | null;
-  aiKnowledgeSnapshot?: ActivityAiKnowledgeSnapshotPersistenceRecord | null;
   activityAnalysisV2ClarificationAnswers?: ActivityAnalysisV2ClarificationAnswerPersistenceRecord[];
   llmTokenLedger?: ActivityLlmTokenLedgerPersistence;
   createdAt: Date;
@@ -72,6 +55,7 @@ export interface ActivityPersistenceRecord {
 export interface ActivityCreateInput {
   projectId: string;
   createdById: string;
+  systemType?: ActivitySystemType | null;
   name: string;
   description: string | null;
   activityType: string | null;
@@ -80,7 +64,6 @@ export interface ActivityCreateInput {
   targetAudience: string | null;
   objectives: string | null;
   output: string | null;
-  outcome: string | null;
   concernTaggingInstruction: string | null;
   status?: ActivityStatus;
 }
@@ -94,13 +77,18 @@ export interface ActivityUpdateInput {
   targetAudience?: string | null;
   objectives?: string | null;
   output?: string | null;
-  outcome?: string | null;
   concernTaggingInstruction?: string | null;
   status?: ActivityStatus;
   interpretationAcknowledgedAt?: Date | null;
   interpretationAcknowledgedById?: string | null;
-  aiKnowledgeSnapshot?: ActivityAiKnowledgeSnapshotPersistenceRecord | null;
   activityAnalysisV2ClarificationAnswers?: ActivityAnalysisV2ClarificationAnswerPersistenceRecord[];
+}
+
+export interface SystemActivityEnsureInput {
+  projectId: string;
+  createdById: string;
+  systemType: ActivitySystemType;
+  name: string;
 }
 
 export interface ActivityLlmTokenLedgerIncrement {

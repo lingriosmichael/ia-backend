@@ -2,9 +2,14 @@ import { createHash } from "node:crypto";
 import { databaseSession } from "../../shared/database/databaseClient.js";
 import { AppError } from "../../shared/errors/appError.js";
 import type { FastifyBaseLogger } from "fastify";
+import {
+  logPipelineStageStatus,
+  runLoggedPipelineStage,
+} from "../../shared/logging/pipelineStageLogger.js";
 import type {
   ActivityAnalysisRunV2Record,
   ActivityAnalysisRunV2RunLimits,
+  EpistemicRole,
   InterpretationQuestion,
   InterpretationQuestionCode,
   LlmUsageSummary,
@@ -19,6 +24,7 @@ import type { QualitativeCodingReviewRepository } from "../processing/qualitativ
 import {
   PythonProcessingClient,
   type ActivityAnalysisV2ClarificationQuestionDraft,
+  type ActivityAnalysisV2EvidenceTableInput,
   type ActivityAnalysisV2GoalInput,
 } from "../processing/pythonProcessingClient.js";
 import type { ActivityLlmTokenLedgerService } from "../activity/activityLlmTokenLedgerService.js";
@@ -55,15 +61,22 @@ import { validateAnswerAgainstQuestionOptions } from "./interpretationQuestionAn
 //   can reasonably need 6+ tool calls per goal.
 // - maxLlmIterations 4 -> 5: total planner attempts (1 initial + up to 4
 //   grounding-retry attempts) before falling back to a failed run.
-// - timeoutMs 30_000 -> 150_000: sized for one Python planning call
-//   (PYTHON_ANALYTICS_TIMEOUT_MS, 120_000 by default, see .env.example)
-//   plus headroom for the backend's own deterministic tool execution; 30s
-//   was already shorter than the Python planning call alone is allowed to
-//   take. The auto-clarification replan loop below can issue one further
-//   planning call, which is why MAX_BACKEND_AUTO_CLARIFICATION_REPLANS is
-//   capped at 1 and the loop checks remaining budget before attempting it
-//   — without both of those, a run could stack several full-length Python
-//   calls and blow well past this budget before the check below ever runs.
+// - timeoutMs 150_000 -> 330_000: sized for one Python planning call
+//   (pythonProcessingClient.activityAnalysisV2PlanTimeoutMs, 300_000 by
+//   default) plus the same ~30s headroom for the backend's own
+//   deterministic tool execution that the original 150_000 figure carried
+//   (120_000 + 30_000). Raised from 150_000 after a real activity's
+//   planner call timed out at the old 120s-per-call ceiling — see the
+//   comment on activityAnalysisV2PlanTimeoutMs in pythonProcessingClient.ts
+//   for why a generous per-call budget is safe now that this call runs in
+//   a background job. The auto-clarification replan loop below can issue
+//   one further planning call, which is why
+//   MAX_BACKEND_AUTO_CLARIFICATION_REPLANS is capped at 1 and the loop
+//   checks remaining budget (against
+//   pythonProcessingClient.activityAnalysisV2PlanTimeoutMs, not the
+//   generic long-running LLM timeout) before attempting it — without both of
+//   those, a run could stack several full-length Python calls and blow
+//   well past this budget before the check below ever runs.
 // - maxEvidenceItems 25 -> 40: keeps a hard ceiling on worst-case cost
 //   while covering larger real activities; excess evidence is dropped
 //   oldest-first (see previewActivityAnalysis) rather than causing a
@@ -71,7 +84,7 @@ import { validateAnswerAgainstQuestionOptions } from "./interpretationQuestionAn
 const PHASE_1_RUN_LIMITS: ActivityAnalysisRunV2RunLimits = {
   maxToolCalls: 24,
   maxLlmIterations: 5,
-  timeoutMs: 150_000,
+  timeoutMs: 330_000,
   maxEvidenceItems: 40,
 };
 
@@ -80,6 +93,22 @@ const PLANNER_CLARIFICATION_CONFIDENCE_THRESHOLD = 0.8;
 // PHASE_1_RUN_LIMITS.timeoutMs alongside the initial call (see the comment
 // there). Keep this at 1 so the loop's worst case is two calls, not four.
 const MAX_BACKEND_AUTO_CLARIFICATION_REPLANS = 1;
+
+// How much earlier than activityAnalysisV2PlanTimeoutMs Python's own
+// grounding-retry loop should give up on itself. Without this, the retry
+// loop only knows "try up to maxLlmIterations times" — it has no idea a
+// clock is running on this side, so a run needing one more attempt than
+// usual (each attempt has been observed taking anywhere from ~40s to
+// ~125s+) blows straight through this HTTP call's hard timeout with
+// nothing to show for it: no partial result, no clean failure state, just
+// an abort. Sending Python a slightly-smaller budget lets it notice it's
+// out of time between attempts and return a deterministic failed/
+// needs_clarification response on its own — the same on_exhausted path it
+// already uses when it runs out of attempts — comfortably before this
+// call's own AbortSignal would fire. 30s covers network/serialization
+// overhead plus the (fast, non-LLM) work of building that fallback
+// response.
+const PLANNING_TIME_BUDGET_SAFETY_MARGIN_MS = 30_000;
 
 type PlannerClarificationAnswer = {
   questionId: string;
@@ -114,6 +143,29 @@ type ClarificationAnswerDraftInput = {
   targetColumnName?: string | null;
 };
 
+type PlannerHintColumnInput = {
+  name: string;
+  inferredType:
+    | "identifier"
+    | "numeric"
+    | "date"
+    | "categorical"
+    | "free_text"
+    | "boolean"
+    | "unknown"
+    | null;
+  epistemicRole: EpistemicRole | null | undefined;
+  role:
+    | "identifier"
+    | "primary_status"
+    | "primary_date"
+    | "measure"
+    | "subgroup"
+    | "free_text"
+    | "other"
+    | null;
+};
+
 function buildPlannerClarificationAnswer(
   input: ClarificationAnswerDraftInput,
 ): PlannerClarificationAnswer {
@@ -131,6 +183,90 @@ function buildPlannerClarificationAnswer(
     questionCode: input.questionCode,
     targetTableName: input.targetTableName ?? null,
     targetColumnName: input.targetColumnName ?? null,
+  };
+}
+
+function normalizeDateOnly(value: unknown): string | null {
+  if (value instanceof Date && Number.isFinite(value.getTime())) {
+    return value.toISOString().slice(0, 10);
+  }
+  if (typeof value !== "string" && typeof value !== "number") {
+    return null;
+  }
+  const rawValue = String(value).trim();
+  if (!rawValue) {
+    return null;
+  }
+  const parsedDate = new Date(rawValue);
+  if (!Number.isFinite(parsedDate.getTime())) {
+    return null;
+  }
+  return parsedDate.toISOString().slice(0, 10);
+}
+
+function inferGoalSupportType(columnName: string): "output" | null {
+  const normalized = columnName.toLowerCase();
+  if (normalized.startsWith("ziel_output_")) {
+    return "output";
+  }
+  return null;
+}
+
+function buildPlannerHints(
+  columns: PlannerHintColumnInput[],
+  rows: Array<Record<string, unknown>>,
+): ActivityAnalysisV2EvidenceTableInput["plannerHints"] {
+  const dateCoverage = columns
+    .filter(
+      (column) =>
+        column.role === "primary_date" ||
+        column.inferredType === "date" ||
+        column.epistemicRole === "temporal",
+    )
+    .map((column) => {
+      const values = rows
+        .map((row) => normalizeDateOnly(row[column.name]))
+        .filter((value): value is string => value !== null)
+        .sort();
+      if (values.length === 0) {
+        return null;
+      }
+      return {
+        columnName: column.name,
+        min: values[0] as string,
+        max: values[values.length - 1] as string,
+        years: Array.from(
+          new Set(values.map((value) => Number(value.slice(0, 4)))),
+        ).sort((left, right) => left - right),
+      };
+    })
+    .filter(
+      (
+        coverage,
+      ): coverage is NonNullable<
+        ActivityAnalysisV2EvidenceTableInput["plannerHints"]
+      >["dateCoverage"][number] => coverage !== null,
+    );
+
+  const goalSupportColumns: NonNullable<
+    ActivityAnalysisV2EvidenceTableInput["plannerHints"]
+  >["goalSupportColumns"] = [];
+  for (const column of columns) {
+    const goalType = inferGoalSupportType(column.name);
+    if (!goalType) {
+      continue;
+    }
+    goalSupportColumns.push({
+      name: column.name,
+      goalType,
+      inferredType: column.inferredType,
+      epistemicRole: column.epistemicRole ?? null,
+    });
+  }
+
+  return {
+    dateCoverage,
+    goalSupportColumns,
   };
 }
 
@@ -236,42 +372,6 @@ function extractGoalTargetNumberForActivityAnalysisV2(
   return parsed;
 }
 
-function isActionableLimitation(limitation: string): boolean {
-  const normalized = limitation.trim().toLowerCase();
-  if (normalized.length === 0) {
-    return false;
-  }
-  if (
-    normalized.startsWith("planner model version:") ||
-    normalized.startsWith("planning retries used:")
-  ) {
-    return false;
-  }
-  return true;
-}
-
-function buildRecommendationPolicy(
-  assessment: NonNullable<ActivityAnalysisRunV2PersistenceRecord["assessment"]>,
-): {
-  recommendationPolicy: "required" | "optional";
-  actionableLimitations: string[];
-} {
-  const actionableLimitations = assessment.limitations.filter(
-    isActionableLimitation,
-  );
-  const hasNonAchievedOrUnresolvedGoal = assessment.goalAssessments.some(
-    (goalAssessment) => goalAssessment.assessmentStatus !== "achieved",
-  );
-
-  return {
-    recommendationPolicy:
-      hasNonAchievedOrUnresolvedGoal || actionableLimitations.length > 0
-        ? "required"
-        : "optional",
-    actionableLimitations,
-  };
-}
-
 function mapActivityAnalysisRunV2Record(
   run: ActivityAnalysisRunV2PersistenceRecord,
 ): ActivityAnalysisRunV2Record {
@@ -286,7 +386,6 @@ function mapActivityAnalysisRunV2Record(
       activityType: run.goalsSnapshot.activityType,
       objectives: run.goalsSnapshot.objectives,
       output: run.goalsSnapshot.output,
-      outcome: run.goalsSnapshot.outcome,
     },
     evidence: run.evidence.map((item) => ({
       uploadMetadataId: item.uploadMetadataId,
@@ -385,8 +484,6 @@ function mapActivityAnalysisRunV2Record(
       status: run.validation.status,
       issues: [...run.validation.issues],
     },
-    renderedSummary: run.renderedSummary,
-    recommendationText: run.recommendationText,
     errorMessage: run.errorMessage,
     createdAt: run.createdAt.toISOString(),
     updatedAt: run.updatedAt.toISOString(),
@@ -443,10 +540,10 @@ export class ActivityAnalysisV2Service {
     private readonly logger: FastifyBaseLogger,
   ) {}
 
-  // Shared by every Python call site in this service (planner, replans,
-  // narrative/recommendation) so usage is recorded the same way regardless
-  // of which call produced it, including calls that happen more than once
-  // per run (the auto-resolved clarification replan loop).
+  // Shared by every Python call site in this service (planner, replans) so
+  // usage is recorded the same way regardless of which call produced it,
+  // including calls that happen more than once per run (the auto-resolved
+  // clarification replan loop).
   private async recordActivityAnalysisV2Usage(
     activityId: string,
     projectId: string,
@@ -590,124 +687,6 @@ export class ActivityAnalysisV2Service {
     );
   }
 
-  private async generateNarrativeTexts(input: {
-    activityId: string;
-    projectId: string;
-    activityName: string;
-    language: "de" | "en";
-    assessment: NonNullable<
-      ActivityAnalysisRunV2PersistenceRecord["assessment"]
-    >;
-    calculations: ActivityAnalysisRunV2PersistenceRecord["calculations"];
-    qualitativeFindings: ActivityAnalysisRunV2PersistenceRecord["qualitativeFindings"];
-  }): Promise<{
-    renderedSummary: string;
-    recommendationText: string | null;
-  }> {
-    try {
-      const { recommendationPolicy, actionableLimitations } =
-        buildRecommendationPolicy(input.assessment);
-      const response =
-        await this.pythonProcessingClient.generateActivityAnalysisV2Recommendation(
-          {
-            activityId: input.activityId,
-            activityName: input.activityName,
-            language: input.language,
-            recommendationPolicy,
-            goalAssessments: input.assessment.goalAssessments.map(
-              (goalAssessment) => ({
-                goalId: goalAssessment.goalId,
-                goalType: goalAssessment.goalType,
-                goalText: goalAssessment.goalText,
-                assessmentStatus: goalAssessment.assessmentStatus,
-                findingText: goalAssessment.findingText,
-                measuredValue: goalAssessment.measuredValue,
-                targetValue: goalAssessment.targetValue,
-                comparison: goalAssessment.comparison,
-                achieved: goalAssessment.achieved,
-                evidenceTensionFlag: goalAssessment.evidenceTensionFlag,
-              }),
-            ),
-            limitations: actionableLimitations,
-            calculations: input.calculations.map((calculation) => ({
-              calculationId: calculation.calculationId,
-              toolName: calculation.toolName,
-              label: calculation.label,
-              description: calculation.description,
-              value: calculation.value,
-              unit: calculation.unit,
-              sourceTableNames: calculation.sourceTableNames,
-              sourceColumns: calculation.sourceColumns,
-              sourceColumnEpistemicRoles:
-                calculation.sourceColumnEpistemicRoles ?? [],
-              grain: calculation.grain,
-              numerator: calculation.numerator ?? null,
-              denominator: calculation.denominator ?? null,
-              denominatorType: calculation.denominatorType,
-              identifierColumn: calculation.identifierColumn ?? null,
-              result: calculation.result,
-            })),
-            qualitativeFindings: input.qualitativeFindings.map((finding) => ({
-              findingId: finding.findingId,
-              toolName: finding.toolName,
-              label: finding.label,
-              description: finding.description,
-              themeOrCode: finding.themeOrCode,
-              excerpts: finding.excerpts,
-              totalMatchingRows: finding.totalMatchingRows,
-              excerptsReturned: finding.excerptsReturned,
-              frequency: finding.frequency,
-              codingMethod: finding.codingMethod,
-              reliabilitySignal: finding.reliabilitySignal,
-              sourceTableNames: finding.sourceTableNames,
-              sourceColumns: finding.sourceColumns,
-              sourceColumnEpistemicRoles:
-                finding.sourceColumnEpistemicRoles ?? [],
-              identifierColumn: finding.identifierColumn ?? null,
-            })),
-          },
-        );
-      await this.recordActivityAnalysisV2Usage(
-        input.activityId,
-        input.projectId,
-        response.llmUsage,
-      );
-      const renderedSummary = response.summaryText.trim();
-      const recommendationText = response.recommendationText.trim();
-      if (renderedSummary.length === 0) {
-        throw new AppError(
-          "The Python processing service returned an empty ActivityAnalystV2 summary.",
-          502,
-          "python_processing_activity_analysis_v2_summary_empty",
-        );
-      }
-      if (
-        recommendationPolicy === "required" &&
-        recommendationText.length === 0
-      ) {
-        throw new AppError(
-          "The Python processing service returned an empty ActivityAnalystV2 recommendation.",
-          502,
-          "python_processing_activity_analysis_v2_recommendation_empty",
-        );
-      }
-      return {
-        renderedSummary,
-        recommendationText:
-          recommendationText.length > 0 ? recommendationText : null,
-      };
-    } catch (error) {
-      this.logger.warn(
-        {
-          activityId: input.activityId,
-          ...extractPlannerErrorLogContext(error),
-        },
-        "ActivityAnalystV2 narrative generation failed",
-      );
-      throw error;
-    }
-  }
-
   /**
    * Enforces `maxEvidenceItems` by dropping the oldest current uploads
    * first, keeping the most recently uploaded evidence for analysis. Without
@@ -736,21 +715,13 @@ export class ActivityAnalysisV2Service {
 
   private buildGoals(activity: {
     output: string | null;
-    outcome: string | null;
   }): ActivityAnalysisV2GoalInput[] {
-    const outputs = splitGoalText(activity.output).map((goalText, index) => ({
+    return splitGoalText(activity.output).map((goalText, index) => ({
       goalId: `output_${index + 1}`,
       goalType: "output" as const,
       goalText,
       targetNumber: extractGoalTargetNumberForActivityAnalysisV2(goalText),
     }));
-    const outcomes = splitGoalText(activity.outcome).map((goalText, index) => ({
-      goalId: `outcome_${index + 1}`,
-      goalType: "outcome" as const,
-      goalText,
-      targetNumber: extractGoalTargetNumberForActivityAnalysisV2(goalText),
-    }));
-    return [...outputs, ...outcomes];
   }
 
   private async buildEvidenceTables(input: {
@@ -758,55 +729,7 @@ export class ActivityAnalysisV2Service {
     evidenceSnapshot: Awaited<
       ReturnType<CurrentActivityEvidenceLoader["load"]>
     >;
-  }): Promise<
-    Array<{
-      uploadMetadataId: string;
-      originalFileName: string;
-      evidenceModality: string | null;
-      tableName: string;
-      rowCount: number;
-      identifierColumn: string | null;
-      identifierHandling:
-        | "assume_unique"
-        | "allow_duplicate_rows_as_events"
-        | "deduplicate_by_identifier"
-        | "manual_review_required"
-        | null;
-      primaryStatusColumn: string | null;
-      primaryDateColumn: string | null;
-      columns: Array<{
-        name: string;
-        role:
-          | "identifier"
-          | "primary_status"
-          | "primary_date"
-          | "measure"
-          | "subgroup"
-          | "free_text"
-          | "other"
-          | null;
-        inferredType:
-          | "identifier"
-          | "numeric"
-          | "date"
-          | "categorical"
-          | "free_text"
-          | "boolean"
-          | "unknown"
-          | null;
-        epistemicRole:
-          | "identifier"
-          | "temporal"
-          | "validated_scale"
-          | "metric_count"
-          | "subjective_code"
-          | "free_text"
-          | "flag"
-          | "categorical"
-          | null;
-      }>;
-    }>
-  > {
+  }): Promise<ActivityAnalysisV2EvidenceTableInput[]> {
     const results =
       await this.interpretationResultRepository.findLatestByUploadMetadataIds(
         input.evidenceSnapshot.evidence.map((item) => item.uploadMetadataId),
@@ -856,6 +779,24 @@ export class ActivityAnalysisV2Service {
             ...syntheticColumns.map((column) => column.name),
           ]),
         );
+        const columns =
+          preparedTable?.columns.map((column) => ({
+            name: column.name,
+            role: column.role,
+            inferredType: column.inferredType,
+            epistemicRole: column.epistemicRole,
+          })) ??
+          fallbackColumnNames.map((columnName) => {
+            const syntheticColumn =
+              syntheticColumnByName.get(columnName) ?? null;
+            return {
+              name: columnName,
+              role: syntheticColumn ? ("other" as const) : null,
+              inferredType: syntheticColumn?.inferredType ?? null,
+              epistemicRole: syntheticColumn?.epistemicRole ?? null,
+            };
+          });
+
         return {
           uploadMetadataId: evidence.uploadMetadataId,
           originalFileName: evidence.originalFileName,
@@ -866,23 +807,8 @@ export class ActivityAnalysisV2Service {
           identifierHandling: preparedTable?.identifierHandling ?? null,
           primaryStatusColumn: preparedTable?.primaryStatusColumn ?? null,
           primaryDateColumn: preparedTable?.primaryDateColumn ?? null,
-          columns:
-            preparedTable?.columns.map((column) => ({
-              name: column.name,
-              role: column.role,
-              inferredType: column.inferredType,
-              epistemicRole: column.epistemicRole,
-            })) ??
-            fallbackColumnNames.map((columnName) => {
-              const syntheticColumn =
-                syntheticColumnByName.get(columnName) ?? null;
-              return {
-                name: columnName,
-                role: syntheticColumn ? ("other" as const) : null,
-                inferredType: syntheticColumn?.inferredType ?? null,
-                epistemicRole: syntheticColumn?.epistemicRole ?? null,
-              };
-            }),
+          columns,
+          plannerHints: buildPlannerHints(columns, rows),
         };
       });
     });
@@ -902,6 +828,15 @@ export class ActivityAnalysisV2Service {
   async assertReadyForV2Run(userId: string, activityId: string) {
     const { activity, project } =
       await this.authorizationService.canEditActivity(userId, activityId);
+
+    if (activity.systemType) {
+      throw new AppError(
+        "System activities only support evidence interpretation, not goal analysis.",
+        409,
+        "system_activity_analysis_v2_not_supported",
+      );
+    }
+
     const evidenceSnapshot =
       await this.currentActivityEvidenceLoader.load(activityId);
     this.applyEvidenceItemCap(activityId, evidenceSnapshot);
@@ -1004,10 +939,44 @@ export class ActivityAnalysisV2Service {
       },
       "starting ActivityAnalystV2 shadow preview",
     );
-    const evidenceTables = await this.buildEvidenceTables({
-      activityId,
-      evidenceSnapshot,
-    });
+    const stageContext = {
+      pipeline: "activity_analysis_v2",
+      activityId: activity.id,
+      projectId: project.id,
+    };
+    const evidenceTables = await runLoggedPipelineStage(
+      this.logger,
+      {
+        ...stageContext,
+        stage: "v2_prepare_snapshot",
+        evidenceCount: evidenceSnapshot.evidence.length,
+        goalCount: goals.length,
+      },
+      () =>
+        this.buildEvidenceTables({
+          activityId,
+          evidenceSnapshot,
+        }),
+      {
+        completedContext: (tables) => ({
+          evidenceTableCount: tables.length,
+          evidenceColumnCount: tables.reduce(
+            (sum, table) => sum + table.columns.length,
+            0,
+          ),
+          goalSupportColumnCount: tables.reduce(
+            (sum, table) =>
+              sum + (table.plannerHints?.goalSupportColumns.length ?? 0),
+            0,
+          ),
+          dateCoverageColumnCount: tables.reduce(
+            (sum, table) =>
+              sum + (table.plannerHints?.dateCoverage.length ?? 0),
+            0,
+          ),
+        }),
+      },
+    );
     const persistedClarificationAnswers =
       activity.activityAnalysisV2ClarificationAnswers ?? [];
     // Needed so a planner-call failure (network error, timeout, malformed
@@ -1022,27 +991,113 @@ export class ActivityAnalysisV2Service {
     let plannerClarificationAnswers =
       this.buildPlannerClarificationAnswers(activity);
 
+    let plannerAttempt = 0;
     const planWithClarificationAnswers = async () => {
-      const response = await this.pythonProcessingClient.planActivityAnalysisV2(
+      plannerAttempt += 1;
+      const plannerCallStartedAt = Date.now();
+      const evidenceTableCount = evidenceTables.length;
+      const evidenceColumnCount = evidenceTables.reduce(
+        (sum, table) => sum + table.columns.length,
+        0,
+      );
+      const goalSupportColumnCount = evidenceTables.reduce(
+        (sum, table) =>
+          sum + (table.plannerHints?.goalSupportColumns.length ?? 0),
+        0,
+      );
+      const dateCoverageColumnCount = evidenceTables.reduce(
+        (sum, table) => sum + (table.plannerHints?.dateCoverage.length ?? 0),
+        0,
+      );
+      this.logger.info(
         {
           activityId: activity.id,
-          activityName: activity.name,
-          language,
-          goals,
-          evidenceTables,
-          clarificationAnswers: plannerClarificationAnswers,
-          runLimits: PHASE_1_RUN_LIMITS,
+          evidenceTableCount,
+          evidenceColumnCount,
+          goalSupportColumnCount,
+          dateCoverageColumnCount,
+          goalCount: goals.length,
+          clarificationAnswerCount: plannerClarificationAnswers.length,
+          timeoutMs:
+            this.pythonProcessingClient.activityAnalysisV2PlanTimeoutMs,
         },
+        "ActivityAnalystV2 planner call starting",
       );
-      // Recorded per call, not once per run — this can be invoked multiple
-      // times by the auto-resolved clarification replan loop below, and
-      // each call is separately billed.
-      await this.recordActivityAnalysisV2Usage(
-        activity.id,
-        project.id,
-        response.llmUsage,
-      );
-      return response;
+      try {
+        const response = await runLoggedPipelineStage(
+          this.logger,
+          {
+            ...stageContext,
+            stage: "v2_plan",
+            attempt: plannerAttempt,
+            evidenceTableCount,
+            evidenceColumnCount,
+            goalSupportColumnCount,
+            dateCoverageColumnCount,
+            goalCount: goals.length,
+            clarificationAnswerCount: plannerClarificationAnswers.length,
+            timeoutMs:
+              this.pythonProcessingClient.activityAnalysisV2PlanTimeoutMs,
+          },
+          () =>
+            this.pythonProcessingClient.planActivityAnalysisV2({
+              activityId: activity.id,
+              activityName: activity.name,
+              language,
+              goals,
+              evidenceTables,
+              clarificationAnswers: plannerClarificationAnswers,
+              runLimits: PHASE_1_RUN_LIMITS,
+              planningTimeBudgetMs: Math.max(
+                this.pythonProcessingClient.activityAnalysisV2PlanTimeoutMs -
+                  PLANNING_TIME_BUDGET_SAFETY_MARGIN_MS,
+                0,
+              ),
+            }),
+          {
+            completedContext: (plannerResult) => ({
+              validationStatus: plannerResult.validation.status,
+              validationIssueCount: plannerResult.validation.issues.length,
+              toolRequestCount: plannerResult.toolRequests.length,
+              clarificationQuestionCount:
+                plannerResult.clarificationQuestions?.length ?? 0,
+              llmUsage: plannerResult.llmUsage ?? null,
+            }),
+          },
+        );
+        this.logger.info(
+          {
+            activityId: activity.id,
+            durationMs: Date.now() - plannerCallStartedAt,
+            validationStatus: response.validation.status,
+            validationIssueCount: response.validation.issues.length,
+            toolRequestCount: response.toolRequests.length,
+            clarificationQuestionCount:
+              response.clarificationQuestions?.length ?? 0,
+            llmUsage: response.llmUsage ?? null,
+          },
+          "ActivityAnalystV2 planner call completed",
+        );
+        // Recorded per call, not once per run — this can be invoked multiple
+        // times by the auto-resolved clarification replan loop below, and
+        // each call is separately billed.
+        await this.recordActivityAnalysisV2Usage(
+          activity.id,
+          project.id,
+          response.llmUsage,
+        );
+        return response;
+      } catch (error) {
+        this.logger.error(
+          {
+            activityId: activity.id,
+            durationMs: Date.now() - plannerCallStartedAt,
+            ...extractPlannerErrorLogContext(error),
+          },
+          "ActivityAnalystV2 planner call failed",
+        );
+        throw error;
+      }
     };
 
     let plannerResponse: Awaited<
@@ -1079,17 +1134,21 @@ export class ActivityAnalysisV2Service {
         }
 
         // A replan call can itself take up to the Python service's full
-        // analytics timeout. Only attempt one if the run still has that
-        // much budget left — otherwise this would blow past
+        // planActivityAnalysisV2 timeout. Only attempt one if the run
+        // still has that much budget left — otherwise this would blow past
         // PHASE_1_RUN_LIMITS.timeoutMs anyway, just later, after wasting
         // another full call's worth of wall-clock time first. Falling
         // through here leaves plannerResponse (and its unresolved
         // clarification questions) as-is; the timeout check right after
-        // this loop still catches a genuine first-call overrun.
+        // this loop still catches a genuine first-call overrun. Compared
+        // against activityAnalysisV2PlanTimeoutMs specifically (not the
+        // generic long-running LLM timeout) since that's the actual ceiling the
+        // next planWithClarificationAnswers() call below will run under.
         const remainingBudgetMs =
           PHASE_1_RUN_LIMITS.timeoutMs - (Date.now() - runStartedAt);
         if (
-          remainingBudgetMs <= this.pythonProcessingClient.analyticsTimeoutMs
+          remainingBudgetMs <=
+          this.pythonProcessingClient.activityAnalysisV2PlanTimeoutMs
         ) {
           break;
         }
@@ -1119,7 +1178,6 @@ export class ActivityAnalysisV2Service {
         executedToolCallCount: 0,
         calculationCount: 0,
         validation: failedValidation,
-        renderedSummary: null,
         assessment: null,
       });
       // The planner call threw before producing a new plan, so there are no
@@ -1141,7 +1199,6 @@ export class ActivityAnalysisV2Service {
             activityType: activity.activityType,
             objectives: activity.objectives,
             output: activity.output,
-            outcome: activity.outcome,
           },
           evidence: this.buildEvidenceSnapshotRecords(evidenceSnapshot),
           runLimits: PHASE_1_RUN_LIMITS,
@@ -1155,8 +1212,6 @@ export class ActivityAnalysisV2Service {
           qualitativeFindings: [],
           assessment: null,
           diagnostics,
-          renderedSummary: null,
-          recommendationText: null,
           validation: failedValidation,
           errorMessage:
             error instanceof Error
@@ -1192,7 +1247,6 @@ export class ActivityAnalysisV2Service {
         executedToolCallCount: 0,
         calculationCount: 0,
         validation: timeoutValidation,
-        renderedSummary: null,
         assessment: null,
       });
       const timedOutRun = await this.activityAnalysisRunV2Repository.create(
@@ -1207,7 +1261,6 @@ export class ActivityAnalysisV2Service {
             activityType: activity.activityType,
             objectives: activity.objectives,
             output: activity.output,
-            outcome: activity.outcome,
           },
           evidence: evidenceRecords,
           runLimits: PHASE_1_RUN_LIMITS,
@@ -1217,8 +1270,6 @@ export class ActivityAnalysisV2Service {
           qualitativeFindings: [],
           assessment: null,
           diagnostics,
-          renderedSummary: null,
-          recommendationText: null,
           validation: timeoutValidation,
           errorMessage: timeoutMessage,
         },
@@ -1240,7 +1291,6 @@ export class ActivityAnalysisV2Service {
         executedToolCallCount: 0,
         calculationCount: 0,
         validation: plannerResponse.validation,
-        renderedSummary: null,
         assessment: null,
       });
       run = await this.activityAnalysisRunV2Repository.create(
@@ -1255,7 +1305,6 @@ export class ActivityAnalysisV2Service {
             activityType: activity.activityType,
             objectives: activity.objectives,
             output: activity.output,
-            outcome: activity.outcome,
           },
           evidence: evidenceRecords,
           runLimits: PHASE_1_RUN_LIMITS,
@@ -1265,8 +1314,6 @@ export class ActivityAnalysisV2Service {
           qualitativeFindings: [],
           assessment: null,
           diagnostics,
-          renderedSummary: null,
-          recommendationText: null,
           validation: plannerResponse.validation,
           errorMessage: "ActivityAnalystV2 planner returned an invalid plan.",
         },
@@ -1285,6 +1332,17 @@ export class ActivityAnalysisV2Service {
     if (
       clarificationQuestions.some((question) => question.status === "pending")
     ) {
+      logPipelineStageStatus(
+        this.logger,
+        {
+          ...stageContext,
+          stage: "v2_plan",
+          pendingClarificationQuestionCount: clarificationQuestions.filter(
+            (question) => question.status === "pending",
+          ).length,
+        },
+        "waiting_for_user",
+      );
       const pausedValidation = {
         status: "passed" as const,
         issues: [],
@@ -1296,7 +1354,6 @@ export class ActivityAnalysisV2Service {
         executedToolCallCount: 0,
         calculationCount: 0,
         validation: pausedValidation,
-        renderedSummary: null,
         assessment: null,
       });
       run = await this.activityAnalysisRunV2Repository.create(
@@ -1311,7 +1368,6 @@ export class ActivityAnalysisV2Service {
             activityType: activity.activityType,
             objectives: activity.objectives,
             output: activity.output,
-            outcome: activity.outcome,
           },
           evidence: evidenceRecords,
           runLimits: PHASE_1_RUN_LIMITS,
@@ -1321,8 +1377,6 @@ export class ActivityAnalysisV2Service {
           qualitativeFindings: [],
           assessment: null,
           diagnostics,
-          renderedSummary: null,
-          recommendationText: null,
           validation: pausedValidation,
           errorMessage: null,
         },
@@ -1343,143 +1397,109 @@ export class ActivityAnalysisV2Service {
       );
 
     try {
-      const execution =
-        plannedToolRequests.length > 0
-          ? await this.activityAnalysisV2ToolExecutor.execute(
-              plannedToolRequests,
-              evidenceSnapshot,
-              PHASE_1_RUN_LIMITS,
-              runStartedAt,
-            )
-          : {
-              toolCallTrace: [],
-              calculations: [],
-              qualitativeFindings: [],
-            };
-      const assessmentResult = buildActivityAssessmentV2({
-        language,
-        goals: plannerResponse.goalPlans,
-        plannedToolRequests: plannerResponse.toolRequests,
-        toolCallTrace: execution.toolCallTrace,
-        calculations: execution.calculations,
-        qualitativeFindings: execution.qualitativeFindings,
-        limitations: plannerResponse.limitations,
-      });
+      const execution = await runLoggedPipelineStage(
+        this.logger,
+        {
+          ...stageContext,
+          stage: "v2_execute_tools",
+          plannedToolRequestCount: plannedToolRequests.length,
+        },
+        async () =>
+          plannedToolRequests.length > 0
+            ? await this.activityAnalysisV2ToolExecutor.execute(
+                plannedToolRequests,
+                evidenceSnapshot,
+                PHASE_1_RUN_LIMITS,
+                runStartedAt,
+              )
+            : {
+                toolCallTrace: [],
+                calculations: [],
+                qualitativeFindings: [],
+              },
+        {
+          completedContext: (executionResult) => ({
+            executedToolCallCount: executionResult.toolCallTrace.length,
+            calculationCount: executionResult.calculations.length,
+            qualitativeFindingCount: executionResult.qualitativeFindings.length,
+            failedToolCallCount: executionResult.toolCallTrace.filter(
+              (toolCall) => toolCall.status === "failed",
+            ).length,
+          }),
+        },
+      );
+      const assessmentResult = await runLoggedPipelineStage(
+        this.logger,
+        {
+          ...stageContext,
+          stage: "v2_assess",
+          plannedToolRequestCount: plannerResponse.toolRequests.length,
+          executedToolCallCount: execution.toolCallTrace.length,
+          calculationCount: execution.calculations.length,
+        },
+        async () =>
+          buildActivityAssessmentV2({
+            language,
+            goals: plannerResponse.goalPlans,
+            plannedToolRequests: plannerResponse.toolRequests,
+            toolCallTrace: execution.toolCallTrace,
+            calculations: execution.calculations,
+            qualitativeFindings: execution.qualitativeFindings,
+            limitations: plannerResponse.limitations,
+          }),
+        {
+          completedContext: (assessmentResult) => ({
+            validationStatus: assessmentResult.validation.status,
+            validationIssueCount: assessmentResult.validation.issues.length,
+            goalAssessmentCount:
+              assessmentResult.assessment.goalAssessments.length,
+          }),
+        },
+      );
 
-      // Tool execution and assessment above are already computed (and, for
-      // tool execution, already paid for) by this point. Narrative
-      // generation gets its own try/catch so a failure here persists that
-      // work instead of discarding it — the outer catch below only knows
-      // how to recover state from a failed tool executor's error, not from
-      // a narrative-generation failure.
-      try {
-        const narrative = await this.generateNarrativeTexts({
-          activityId: activity.id,
+      const diagnostics = buildActivityAnalysisV2Diagnostics({
+        goals,
+        evidenceCount: evidenceSnapshot.evidence.length,
+        plannedToolRequestCount: plannerResponse.toolRequests.length,
+        executedToolCallCount: execution.toolCallTrace.length,
+        calculationCount: execution.calculations.length,
+        validation: assessmentResult.validation,
+        assessment: assessmentResult.assessment,
+      });
+      run = await this.activityAnalysisRunV2Repository.create(
+        {
+          organizationId: project.organizationId,
           projectId: project.id,
+          activityId: activity.id,
           activityName: activity.name,
-          language,
-          assessment: assessmentResult.assessment,
+          phase: "phase_4_rendering",
+          status: "completed",
+          goalsSnapshot: {
+            activityType: activity.activityType,
+            objectives: activity.objectives,
+            output: activity.output,
+          },
+          evidence: evidenceRecords,
+          runLimits: PHASE_1_RUN_LIMITS,
+          clarificationQuestions: [],
+          toolCallTrace: execution.toolCallTrace,
           calculations: execution.calculations,
           qualitativeFindings: execution.qualitativeFindings,
-        });
-        const diagnostics = buildActivityAnalysisV2Diagnostics({
-          goals,
-          evidenceCount: evidenceSnapshot.evidence.length,
-          plannedToolRequestCount: plannerResponse.toolRequests.length,
-          executedToolCallCount: execution.toolCallTrace.length,
-          calculationCount: execution.calculations.length,
-          validation: assessmentResult.validation,
-          renderedSummary: narrative.renderedSummary,
           assessment: assessmentResult.assessment,
-        });
-        run = await this.activityAnalysisRunV2Repository.create(
-          {
-            organizationId: project.organizationId,
-            projectId: project.id,
-            activityId: activity.id,
-            activityName: activity.name,
-            phase: "phase_4_rendering",
-            status: "completed",
-            goalsSnapshot: {
-              activityType: activity.activityType,
-              objectives: activity.objectives,
-              output: activity.output,
-              outcome: activity.outcome,
-            },
-            evidence: evidenceRecords,
-            runLimits: PHASE_1_RUN_LIMITS,
-            clarificationQuestions: [],
-            toolCallTrace: execution.toolCallTrace,
-            calculations: execution.calculations,
-            qualitativeFindings: execution.qualitativeFindings,
-            assessment: assessmentResult.assessment,
-            diagnostics,
-            renderedSummary: narrative.renderedSummary,
-            recommendationText: narrative.recommendationText,
-            validation: assessmentResult.validation,
-            errorMessage: null,
-          },
-          databaseSession,
-        );
-        this.logger.info(
-          {
-            activityId: activity.id,
-            analysisRunId: run.id,
-            diagnostics,
-          },
-          "ActivityAnalystV2 shadow preview completed",
-        );
-      } catch (narrativeError) {
-        const diagnostics = buildActivityAnalysisV2Diagnostics({
-          goals,
-          evidenceCount: evidenceSnapshot.evidence.length,
-          plannedToolRequestCount: plannerResponse.toolRequests.length,
-          executedToolCallCount: execution.toolCallTrace.length,
-          calculationCount: execution.calculations.length,
+          diagnostics,
           validation: assessmentResult.validation,
-          renderedSummary: null,
-          assessment: assessmentResult.assessment,
-        });
-        run = await this.activityAnalysisRunV2Repository.create(
-          {
-            organizationId: project.organizationId,
-            projectId: project.id,
-            activityId: activity.id,
-            activityName: activity.name,
-            phase: "phase_4_rendering",
-            status: "failed",
-            goalsSnapshot: {
-              activityType: activity.activityType,
-              objectives: activity.objectives,
-              output: activity.output,
-              outcome: activity.outcome,
-            },
-            evidence: evidenceRecords,
-            runLimits: PHASE_1_RUN_LIMITS,
-            clarificationQuestions: [],
-            toolCallTrace: execution.toolCallTrace,
-            calculations: execution.calculations,
-            qualitativeFindings: execution.qualitativeFindings,
-            assessment: assessmentResult.assessment,
-            diagnostics,
-            renderedSummary: null,
-            recommendationText: null,
-            validation: assessmentResult.validation,
-            errorMessage:
-              narrativeError instanceof Error
-                ? narrativeError.message
-                : "ActivityAnalystV2 narrative generation failed.",
-          },
-          databaseSession,
-        );
-        this.logger.error(
-          {
-            activityId: activity.id,
-            error: narrativeError,
-          },
-          "ActivityAnalystV2 narrative generation failed after successful tool execution",
-        );
-      }
+          errorMessage: null,
+        },
+        databaseSession,
+      );
+      this.logger.info(
+        {
+          activityId: activity.id,
+          analysisRunId: run.id,
+          diagnostics,
+        },
+        "ActivityAnalystV2 shadow preview completed",
+      );
     } catch (error) {
       const toolCallTrace =
         error &&
@@ -1517,7 +1537,6 @@ export class ActivityAnalysisV2Service {
         executedToolCallCount: toolCallTrace.length,
         calculationCount: calculations.length,
         validation: failedValidation,
-        renderedSummary: null,
         assessment: null,
       });
       run = await this.activityAnalysisRunV2Repository.create(
@@ -1532,7 +1551,6 @@ export class ActivityAnalysisV2Service {
             activityType: activity.activityType,
             objectives: activity.objectives,
             output: activity.output,
-            outcome: activity.outcome,
           },
           evidence: evidenceRecords,
           runLimits: PHASE_1_RUN_LIMITS,
@@ -1542,8 +1560,6 @@ export class ActivityAnalysisV2Service {
           qualitativeFindings,
           assessment: null,
           diagnostics,
-          renderedSummary: null,
-          recommendationText: null,
           validation: failedValidation,
           errorMessage:
             error instanceof Error

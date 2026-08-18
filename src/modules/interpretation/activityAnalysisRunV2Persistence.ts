@@ -13,7 +13,6 @@ export interface ActivityAnalysisRunV2GoalsSnapshotPersistenceRecord {
   activityType: string | null;
   objectives: string | null;
   output: string | null;
-  outcome: string | null;
 }
 
 export interface ActivityAnalysisRunV2EvidenceItemPersistenceRecord {
@@ -55,8 +54,6 @@ export interface ActivityAnalysisRunV2PersistenceRecord {
   qualitativeFindings: ActivityAnalysisV2QualitativeFindingRecord[];
   assessment: ActivityAssessmentV2 | null;
   diagnostics: ActivityAnalysisV2Diagnostics;
-  renderedSummary: string | null;
-  recommendationText: string | null;
   validation: ActivityAnalysisRunV2ValidationPersistenceRecord;
   errorMessage: string | null;
   createdAt: Date;
@@ -79,8 +76,6 @@ export interface ActivityAnalysisRunV2CreateInput {
   qualitativeFindings: ActivityAnalysisV2QualitativeFindingRecord[];
   assessment: ActivityAssessmentV2 | null;
   diagnostics: ActivityAnalysisV2Diagnostics;
-  renderedSummary: string | null;
-  recommendationText: string | null;
   validation: ActivityAnalysisRunV2ValidationPersistenceRecord;
   errorMessage: string | null;
 }

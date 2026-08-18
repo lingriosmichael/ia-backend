@@ -5,7 +5,7 @@ import type { TransactionManager } from "../../shared/database/transactionManage
 import type { ActivityRepository } from "../activity/activityRepository.js";
 import type { ActivityService } from "../activity/activityService.js";
 import type { ProcessingJobRepository } from "../ai/execution/processingJobRepository.js";
-import type { ProjectDerivedStateInvalidationService } from "../analytics/projectDerivedStateInvalidationService.js";
+import type { ProjectDerivedStateInvalidationService } from "../project/projectDerivedStateInvalidationService.js";
 import type { ProcessingResourceCleanupService } from "../processing/processingResourceCleanupService.js";
 import type { UserRepository } from "../user/userRepository.js";
 import type { UploadMetadataRepository } from "./uploadMetadataRepository.js";
@@ -54,7 +54,6 @@ test("upload create clears acknowledgment and invalidates project derived state 
         endDate: null,
         objectives: null,
         output: null,
-        outcome: null,
         targetAudience: null,
         status: "active",
         interpretationAcknowledgedAt: new Date("2026-01-03T00:00:00.000Z"),
@@ -82,7 +81,6 @@ test("upload create clears acknowledgment and invalidates project derived state 
       endDate: null,
       objectives: null,
       output: null,
-      outcome: null,
       targetAudience: null,
       status: "active",
       interpretationAcknowledgedAt: new Date("2026-01-03T00:00:00.000Z"),
@@ -172,7 +170,6 @@ test("upload delete clears acknowledgment and invalidates project derived state 
       endDate: null,
       objectives: null,
       output: null,
-      outcome: null,
       targetAudience: null,
       status: "active",
       interpretationAcknowledgedAt: new Date("2026-01-03T00:00:00.000Z"),
@@ -630,7 +627,6 @@ test("cleanupDerivedWorkbookSheetUploads removes derived uploads, jobs, processi
         endDate: null,
         objectives: null,
         output: null,
-        outcome: null,
         targetAudience: null,
         status: "active",
         interpretationAcknowledgedAt: null,

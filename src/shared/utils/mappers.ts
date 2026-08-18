@@ -1,5 +1,6 @@
 import type {
   ActivitySummary,
+  ActivitySystemType,
   ActivityStatus,
   ActivityPermissions,
   AuthResponse,
@@ -41,6 +42,7 @@ import type {
 } from "../contracts.js";
 import { classifyEvidenceModalityFromPayload } from "./evidenceModality.js";
 import { classifyInterpretationDataTypeFromPayload } from "./interpretationDataType.js";
+import { shouldIgnoreInterpretationQuestion } from "./interpretationQuestionFilters.js";
 import {
   asRecord,
   asRecordArray,
@@ -144,13 +146,18 @@ function mapActivityPermissions(
   projectOwnerId: string,
   currentUserId: string,
   projectStatus: ProjectStatus,
+  systemType: ActivitySystemType | null = null,
 ): ActivityPermissions {
   const canEdit =
+    systemType === null &&
+    projectOwnerId === currentUserId &&
+    projectStatus !== "completed";
+  const canUploadEvidence =
     projectOwnerId === currentUserId && projectStatus !== "completed";
 
   return {
     canEdit,
-    canUploadEvidence: canEdit,
+    canUploadEvidence,
   };
 }
 
@@ -265,6 +272,7 @@ export function mapActivity(
   activity: {
     id: string;
     projectId: string;
+    systemType?: ActivitySystemType | null;
     projectOwnerId: string;
     projectStatus: ProjectStatus | keyof typeof projectStatusMap;
     name: string;
@@ -275,15 +283,11 @@ export function mapActivity(
     targetAudience: string | null;
     objectives: string | null;
     output: string | null;
-    outcome: string | null;
     concernTaggingInstruction: string | null;
     status: ActivityStatus | keyof typeof activityStatusMap;
     interpretationAcknowledgedAt: Date | null;
     interpretationAcknowledgedById: string | null;
     interpretationAcknowledgedByName?: string | null;
-    aiKnowledgeSnapshot?: {
-      generatedAt: Date;
-    } | null;
     createdAt: Date;
     updatedAt: Date;
   },
@@ -292,6 +296,7 @@ export function mapActivity(
   return {
     id: activity.id,
     projectId: activity.projectId,
+    systemType: activity.systemType ?? null,
     name: activity.name,
     description: activity.description,
     activityType: activity.activityType,
@@ -300,13 +305,13 @@ export function mapActivity(
     targetAudience: activity.targetAudience,
     objectives: activity.objectives,
     output: activity.output,
-    outcome: activity.outcome,
     concernTaggingInstruction: activity.concernTaggingInstruction,
     status: normalizeActivityStatus(activity.status),
     permissions: mapActivityPermissions(
       activity.projectOwnerId,
       currentUserId,
       normalizeProjectStatus(activity.projectStatus),
+      activity.systemType ?? null,
     ),
     interpretationAcknowledgedAt: activity.interpretationAcknowledgedAt
       ? toIso(activity.interpretationAcknowledgedAt)
@@ -323,6 +328,7 @@ export function mapWorkspaceActivity(
   activity: {
     id: string;
     projectId: string;
+    systemType?: ActivitySystemType | null;
     projectOwnerId: string;
     projectStatus: ProjectStatus | keyof typeof projectStatusMap;
     name: string;
@@ -333,15 +339,11 @@ export function mapWorkspaceActivity(
     targetAudience: string | null;
     objectives: string | null;
     output: string | null;
-    outcome: string | null;
     concernTaggingInstruction: string | null;
     status: ActivityStatus | keyof typeof activityStatusMap;
     interpretationAcknowledgedAt: Date | null;
     interpretationAcknowledgedById: string | null;
     interpretationAcknowledgedByName?: string | null;
-    aiKnowledgeSnapshot?: {
-      generatedAt: Date;
-    } | null;
     createdAt: Date;
     updatedAt: Date;
     _count: {
@@ -410,7 +412,6 @@ export function mapWorkspace(record: {
       targetAudience: string | null;
       objectives: string | null;
       output: string | null;
-      outcome: string | null;
       concernTaggingInstruction: string | null;
       status: ActivityStatus | keyof typeof activityStatusMap;
       interpretationAcknowledgedAt: Date | null;
@@ -784,23 +785,25 @@ export function mapInterpretationResult(record: {
     relationships: record.relationships,
     qualitativeFindings: record.qualitativeFindings,
     supportingQuotes: record.supportingQuotes,
-    questions: record.questions.map((question) => ({
-      id: question.id,
-      prompt: question.prompt,
-      kind: question.kind,
-      questionDomain: question.questionDomain,
-      options: question.options,
-      recommendedOption: question.recommendedOption,
-      recommendedConfidence: question.recommendedConfidence,
-      isBlocking: question.isBlocking,
-      questionCode: question.questionCode,
-      targetTableName: question.targetTableName,
-      targetColumnName: question.targetColumnName,
-      status: question.status,
-      answeredValue: question.answeredValue,
-      answeredById: question.answeredById,
-      answeredAt: question.answeredAt ? toIso(question.answeredAt) : null,
-    })),
+    questions: record.questions
+      .filter((question) => !shouldIgnoreInterpretationQuestion(question))
+      .map((question) => ({
+        id: question.id,
+        prompt: question.prompt,
+        kind: question.kind,
+        questionDomain: question.questionDomain,
+        options: question.options,
+        recommendedOption: question.recommendedOption,
+        recommendedConfidence: question.recommendedConfidence,
+        isBlocking: question.isBlocking,
+        questionCode: question.questionCode,
+        targetTableName: question.targetTableName,
+        targetColumnName: question.targetColumnName,
+        status: question.status,
+        answeredValue: question.answeredValue,
+        answeredById: question.answeredById,
+        answeredAt: question.answeredAt ? toIso(question.answeredAt) : null,
+      })),
     warnings: record.warnings,
     goalAlignment: record.goalAlignment,
     llmUsage: record.llmUsage,

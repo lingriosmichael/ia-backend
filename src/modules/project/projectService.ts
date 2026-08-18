@@ -15,6 +15,10 @@ import { AuthorizationService } from "../../shared/auth/authorizationService.js"
 import type { ProjectRepository } from "./projectRepository.js";
 import { FileStorageService } from "../upload/fileStorageService.js";
 import type { ActivityRepository } from "../activity/activityRepository.js";
+import {
+  ensureProjectSystemActivities,
+  sortActivitiesForDisplay,
+} from "../activity/systemActivities.js";
 import type { OrganizationRepository } from "../organization/organizationRepository.js";
 import type { UploadMetadataRepository } from "../upload/uploadMetadataRepository.js";
 import type { UserRepository } from "../user/userRepository.js";
@@ -163,39 +167,52 @@ export class ProjectService {
 
     const targetGroups = trimStringArray(input.targetGroups) ?? [];
 
-    const project = await this.projectRepository.create(
-      {
-        organizationId,
-        ownerId: userId,
-        name: trimRequiredText(input.name),
-        initialSituation: trimNullableText(input.initialSituation) ?? null,
-        startMonth: input.startMonth,
-        endMonth: input.endMonth,
-        fundingProgram: trimNullableText(input.fundingProgram) ?? null,
-        fundingOrganization:
-          trimNullableText(input.fundingOrganization) ?? null,
-        targetGroups,
-        overarchingTargetGroup:
-          resolveOverarchingTargetGroup({
-            overarchingTargetGroup: input.overarchingTargetGroup,
+    const project = await this.transactionManager.runInTransaction(
+      async (session) => {
+        const createdProject = await this.projectRepository.create(
+          {
+            organizationId,
+            ownerId: userId,
+            name: trimRequiredText(input.name),
+            initialSituation: trimNullableText(input.initialSituation) ?? null,
+            startMonth: input.startMonth,
+            endMonth: input.endMonth,
+            fundingProgram: trimNullableText(input.fundingProgram) ?? null,
+            fundingOrganization:
+              trimNullableText(input.fundingOrganization) ?? null,
             targetGroups,
-          }) ?? "",
-        intendedChanges: trimStringArray(input.intendedChanges) ?? [],
-        areaOfOperation: trimNullableText(input.areaOfOperation) ?? null,
-        partnerships: input.partnerships?.trim() ?? null,
-        sdgs: input.sdgs ?? [],
-        // Impact model and success indicators are no longer collected at
-        // creation time — they'll be filled in later via the Bericht page.
-        impactModel: {
-          inputs: null,
-          activities: null,
-          outputs: null,
-          impact: null,
-          outcomes: null,
-        },
-        successIndicators: null,
+            overarchingTargetGroup:
+              resolveOverarchingTargetGroup({
+                overarchingTargetGroup: input.overarchingTargetGroup,
+                targetGroups,
+              }) ?? "",
+            intendedChanges: trimStringArray(input.intendedChanges) ?? [],
+            areaOfOperation: trimNullableText(input.areaOfOperation) ?? null,
+            partnerships: input.partnerships?.trim() ?? null,
+            sdgs: input.sdgs ?? [],
+            // Impact model and success indicators are no longer collected at
+            // creation time — they'll be filled in later via the Bericht page.
+            impactModel: {
+              inputs: null,
+              activities: null,
+              outputs: null,
+              impact: null,
+              outcomes: null,
+            },
+            successIndicators: null,
+          },
+          session,
+        );
+
+        await ensureProjectSystemActivities({
+          activityRepository: this.activityRepository,
+          projectId: createdProject.id,
+          createdById: userId,
+          session,
+        });
+
+        return createdProject;
       },
-      databaseSession,
     );
 
     return mapProjectSummary(
@@ -407,10 +424,22 @@ export class ProjectService {
         projectId,
         databaseSession,
       );
-    const projectActivities = await this.activityRepository.listByProject(
+    const existingProjectActivities =
+      await this.activityRepository.listByProject(projectId, databaseSession);
+    const systemActivities = await ensureProjectSystemActivities({
+      activityRepository: this.activityRepository,
       projectId,
-      databaseSession,
-    );
+      createdById: overview.ownerId,
+      session: databaseSession,
+    });
+    const projectActivities = sortActivitiesForDisplay([
+      ...new Map(
+        [...existingProjectActivities, ...systemActivities].map((activity) => [
+          activity.id,
+          activity,
+        ]),
+      ).values(),
+    ]);
     const activityUploadCounts =
       await this.uploadMetadataRepository.countByActivityIds(
         projectActivities.map((activity) => activity.id),
@@ -462,13 +491,15 @@ export class ProjectService {
       ),
     );
     const recentActivity = [
-      ...projectActivities.map<ProjectRecentActivityItem>((activity) => ({
-        id: `activity-${activity.id}`,
-        type: "activity_created",
-        occurredAt: toIso(activity.createdAt),
-        activityId: activity.id,
-        activityName: activity.name,
-      })),
+      ...projectActivities
+        .filter((activity) => !activity.systemType)
+        .map<ProjectRecentActivityItem>((activity) => ({
+          id: `activity-${activity.id}`,
+          type: "activity_created",
+          occurredAt: toIso(activity.createdAt),
+          activityId: activity.id,
+          activityName: activity.name,
+        })),
       ...recentUploads.map<ProjectRecentActivityItem>((upload) => ({
         id: `upload-${upload.id}`,
         type: "dataset_uploaded",

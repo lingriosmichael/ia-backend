@@ -5,6 +5,7 @@ import type {
   InterpretationQuestionStatus,
 } from "../../shared/contracts.js";
 import type { ActivityRepository } from "../activity/activityRepository.js";
+import { shouldIgnoreInterpretationQuestion } from "../../shared/utils/interpretationQuestionFilters.js";
 
 const FIRST_LAYER_BLOCKING_QUESTION_CODES = new Set<InterpretationQuestionCode>(
   [
@@ -21,6 +22,7 @@ type ReviewQuestion = {
   kind: InterpretationQuestionKind;
   status: InterpretationQuestionStatus;
   questionCode?: InterpretationQuestionCode | null;
+  targetColumnName?: string | null;
 };
 
 type ReviewResult = {
@@ -31,7 +33,12 @@ export function isBlockingQuestion(question: {
   isBlocking?: boolean | null;
   kind: InterpretationQuestionKind;
   questionCode?: InterpretationQuestionCode | null;
+  targetColumnName?: string | null;
 }): boolean {
+  if (shouldIgnoreInterpretationQuestion(question)) {
+    return false;
+  }
+
   if (question.questionCode) {
     return (
       FIRST_LAYER_BLOCKING_QUESTION_CODES.has(question.questionCode) &&
@@ -55,20 +62,19 @@ export async function clearActivityInterpretationAcknowledgmentIfPresent(
   activityId: string,
   session: DatabaseSession,
 ): Promise<void> {
-  await clearActivityAiKnowledgeStateIfPresent(
+  await clearActivityInterpretationReviewStateIfPresent(
     activityRepository,
     activityId,
     session,
   );
 }
 
-export async function clearActivityAiKnowledgeStateIfPresent(
+export async function clearActivityInterpretationReviewStateIfPresent(
   activityRepository: ActivityRepository,
   activityId: string,
   session: DatabaseSession,
 ): Promise<{
   clearedAcknowledgment: boolean;
-  clearedAiKnowledge: boolean;
   clearedClarificationAnswers: boolean;
 }> {
   const activity = await activityRepository.findById(activityId, session);
@@ -76,7 +82,6 @@ export async function clearActivityAiKnowledgeStateIfPresent(
   if (!activity) {
     return {
       clearedAcknowledgment: false,
-      clearedAiKnowledge: false,
       clearedClarificationAnswers: false,
     };
   }
@@ -85,20 +90,14 @@ export async function clearActivityAiKnowledgeStateIfPresent(
     activity.interpretationAcknowledgedAt ||
     activity.interpretationAcknowledgedById,
   );
-  const clearedAiKnowledge = Boolean(activity.aiKnowledgeSnapshot);
   const clearedClarificationAnswers = Boolean(
     activity.activityAnalysisV2ClarificationAnswers &&
     activity.activityAnalysisV2ClarificationAnswers.length > 0,
   );
 
-  if (
-    !clearedAcknowledgment &&
-    !clearedAiKnowledge &&
-    !clearedClarificationAnswers
-  ) {
+  if (!clearedAcknowledgment && !clearedClarificationAnswers) {
     return {
       clearedAcknowledgment,
-      clearedAiKnowledge,
       clearedClarificationAnswers,
     };
   }
@@ -108,7 +107,6 @@ export async function clearActivityAiKnowledgeStateIfPresent(
     {
       interpretationAcknowledgedAt: clearedAcknowledgment ? null : undefined,
       interpretationAcknowledgedById: clearedAcknowledgment ? null : undefined,
-      aiKnowledgeSnapshot: null,
       activityAnalysisV2ClarificationAnswers: [],
     },
     session,
@@ -116,7 +114,6 @@ export async function clearActivityAiKnowledgeStateIfPresent(
 
   return {
     clearedAcknowledgment,
-    clearedAiKnowledge,
     clearedClarificationAnswers,
   };
 }

@@ -57,7 +57,6 @@ interface ActivityGoalsContext {
   activityType: string | null;
   objectives: string | null;
   output: string | null;
-  outcome: string | null;
 }
 
 interface ProjectImpactModelContext {
@@ -139,7 +138,6 @@ function readActivityGoalsFromPayload(
     activityType: readNullableString(activityGoals.activityType),
     objectives: readNullableString(activityGoals.objectives),
     output: readNullableString(activityGoals.output),
-    outcome: readNullableString(activityGoals.outcome),
   };
 }
 

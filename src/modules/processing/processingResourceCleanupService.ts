@@ -1,12 +1,10 @@
+import mongoose from "mongoose";
 import type { DatabaseSession } from "../../shared/database/databaseClient.js";
-import type { AnalyticsDashboardPreferenceRepository } from "../analytics/analyticsDashboardPreferenceRepository.js";
-import type { AnalyticsDashboardEventRepository } from "../analytics/analyticsDashboardEventRepository.js";
-import type { AnalyticsExecutionRepository } from "../analytics/analyticsExecutionRepository.js";
-import type { AnalyticsResultRepository } from "../analytics/analyticsResultRepository.js";
 import type { DeterministicAnalysisRepository } from "../interpretation/deterministicAnalysisRepository.js";
 import type { InterpretationResultRepository } from "../interpretation/interpretationResultRepository.js";
 import type { DatasetPreparationRepository } from "../interpretation/datasetPreparationRepository.js";
 import type { ActivityAnalysisRunV2Repository } from "../interpretation/activityAnalysisRunV2Repository.js";
+import type { ProjectImpactStoryRepository } from "../projectImpactStory/projectImpactStoryRepository.js";
 import type { KnowledgeEntityRepository } from "../knowledge/knowledgeEntityRepository.js";
 import type { KnowledgeIndicatorRepository } from "../knowledge/knowledgeIndicatorRepository.js";
 import type { ProjectKnowledgeModelRepository } from "../knowledge/projectKnowledgeModelRepository.js";
@@ -15,6 +13,13 @@ import type { ParsedRepresentationRepository } from "./parsedRepresentationRepos
 import type { QualitativeCodingReviewRepository } from "./qualitativeCodingReviewRepository.js";
 import type { PrivacyReviewRepository } from "./privacyReviewRepository.js";
 import type { PrivacySafeRepresentationRepository } from "./privacySafeRepresentationRepository.js";
+
+const legacyAnalyticsCollectionNames = [
+  "analytics_executions",
+  "analytics_results",
+  "analytics_dashboard_preferences",
+  "analytics_dashboard_events",
+] as const;
 
 export class ProcessingResourceCleanupService {
   constructor(
@@ -28,13 +33,28 @@ export class ProcessingResourceCleanupService {
     private readonly projectKnowledgeModelRepository: ProjectKnowledgeModelRepository,
     private readonly knowledgeEntityRepository: KnowledgeEntityRepository,
     private readonly knowledgeIndicatorRepository: KnowledgeIndicatorRepository,
-    private readonly analyticsExecutionRepository: AnalyticsExecutionRepository,
-    private readonly analyticsResultRepository: AnalyticsResultRepository,
-    private readonly analyticsDashboardPreferenceRepository: AnalyticsDashboardPreferenceRepository,
-    private readonly analyticsDashboardEventRepository: AnalyticsDashboardEventRepository,
     private readonly activityEvidenceLinkageResultRepository: ActivityEvidenceLinkageResultRepository,
     private readonly activityAnalysisRunV2Repository: ActivityAnalysisRunV2Repository,
+    private readonly projectImpactStoryRepository: ProjectImpactStoryRepository,
   ) {}
+
+  private async deleteLegacyAnalyticsDocuments(
+    filter: { projectId?: string; activityId?: string },
+    session: DatabaseSession,
+  ): Promise<void> {
+    const db = mongoose.connection.db;
+    if (!db) {
+      throw new Error("Mongo database connection is not available.");
+    }
+
+    await Promise.all(
+      legacyAnalyticsCollectionNames.map((collectionName) =>
+        db
+          .collection(collectionName)
+          .deleteMany(filter, { session: session ?? undefined }),
+      ),
+    );
+  }
 
   async deleteByProjectId(
     projectId: string,
@@ -63,16 +83,7 @@ export class ProcessingResourceCleanupService {
         projectId,
         session,
       ),
-      this.analyticsExecutionRepository.deleteByProjectId(projectId, session),
-      this.analyticsResultRepository.deleteByProjectId(projectId, session),
-      this.analyticsDashboardPreferenceRepository.deleteByProjectId(
-        projectId,
-        session,
-      ),
-      this.analyticsDashboardEventRepository.deleteByProjectId(
-        projectId,
-        session,
-      ),
+      this.deleteLegacyAnalyticsDocuments({ projectId }, session),
       this.activityEvidenceLinkageResultRepository.deleteByProjectId(
         projectId,
         session,
@@ -81,6 +92,7 @@ export class ProcessingResourceCleanupService {
         projectId,
         session,
       ),
+      this.projectImpactStoryRepository.deleteByProjectId(projectId, session),
     ]);
   }
 
@@ -111,10 +123,7 @@ export class ProcessingResourceCleanupService {
         activityId,
         session,
       ),
-      this.analyticsDashboardEventRepository.deleteByActivityId(
-        activityId,
-        session,
-      ),
+      this.deleteLegacyAnalyticsDocuments({ activityId }, session),
       this.activityEvidenceLinkageResultRepository.deleteByActivityId(
         activityId,
         session,

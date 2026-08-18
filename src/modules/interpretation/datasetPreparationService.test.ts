@@ -399,11 +399,11 @@ test("keeps the top-ranked identifier column even when a duplicate_identifier_re
   );
 });
 
-test("resolves an epistemic_role_clarification answer of 'plain descriptive field' to categorical", async () => {
+test("resolves plain-language epistemic_role_clarification answers to categorical", async () => {
   // Regression test: "bezirk" (district)-shaped columns used to have no
-  // truthful answer to this question — only "reviewer-assigned code" or
-  // "free text" existed. This exercises the new third option end-to-end,
-  // through parseEpistemicRoleClarificationAnswer.
+  // plain answer to this question. "Etwas anderes" is intentionally mapped
+  // to the safe categorical path, so it is not treated as free text or a
+  // person-made interpretation.
   let capturedInput: DatasetPreparationUpsertInput | null = null;
 
   const repository = {
@@ -473,14 +473,14 @@ test("resolves an epistemic_role_clarification answer of 'plain descriptive fiel
         },
         {
           id: "question-2",
-          prompt:
-            "Welche Art von Information enthält die Spalte 'bezirk' in der Tabelle 'mentor_bewerbungen_export_maerz_2026'?",
+          prompt: "Was steht in der Spalte 'bezirk'?",
           kind: "single_choice",
           questionDomain: "preparation",
           options: [
-            "Ein von einer prüfenden Person vergebener Code oder eine Einschätzung über die Zeile (z. B. Sentiment, Thema, Kategorie)",
-            "Frei formulierter Text wie ein Zitat, Kommentar oder eine Notiz",
-            "Ein normales Datenfeld mit Kategorien oder Werten (z. B. Bezirk, Programm, Status) – kein Code und kein Freitext",
+            "Feste Auswahlwerte",
+            "Freie Texte",
+            "Einschätzung durch eine Person",
+            "Etwas anderes",
           ],
           recommendedOption: null,
           recommendedConfidence: null,
@@ -489,8 +489,7 @@ test("resolves an epistemic_role_clarification answer of 'plain descriptive fiel
           targetTableName: "mentor_bewerbungen_export_maerz_2026",
           targetColumnName: "bezirk",
           status: "answered",
-          answeredValue:
-            "Ein normales Datenfeld mit Kategorien oder Werten (z. B. Bezirk, Programm, Status) – kein Code und kein Freitext",
+          answeredValue: "Etwas anderes",
           answeredById: "user-1",
           answeredAt: NOW,
         },
@@ -560,6 +559,159 @@ test("resolves an epistemic_role_clarification answer of 'plain descriptive fiel
       (column) => column.name === "bezirk",
     )?.epistemicRole,
     "categorical",
+  );
+});
+
+test("a stale epistemic_role_clarification question on a structural identifier column does not block readiness", async () => {
+  // Regression test: shouldIgnoreInterpretationQuestion already hides this
+  // stale question from the API and from workflow-stage blocking checks
+  // (interpretationReviewState.ts), but datasetPreparationService used to
+  // still count it as an unanswered preparation requirement via the raw
+  // persisted isBlocking field. Since the question is now permanently
+  // invisible to the user, that left status stuck at "awaiting_answers"
+  // forever — deterministic analysis gates on status === "ready_for_analysis"
+  // (deterministicAnalysisService.ts), so this was a silent, unrecoverable
+  // deadlock for any activity carrying one of these stale questions.
+  let capturedInput: DatasetPreparationUpsertInput | null = null;
+
+  const repository = {
+    upsertByInterpretationResultId: async (
+      input: DatasetPreparationUpsertInput,
+    ) => {
+      capturedInput = input;
+      return {
+        id: "prep-1",
+        ...input,
+        createdAt: NOW,
+        updatedAt: NOW,
+      };
+    },
+  } as unknown as DatasetPreparationRepository;
+
+  const privacySafeRepresentationRepository = {
+    findById: async () => ({
+      id: "psr-1",
+      organizationId: "org-1",
+      projectId: "project-1",
+      activityId: "activity-1",
+      uploadMetadataId: "upload-1",
+      processingJobId: "processing-1",
+      privacyReviewId: "review-1",
+      parsedRepresentationId: "parsed-1",
+      payload: {
+        metadata: { evidenceModality: "structured_quantitative" },
+        tables: [
+          {
+            name: "anmeldungen_jugendliche",
+            rowCount: 3,
+            columns: ["teilnehmer_id", "vorname"],
+          },
+        ],
+      },
+      createdAt: NOW,
+      updatedAt: NOW,
+    }),
+  } as unknown as PrivacySafeRepresentationRepository;
+
+  const service = new DatasetPreparationService(
+    repository,
+    privacySafeRepresentationRepository,
+  );
+
+  await service.syncForInterpretationResult(
+    makeResult({
+      questions: [
+        {
+          id: "question-1",
+          prompt: "Was steht in der Spalte 'vorname'?",
+          kind: "single_choice",
+          questionDomain: "preparation",
+          options: [
+            "Feste Auswahlwerte",
+            "Freie Texte",
+            "Einschätzung durch eine Person",
+            "Etwas anderes",
+          ],
+          recommendedOption: null,
+          recommendedConfidence: null,
+          isBlocking: true,
+          questionCode: "epistemic_role_clarification",
+          targetTableName: "anmeldungen_jugendliche",
+          targetColumnName: "vorname",
+          status: "pending",
+          answeredValue: null,
+          answeredById: null,
+          answeredAt: null,
+        },
+      ],
+      datasetProfile: {
+        tableCount: 1,
+        paragraphCount: 0,
+        tables: [
+          {
+            name: "anmeldungen_jugendliche",
+            rowCount: 3,
+            columnCount: 2,
+            likelyIdentifierColumns: ["teilnehmer_id"],
+            likelyStatusColumns: [],
+            likelyStageColumns: [],
+            likelyDateColumns: [],
+            likelyMeasureColumns: [],
+            likelyFreeTextColumns: [],
+            likelySubgroupColumns: [],
+            columns: [
+              {
+                name: "teilnehmer_id",
+                inferredType: "identifier",
+                roleHints: ["likely_identifier"],
+                nullPercentage: 0,
+                distinctCount: 3,
+                averageTextLength: 3,
+                topValues: [{ value: "T-1", count: 1 }],
+                numericSummary: null,
+                dateSummary: null,
+                duplicateNonNullValueCount: 0,
+                epistemicRole: "identifier",
+                isValidatedScaleCandidate: false,
+              },
+              {
+                name: "vorname",
+                inferredType: "identifier",
+                roleHints: [],
+                nullPercentage: 0,
+                distinctCount: 3,
+                averageTextLength: 5,
+                topValues: [{ value: "Klaus", count: 1 }],
+                numericSummary: null,
+                dateSummary: null,
+                duplicateNonNullValueCount: 0,
+                // Stale record shape: an ambiguous epistemicRole is what
+                // originally caused the question to be generated, before
+                // interpretation_pipeline.py's structural-identifier-name
+                // fix classified it as "identifier" outright.
+                epistemicRole: null,
+                isValidatedScaleCandidate: false,
+              },
+            ],
+          },
+        ],
+        issues: [],
+      },
+    }),
+  );
+
+  const quantitativeInput = requireCapturedInput(capturedInput);
+  assert.equal(quantitativeInput.status, "ready_for_analysis");
+  assert.equal(quantitativeInput.blockingQuestionCount, 0);
+  assert.equal(quantitativeInput.answeredBlockingQuestionCount, 0);
+  assert.deepEqual(quantitativeInput.unansweredBlockingQuestionIds, []);
+  assert.ok(quantitativeInput.preparedDataset);
+  if (!quantitativeInput.preparedDataset) {
+    throw new Error("Expected prepared dataset snapshot.");
+  }
+  assert.equal(
+    quantitativeInput.preparedDataset.isReadyForDeterministicAnalysis,
+    true,
   );
 });
 

@@ -42,11 +42,10 @@ const envSchema = z
       .int()
       .positive()
       .default(30000),
-    PYTHON_ANALYTICS_TIMEOUT_MS: z.coerce
-      .number()
-      .int()
-      .positive()
-      .default(120000),
+    PYTHON_LLM_TIMEOUT_MS: z.coerce.number().int().positive().optional(),
+    // Backward-compatible alias for existing environments that still use the
+    // retired analytics-specific name for the shared long-running LLM budget.
+    PYTHON_ANALYTICS_TIMEOUT_MS: z.coerce.number().int().positive().optional(),
     QUALITATIVE_CODING_DEBUG_INCLUDE_PAYLOADS: z
       .enum(["true", "false"])
       .default("false")
@@ -135,7 +134,14 @@ const envSchema = z
           "MAILERSEND_API_TOKEN is required when EMAIL_PROVIDER is mailersend.",
       });
     }
-  });
+  })
+  .transform((environment) => ({
+    ...environment,
+    PYTHON_LLM_TIMEOUT_MS:
+      environment.PYTHON_LLM_TIMEOUT_MS ??
+      environment.PYTHON_ANALYTICS_TIMEOUT_MS ??
+      120000,
+  }));
 
 export type BackendConfig = z.infer<typeof envSchema>;
 

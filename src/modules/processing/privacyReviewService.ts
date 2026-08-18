@@ -276,6 +276,7 @@ export class PrivacyReviewService {
         completedAt: null,
         payload: {
           ...(job.payload ?? {}),
+          stage: "evidence_privacy_transform",
           privacyReviewApprovedAt: approvedAt.toISOString(),
         },
       },

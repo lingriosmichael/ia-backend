@@ -34,7 +34,6 @@ interface StartDatasetInterpretationActivityGoals {
   activityType: string | null;
   objectives: string | null;
   output: string | null;
-  outcome: string | null;
 }
 
 interface StartDatasetInterpretationProjectImpactModel {
@@ -143,7 +142,7 @@ export interface QualitativeCodingReviewResponseOutput {
 
 export interface ActivityAnalysisV2GoalInput {
   goalId: string;
-  goalType: "output" | "outcome";
+  goalType: "output";
   goalText: string;
   targetNumber: number | null;
 }
@@ -187,6 +186,28 @@ export interface ActivityAnalysisV2EvidenceTableInput {
   primaryStatusColumn: string | null;
   primaryDateColumn: string | null;
   columns: ActivityAnalysisV2EvidenceColumnInput[];
+  plannerHints?: {
+    dateCoverage: Array<{
+      columnName: string;
+      min: string;
+      max: string;
+      years: number[];
+    }>;
+    goalSupportColumns: Array<{
+      name: string;
+      goalType: "output" | null;
+      inferredType:
+        | "identifier"
+        | "numeric"
+        | "date"
+        | "categorical"
+        | "free_text"
+        | "boolean"
+        | "unknown"
+        | null;
+      epistemicRole?: EpistemicRole | null;
+    }>;
+  };
 }
 
 export interface ActivityAnalysisV2PlanToolRequest {
@@ -233,7 +254,7 @@ export interface ActivityAnalysisV2PlanToolRequest {
 
 export interface ActivityAnalysisV2GoalPlan {
   goalId: string;
-  goalType: "output" | "outcome";
+  goalType: "output";
   goalText: string;
   evaluationMode:
     "numeric_target" | "condition" | "directional_change" | "evidence_only";
@@ -300,6 +321,14 @@ interface ActivityAnalysisV2PlanRequest {
     timeoutMs: number;
     maxEvidenceItems: number;
   };
+  // Wall-clock budget (ms) the planner's own internal grounding-retry loop
+  // (up to runLimits.maxLlmIterations sequential OpenAI calls) should
+  // self-regulate against. Always set strictly below
+  // activityAnalysisV2PlanTimeoutMs so Python has a chance to notice it's
+  // out of time and return a clean, deterministic failed/needs-clarification
+  // response before this HTTP call's own AbortSignal fires — see the
+  // PLANNING_TIME_BUDGET_SAFETY_MARGIN_MS comment where this is computed.
+  planningTimeBudgetMs: number;
 }
 
 export interface ActivityAnalysisV2PlanResponse {
@@ -311,20 +340,80 @@ export interface ActivityAnalysisV2PlanResponse {
   llmUsage?: LlmUsageSummary | null;
 }
 
-export interface ActivityAnalysisV2RecommendationRequest {
-  activityId: string;
-  activityName: string;
-  language: "de" | "en";
-  recommendationPolicy: "required" | "optional";
-  goalAssessments: Record<string, unknown>[];
-  limitations: string[];
-  calculations: Record<string, unknown>[];
-  qualitativeFindings: Record<string, unknown>[];
+export interface ProjectImpactStoryNarrativeTileRequest {
+  label: string;
+  description: string;
+  value: number;
+  formatAs: "number" | "percentage";
 }
 
-export interface ActivityAnalysisV2RecommendationResponse {
-  summaryText: string;
-  recommendationText: string;
+export interface ProjectImpactStoryNarrativeActivityRequest {
+  activityId: string;
+  activityName: string;
+  tiles: ProjectImpactStoryNarrativeTileRequest[];
+}
+
+export interface ProjectImpactStoryNarrativeRequest {
+  projectId: string;
+  projectName: string;
+  language: "de" | "en";
+  projectPeriod?: string | null;
+  targetGroup?: string | null;
+  region?: string | null;
+  activityCards: ProjectImpactStoryNarrativeActivityRequest[];
+}
+
+export interface ProjectImpactStoryNarrativeResponse {
+  narrativeSummary: string;
+  llmUsage?: LlmUsageSummary | null;
+}
+
+export interface ProjectImpactStoryChartPlanCatalogEntryRequest {
+  entryId: string;
+  kind: "calculation" | "goal_assessment";
+  activityId: string;
+  activityName: string;
+  label: string;
+  description: string | null;
+  toolName: string | null;
+  unit: string | null;
+  value: number | null;
+  goalType: "output" | null;
+  assessmentStatus: string | null;
+  achieved: boolean | null;
+}
+
+export interface ProjectImpactStoryChartPlanRequest {
+  projectId: string;
+  projectName: string;
+  language: "de" | "en";
+  catalog: ProjectImpactStoryChartPlanCatalogEntryRequest[];
+  allowedChartTypes: string[];
+  headlineKpiCount: number;
+}
+
+export interface ProjectImpactStoryChartPlanKpiCandidate {
+  kpiId: string;
+  label: string;
+  entryIds: string[];
+  aggregation: "single" | "sum" | "count" | "average";
+  narrativeReason: string;
+}
+
+export interface ProjectImpactStoryChartPlanChartCandidate {
+  chartId: string;
+  chartType: string;
+  title: string;
+  subtitle: string | null;
+  entryIds: string[];
+  narrativeReason: string;
+}
+
+export interface ProjectImpactStoryChartPlanResponse {
+  headlineKpis: ProjectImpactStoryChartPlanKpiCandidate[];
+  chartPlan: ProjectImpactStoryChartPlanChartCandidate[];
+  groundingStatus: "PASSED" | "FAILED";
+  fellBackToDeterministicSelection: boolean;
   llmUsage?: LlmUsageSummary | null;
 }
 
@@ -379,7 +468,7 @@ const activityAnalysisV2ToolNameSchema = z.enum([
 
 const activityAnalysisV2GoalPlanSchema = z.object({
   goalId: z.string(),
-  goalType: z.enum(["output", "outcome"]),
+  goalType: z.literal("output"),
   goalText: z.string(),
   evaluationMode: z.enum([
     "numeric_target",
@@ -444,9 +533,38 @@ const activityAnalysisV2PlanResponseSchema = z.object({
   llmUsage: z.unknown().nullable().optional(),
 });
 
-const activityAnalysisV2RecommendationResponseSchema = z.object({
-  summaryText: z.string(),
-  recommendationText: z.string(),
+const projectImpactStoryNarrativeResponseSchema = z.object({
+  narrativeSummary: z.string(),
+  llmUsage: z.unknown().nullable().optional(),
+});
+
+// Deliberately no numeric `value` field anywhere in this schema — the
+// chart-plan endpoint only ever selects entryIds and an aggregation kind,
+// never a number. Backend re-validates every entryId against its own copy
+// of the catalog and computes every displayed value itself; see
+// projectImpactStoryChartPlanExecution.ts.
+const projectImpactStoryChartPlanKpiCandidateSchema = z.object({
+  kpiId: z.string(),
+  label: z.string(),
+  entryIds: z.array(z.string()),
+  aggregation: z.enum(["single", "sum", "count", "average"]),
+  narrativeReason: z.string(),
+});
+
+const projectImpactStoryChartPlanChartCandidateSchema = z.object({
+  chartId: z.string(),
+  chartType: z.string(),
+  title: z.string(),
+  subtitle: z.string().nullable().optional(),
+  entryIds: z.array(z.string()),
+  narrativeReason: z.string(),
+});
+
+const projectImpactStoryChartPlanResponseSchema = z.object({
+  headlineKpis: z.array(projectImpactStoryChartPlanKpiCandidateSchema),
+  chartPlan: z.array(projectImpactStoryChartPlanChartCandidateSchema),
+  groundingStatus: z.enum(["PASSED", "FAILED"]),
+  fellBackToDeterministicSelection: z.boolean(),
   llmUsage: z.unknown().nullable().optional(),
 });
 
@@ -780,9 +898,10 @@ export class PythonProcessingClient {
     // The shared PYTHON_SERVICE_TIMEOUT_MS stays intentionally short for
     // lightweight Python-service calls. LLM-backed routes such as
     // AI-knowledge summary, interpretation synthesis, and concern tagging
-    // need the longer, separately-configurable PYTHON_ANALYTICS_TIMEOUT_MS
-    // budget instead; a real activity summary was observed timing out at
-    // ~60s despite the route itself eventually succeeding.
+    // need the longer, separately-configurable PYTHON_LLM_TIMEOUT_MS budget
+    // instead; PYTHON_ANALYTICS_TIMEOUT_MS is still accepted as a legacy
+    // alias for existing environments. A real activity summary was observed
+    // timing out at ~60s despite the route itself eventually succeeding.
     private readonly llmTimeoutMs: number,
   ) {}
 
@@ -798,14 +917,23 @@ export class PythonProcessingClient {
   // job's attemptCount/maxAttempts instead of failing a user's request.
   private readonly qualitativeCodingReviewTimeoutMs = 480_000;
 
-  // Exposed so callers that issue several sequential LLM-backed calls
-  // within their own overall deadline (e.g. ActivityAnalysisV2Service's
-  // auto-clarification replan loop) can tell whether there's enough budget
-  // left to even attempt another one, rather than discovering the overrun
-  // only after it's already happened.
-  get analyticsTimeoutMs(): number {
-    return this.llmTimeoutMs;
-  }
+  // ActivityAnalystV2's planner is in the same position qualitative coding
+  // review was in above: it now runs inside activityAnalysisWorker.ts's
+  // background job, not a live user-facing request, so a longer ceiling
+  // costs nothing — heartbeat-based lease renewal is the real liveness
+  // signal, and a genuine hang is caught by the job's
+  // attemptCount/maxAttempts retry rather than by this timeout. Kept as a
+  // fixed ceiling rather than something that scales with evidence count,
+  // since PHASE_1_RUN_LIMITS.maxEvidenceItems (activityAnalysisV2Service.ts)
+  // already bounds the planner's worst-case input size to 40 items — a
+  // generous fixed budget that comfortably covers that capped worst case is
+  // simpler than modeling per-file cost. Smaller than
+  // qualitativeCodingReviewTimeoutMs above because that one issues an
+  // unbounded-by-evidence-count number of sequential LLM calls
+  // (numFreeTextColumns * rows); the planner is at most two full calls
+  // (the initial plan plus at most one auto-resolved-clarification replan,
+  // see MAX_BACKEND_AUTO_CLARIFICATION_REPLANS).
+  readonly activityAnalysisV2PlanTimeoutMs = 300_000;
 
   private authHeaders(): Record<string, string> {
     return { "x-internal-service-token": this.sharedSecret };
@@ -1112,7 +1240,7 @@ export class PythonProcessingClient {
       "python_processing_activity_analysis_v2_plan_unavailable",
       "The Python processing service timed out while planning the ActivityAnalystV2 analysis.",
       "python_processing_activity_analysis_v2_plan_timeout",
-      this.llmTimeoutMs,
+      this.activityAnalysisV2PlanTimeoutMs,
     );
 
     const payload = await response.json();
@@ -1129,11 +1257,11 @@ export class PythonProcessingClient {
     return parsed.data as ActivityAnalysisV2PlanResponse;
   }
 
-  async generateActivityAnalysisV2Recommendation(
-    input: ActivityAnalysisV2RecommendationRequest,
-  ): Promise<ActivityAnalysisV2RecommendationResponse> {
+  async generateProjectImpactStoryNarrative(
+    input: ProjectImpactStoryNarrativeRequest,
+  ): Promise<ProjectImpactStoryNarrativeResponse> {
     const response = await this.request(
-      "/internal/interpretation/activity-analysis-v2-recommendation",
+      "/internal/project-impact-story/narrative",
       {
         method: "POST",
         headers: {
@@ -1142,25 +1270,58 @@ export class PythonProcessingClient {
         },
         body: JSON.stringify(input),
       },
-      "The Python processing service could not generate the ActivityAnalystV2 recommendation.",
-      "python_processing_activity_analysis_v2_recommendation_unavailable",
-      "The Python processing service timed out while generating the ActivityAnalystV2 recommendation.",
-      "python_processing_activity_analysis_v2_recommendation_timeout",
+      "The Python processing service could not generate the project impact story narrative.",
+      "python_processing_project_impact_story_narrative_unavailable",
+      "The Python processing service timed out while generating the project impact story narrative.",
+      "python_processing_project_impact_story_narrative_timeout",
       this.llmTimeoutMs,
     );
 
     const payload = await response.json();
-    const parsed =
-      activityAnalysisV2RecommendationResponseSchema.safeParse(payload);
+    const parsed = projectImpactStoryNarrativeResponseSchema.safeParse(payload);
     if (!parsed.success) {
       throw new AppError(
-        "The Python processing service returned a malformed ActivityAnalystV2 recommendation.",
+        "The Python processing service returned a malformed project impact story narrative.",
         502,
-        "python_processing_activity_analysis_v2_recommendation_malformed",
+        "python_processing_project_impact_story_narrative_malformed",
         parsed.error.flatten(),
       );
     }
 
-    return parsed.data as ActivityAnalysisV2RecommendationResponse;
+    return parsed.data as ProjectImpactStoryNarrativeResponse;
+  }
+
+  async planProjectImpactStoryChart(
+    input: ProjectImpactStoryChartPlanRequest,
+  ): Promise<ProjectImpactStoryChartPlanResponse> {
+    const response = await this.request(
+      "/internal/project-impact-story/chart-plan",
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          ...this.authHeaders(),
+        },
+        body: JSON.stringify(input),
+      },
+      "The Python processing service could not plan the project impact story chart layout.",
+      "python_processing_project_impact_story_chart_plan_unavailable",
+      "The Python processing service timed out while planning the project impact story chart layout.",
+      "python_processing_project_impact_story_chart_plan_timeout",
+      this.llmTimeoutMs,
+    );
+
+    const payload = await response.json();
+    const parsed = projectImpactStoryChartPlanResponseSchema.safeParse(payload);
+    if (!parsed.success) {
+      throw new AppError(
+        "The Python processing service returned a malformed project impact story chart plan.",
+        502,
+        "python_processing_project_impact_story_chart_plan_malformed",
+        parsed.error.flatten(),
+      );
+    }
+
+    return parsed.data as ProjectImpactStoryChartPlanResponse;
   }
 }

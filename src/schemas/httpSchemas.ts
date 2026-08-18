@@ -41,19 +41,7 @@ const privacyReviewDecisionValueSchema = z.enum([
   "remove",
   "restrict",
 ]);
-const analyticsDashboardInteractionTypeSchema = z.enum([
-  "dashboard_viewed",
-  "widget_hidden",
-  "widget_shown",
-  "layout_reordered",
-  "layout_restored",
-]);
-const analyticsDashboardCompatibilitySourceSchema = z.enum([
-  "generated",
-  "compatibility_fallback",
-]);
-const analyticsDashboardExportFormatSchema = z.enum(["json", "text"]);
-const dashboardWidgetIdSchema = z.string().trim().min(1).max(200);
+const projectIntendedChangesMaxItems = 6;
 
 export const idParamSchema = z.object({
   organizationId: z.string().min(1).optional(),
@@ -148,7 +136,10 @@ export const createProjectSchema = z.object({
   fundingOrganization: z.string().trim().max(200).optional(),
   targetGroups: z.array(z.string().trim().min(1).max(120)).min(1).max(20),
   overarchingTargetGroup: z.string().trim().min(2).max(200).optional(),
-  intendedChanges: z.array(z.string().trim().min(1).max(200)).min(1).max(3),
+  intendedChanges: z
+    .array(z.string().trim().min(1).max(200))
+    .min(1)
+    .max(projectIntendedChangesMaxItems),
   areaOfOperation: z.string().trim().max(2000).optional(),
   partnerships: z.string().trim().max(2000).optional(),
   sdgs: stringArraySchema,
@@ -166,7 +157,7 @@ export const updateProjectSchema = z.object({
   intendedChanges: z
     .array(z.string().trim().min(1).max(200))
     .min(1)
-    .max(3)
+    .max(projectIntendedChangesMaxItems)
     .optional(),
   areaOfOperation: z.string().trim().max(2000).nullable().optional(),
   partnerships: z.string().trim().max(2000).nullable().optional(),
@@ -192,28 +183,6 @@ export const transferProjectOwnershipSchema = z.object({
   newOwnerId: z.string().min(1),
 });
 
-export const analyticsDashboardPreferenceSchema = z.object({
-  dashboardSchemaVersion: z.string().trim().min(1).max(120),
-  orderedWidgetIds: z.array(dashboardWidgetIdSchema).max(200),
-  hiddenWidgetIds: z.array(dashboardWidgetIdSchema).max(200),
-});
-
-export const analyticsDashboardInteractionSchema = z.object({
-  resultId: z.string().trim().min(1).max(120),
-  interactionType: analyticsDashboardInteractionTypeSchema,
-  dashboardSchemaVersion: z.string().trim().min(1).max(120),
-  dashboardCompatibilitySource: analyticsDashboardCompatibilitySourceSchema,
-  orderedWidgetIds: z.array(dashboardWidgetIdSchema).max(200),
-  hiddenWidgetIds: z.array(dashboardWidgetIdSchema).max(200),
-  visibleWidgetIds: z.array(dashboardWidgetIdSchema).max(200),
-  widgetId: dashboardWidgetIdSchema.nullable(),
-});
-
-export const analyticsDashboardExportRequestSchema =
-  analyticsDashboardPreferenceSchema.extend({
-    format: analyticsDashboardExportFormatSchema,
-  });
-
 export const createActivitySchema = z.object({
   name: z.string().trim().min(2).max(120),
   description: z.string().trim().max(2000).optional(),
@@ -223,7 +192,6 @@ export const createActivitySchema = z.object({
   targetAudience: z.string().trim().max(2000).optional(),
   objectives: z.string().trim().max(2000).optional(),
   output: z.string().trim().max(2000).optional(),
-  outcome: z.string().trim().max(2000).optional(),
   concernTaggingInstruction: z.string().trim().max(2000).optional(),
   status: z.enum(activityStatusValues).optional(),
 });
@@ -237,7 +205,6 @@ export const updateActivitySchema = z.object({
   targetAudience: z.string().trim().max(2000).nullable().optional(),
   objectives: z.string().trim().max(2000).nullable().optional(),
   output: z.string().trim().max(2000).nullable().optional(),
-  outcome: z.string().trim().max(2000).nullable().optional(),
   concernTaggingInstruction: z.string().trim().max(2000).nullable().optional(),
   status: z.enum(activityStatusValues).optional(),
 });

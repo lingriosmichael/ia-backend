@@ -88,14 +88,14 @@ export function computeActivityWorkflowStage(
     return "analysis_running";
   }
 
-  if (hasPendingBlockingQuestions(input.results)) {
-    return "needs_clarification";
-  }
-
   const isFullyInterpreted =
     input.results.length > 0 && input.results.length === input.uploadIds.length;
   if (!isFullyInterpreted) {
     return "analysis_pending";
+  }
+
+  if (hasPendingBlockingQuestions(input.results)) {
+    return "needs_clarification";
   }
 
   if (input.hasPendingQualitativeCodingReview) {

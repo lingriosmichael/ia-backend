@@ -44,8 +44,6 @@ function toActivityAnalysisRunV2Record(
       null,
     diagnostics:
       document.diagnostics as ActivityAnalysisRunV2PersistenceRecord["diagnostics"],
-    renderedSummary: document.renderedSummary ?? null,
-    recommendationText: document.recommendationText ?? null,
     validation:
       document.validation as ActivityAnalysisRunV2PersistenceRecord["validation"],
     errorMessage: document.errorMessage ?? null,
@@ -87,6 +85,20 @@ export class MongoActivityAnalysisRunV2Repository implements ActivityAnalysisRun
       ActivityAnalysisRunV2MongoModel.findOne({ activityId }).sort({
         createdAt: -1,
       }),
+      session,
+    ).exec();
+    return toActivityAnalysisRunV2Record(document);
+  }
+
+  async findLatestCompletedByActivityId(
+    activityId: string,
+    session: DatabaseSession,
+  ): Promise<ActivityAnalysisRunV2PersistenceRecord | null> {
+    const document = await applyMongoSession(
+      ActivityAnalysisRunV2MongoModel.findOne({
+        activityId,
+        status: "completed",
+      }).sort({ createdAt: -1 }),
       session,
     ).exec();
     return toActivityAnalysisRunV2Record(document);

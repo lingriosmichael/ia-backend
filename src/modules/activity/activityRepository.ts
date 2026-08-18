@@ -4,12 +4,17 @@ import type {
   ActivityCreateInput,
   ActivityLlmTokenLedgerIncrement,
   ActivityPersistenceRecord,
+  SystemActivityEnsureInput,
   ActivityUpdateInput,
 } from "./activityPersistence.js";
 
 export interface ActivityRepository {
   create(
     input: ActivityCreateInput,
+    session: DatabaseSession,
+  ): Promise<ActivityPersistenceRecord>;
+  ensureSystemActivity(
+    input: SystemActivityEnsureInput,
     session: DatabaseSession,
   ): Promise<ActivityPersistenceRecord>;
   findById(
