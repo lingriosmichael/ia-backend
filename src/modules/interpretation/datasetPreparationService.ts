@@ -27,6 +27,9 @@ const PREPARATION_QUESTION_CODES = new Set<InterpretationQuestionCode>([
   "duplicate_identifier_resolution",
   "epistemic_role_clarification",
   "validated_scale_confirmation",
+  "cohort_tag",
+  "pairing_group_key",
+  "pairing_group_role",
 ]);
 
 function isPreparationQuestionCode(
@@ -37,6 +40,8 @@ function isPreparationQuestionCode(
 
 function isPreparationQuestion(
   question: InterpretationResultPersistenceRecord["questions"][number],
+  datasetProfile: InterpretationResultPersistenceRecord["datasetProfile"],
+  privacySafePayload: Record<string, unknown>,
 ): boolean {
   // A stale epistemic_role_clarification question on a structural
   // identifier column (e.g. 'vorname') is ignored elsewhere as
@@ -45,7 +50,12 @@ function isPreparationQuestion(
   // otherwise it stays an unanswerable, permanently pending preparation
   // requirement and dataset preparation can never reach
   // "ready_for_analysis" even though nothing surfaces that to the user.
-  if (shouldIgnoreInterpretationQuestion(question)) {
+  if (
+    shouldIgnoreInterpretationQuestion(question, {
+      datasetProfile,
+      privacySafePayload,
+    })
+  ) {
     return false;
   }
 
@@ -66,6 +76,9 @@ function emptyDecisionSummary() {
     primaryDateFields: [] as DatasetPreparationDecisionSelection[],
     epistemicRoleClarifications: [] as DatasetPreparationDecisionSelection[],
     validatedScaleConfirmations: [] as DatasetPreparationDecisionSelection[],
+    cohortTags: [] as DatasetPreparationDecisionSelection[],
+    pairingGroupKeys: [] as DatasetPreparationDecisionSelection[],
+    pairingGroupRoles: [] as DatasetPreparationDecisionSelection[],
   };
 }
 
@@ -93,6 +106,12 @@ function mapQuestionCodeToSummaryKey(questionCode: InterpretationQuestionCode) {
       return "epistemicRoleClarifications";
     case "validated_scale_confirmation":
       return "validatedScaleConfirmations";
+    case "cohort_tag":
+      return "cohortTags";
+    case "pairing_group_key":
+      return "pairingGroupKeys";
+    case "pairing_group_role":
+      return "pairingGroupRoles";
   }
 }
 
@@ -201,6 +220,95 @@ function parseValidatedScaleConfirmationAnswer(
   return null;
 }
 
+// The cohort_tag question's option list is generated per-project from
+// Project.targetGroups plus a leading "not applicable / single cohort"
+// option (unlike the other closed-option questions above, its wording isn't
+// a fixed Python-side vocabulary) — so the parser only needs to recognize
+// that leading option and otherwise trust the selected project-declared
+// label verbatim.
+const COHORT_TAG_NOT_APPLICABLE_MARKERS = [
+  "not applicable",
+  "n/a",
+  "single cohort",
+  "nicht zutreffend",
+  "keine kohorte",
+];
+
+function parseCohortTagAnswer(answer: string | null): string | null {
+  if (!answer) {
+    return null;
+  }
+  const trimmed = answer.trim();
+  if (!trimmed) {
+    return null;
+  }
+  const normalized = normalizeText(trimmed);
+  if (
+    COHORT_TAG_NOT_APPLICABLE_MARKERS.some((marker) =>
+      normalized.includes(marker),
+    )
+  ) {
+    return null;
+  }
+  return trimmed;
+}
+
+// pairing_group_key is free text (an instrument label, e.g. "Wellbeing
+// scale") — trusted verbatim except for the same "not applicable" escape
+// hatch as cohort_tag, so a column not part of any repeated measurement
+// doesn't need an invented label.
+const PAIRING_GROUP_KEY_NOT_APPLICABLE_MARKERS = [
+  "not applicable",
+  "n/a",
+  "nicht zutreffend",
+  "keine",
+];
+
+function parsePairingGroupKeyAnswer(answer: string | null): string | null {
+  if (!answer) {
+    return null;
+  }
+  const trimmed = answer.trim();
+  if (!trimmed) {
+    return null;
+  }
+  const normalized = normalizeText(trimmed);
+  if (
+    PAIRING_GROUP_KEY_NOT_APPLICABLE_MARKERS.some((marker) =>
+      normalized.includes(marker),
+    )
+  ) {
+    return null;
+  }
+  return trimmed;
+}
+
+// Matches _PAIRING_GROUP_ROLE_OPTIONS — same closed-option-set reasoning as
+// parseValidatedScaleConfirmationAnswer above.
+function parsePairingGroupRoleAnswer(
+  answer: string | null,
+): "before" | "after" | null {
+  if (!answer) {
+    return null;
+  }
+  const normalized = normalizeText(answer);
+  if (
+    normalized.startsWith("before") ||
+    normalized.startsWith("baseline") ||
+    normalized.startsWith("vorher")
+  ) {
+    return "before";
+  }
+  if (
+    normalized.startsWith("after") ||
+    normalized.startsWith("endline") ||
+    normalized.startsWith("nachher")
+  ) {
+    return "after";
+  }
+  return null;
+}
+
 function parsePositiveStatusValues(
   answer: string | null,
   observedValues: string[],
@@ -274,6 +382,10 @@ function buildPreparedDatasetSnapshot(
     );
     const primaryDateSelection = matchSelectionByTable(
       decisionSummary.primaryDateFields,
+      tableName,
+    );
+    const cohortTagSelection = matchSelectionByTable(
+      decisionSummary.cohortTags,
       tableName,
     );
 
@@ -401,6 +513,22 @@ function buildPreparedDatasetSnapshot(
             ? "validated_scale"
             : baseEpistemicRole;
 
+      // Only meaningful once a column is actually confirmed validated_scale
+      // — mirrors how positiveStatusValues is only kept for the resolved
+      // primaryStatusColumn, rather than trusting an answer to a question
+      // whose premise (this column being a validated scale) didn't end up
+      // holding.
+      const pairingGroupKeyAnswer = decisionSummary.pairingGroupKeys.find(
+        (selection) =>
+          selection.tableName === tableName &&
+          selection.columnName === columnName,
+      );
+      const pairingGroupRoleAnswer = decisionSummary.pairingGroupRoles.find(
+        (selection) =>
+          selection.tableName === tableName &&
+          selection.columnName === columnName,
+      );
+
       return {
         name: columnName,
         inferredType: profileColumn?.inferredType ?? null,
@@ -413,6 +541,16 @@ function buildPreparedDatasetSnapshot(
             : null,
         normalizationAccepted,
         epistemicRole,
+        minValue: profileColumn?.numericSummary?.min ?? null,
+        maxValue: profileColumn?.numericSummary?.max ?? null,
+        pairingGroupKey:
+          epistemicRole === "validated_scale"
+            ? parsePairingGroupKeyAnswer(pairingGroupKeyAnswer?.value ?? null)
+            : null,
+        pairingGroupRole:
+          epistemicRole === "validated_scale"
+            ? parsePairingGroupRoleAnswer(pairingGroupRoleAnswer?.value ?? null)
+            : null,
       };
     });
 
@@ -437,6 +575,7 @@ function buildPreparedDatasetSnapshot(
       primaryDateColumn,
       columns,
       notes,
+      cohortTag: parseCohortTagAnswer(cohortTagSelection?.value ?? null),
     });
   }
 
@@ -455,7 +594,7 @@ function buildPreparationInput(
   privacySafePayload: Record<string, unknown>,
 ): DatasetPreparationUpsertInput {
   const preparationQuestions = result.questions.filter((question) =>
-    isPreparationQuestion(question),
+    isPreparationQuestion(question, result.datasetProfile, privacySafePayload),
   );
   const answeredQuestions = preparationQuestions.filter(
     (question) => question.status === "answered" && question.answeredValue,
@@ -538,7 +677,11 @@ export class DatasetPreparationService {
     const privacySafePayload = privacySafeRepresentation?.payload ?? {};
 
     const preparationQuestions = result.questions.filter((question) =>
-      isPreparationQuestion(question),
+      isPreparationQuestion(
+        question,
+        result.datasetProfile,
+        privacySafePayload,
+      ),
     );
     const answeredPreparationQuestionCount = preparationQuestions.filter(
       (question) => question.status === "answered" && question.answeredValue,

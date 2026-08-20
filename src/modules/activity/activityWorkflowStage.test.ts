@@ -21,12 +21,15 @@ function makeJob(
 
 function makeResult(
   overrides: Partial<{
+    datasetProfile: Record<string, unknown> | null;
+    privacySafePayload: Record<string, unknown> | null;
     uploadMetadataId: string;
     questions: Array<{
       isBlocking?: boolean | null;
       kind: "single_choice" | "free_text" | "merge_confirmation";
       status: "pending" | "answered";
       questionCode?: InterpretationQuestionCode | null;
+      targetTableName?: string | null;
       targetColumnName?: string | null;
     }>;
   }> = {},
@@ -143,6 +146,39 @@ test("a stale structural identifier epistemic-role question does not block clari
               status: "pending",
               questionCode: "epistemic_role_clarification",
               targetColumnName: "vorname",
+            },
+          ],
+        }),
+      ],
+    }),
+  );
+  assert.notEqual(stage, "needs_clarification");
+});
+
+test("a stale constant-column epistemic-role question does not block clarification", () => {
+  const stage = computeActivityWorkflowStage(
+    makeInput({
+      results: [
+        makeResult({
+          datasetProfile: null,
+          privacySafePayload: {
+            tables: [
+              {
+                name: "baseline",
+                rows: Array.from({ length: 5 }, () => ({
+                  befragung_typ: "baseline",
+                })),
+              },
+            ],
+          },
+          questions: [
+            {
+              isBlocking: true,
+              kind: "single_choice",
+              status: "pending",
+              questionCode: "epistemic_role_clarification",
+              targetTableName: "baseline",
+              targetColumnName: "befragung_typ",
             },
           ],
         }),

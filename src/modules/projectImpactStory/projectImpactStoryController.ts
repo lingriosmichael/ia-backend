@@ -13,6 +13,10 @@ export class ProjectImpactStoryController {
   ) {}
 
   async triggerImpactStoryRun(request: FastifyRequest) {
+    return this.triggerProjectAnalyticsRun(request);
+  }
+
+  async triggerProjectAnalyticsRun(request: FastifyRequest) {
     const auth = requireAuthenticatedUser(request);
 
     const params = idParamSchema.parse(request.params);
@@ -23,7 +27,7 @@ export class ProjectImpactStoryController {
     // previewActivityAnalysisV2. Only the Python narrative round trip runs
     // inside the job, executed by activityAnalysisWorker.ts.
     const { project } =
-      await this.projectImpactStoryService.assertReadyForImpactStoryRun(
+      await this.projectImpactStoryService.assertReadyForProjectAnalyticsRun(
         auth.userId,
         params.projectId!,
         language,
@@ -40,13 +44,18 @@ export class ProjectImpactStoryController {
   }
 
   async getLatestImpactStory(request: FastifyRequest) {
+    return this.getLatestProjectAnalytics(request);
+  }
+
+  async getLatestProjectAnalytics(request: FastifyRequest) {
     const auth = requireAuthenticatedUser(request);
 
     const params = idParamSchema.parse(request.params);
-    const response = await this.projectImpactStoryService.getLatestForProject(
-      auth.userId,
-      params.projectId!,
-    );
+    const response =
+      await this.projectImpactStoryService.getLatestProjectAnalytics(
+        auth.userId,
+        params.projectId!,
+      );
     return successResponse(response);
   }
 }

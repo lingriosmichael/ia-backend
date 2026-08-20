@@ -300,6 +300,7 @@ export class ActivityService {
       await this.processingResourceCleanupService.deleteByActivityId(
         activityId,
         session,
+        { projectId: project.id },
       );
       await this.processingJobRepository.deleteByActivity(activityId, session);
       await this.uploadMetadataRepository.deleteByActivity(activityId, session);

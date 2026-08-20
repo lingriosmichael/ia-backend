@@ -9,6 +9,7 @@ import {
 import type {
   ActivityAnalysisRunV2Record,
   ActivityAnalysisRunV2RunLimits,
+  ContextCatalogEntry,
   EpistemicRole,
   InterpretationQuestion,
   InterpretationQuestionCode,
@@ -26,6 +27,8 @@ import {
   type ActivityAnalysisV2ClarificationQuestionDraft,
   type ActivityAnalysisV2EvidenceTableInput,
   type ActivityAnalysisV2GoalInput,
+  type ActivityAnalysisV2PlanContextCandidate,
+  type ActivityAnalysisV2PlanContextCandidateDiagnostics,
 } from "../processing/pythonProcessingClient.js";
 import type { ActivityLlmTokenLedgerService } from "../activity/activityLlmTokenLedgerService.js";
 import type { ActivityRepository } from "../activity/activityRepository.js";
@@ -142,6 +145,11 @@ type ClarificationAnswerDraftInput = {
   targetTableName?: string | null;
   targetColumnName?: string | null;
 };
+
+interface EvidenceTableBuildDiagnostics {
+  preparedTableFallbackTableCount: number;
+  missingEpistemicRoleColumnCount: number;
+}
 
 type PlannerHintColumnInput = {
   name: string;
@@ -490,6 +498,17 @@ function mapActivityAnalysisRunV2Record(
   };
 }
 
+// Deterministic best-effort German label from a raw column name (e.g.
+// "teilnahme_status" -> "Teilnahme status"). No LLM is involved in the
+// context catalog, so this cannot produce curated prose like a hand-written
+// dashboard label — it only makes the raw column name presentable.
+export function humanizeColumnName(columnName: string): string {
+  const spaced = columnName.replace(/[_-]+/g, " ").trim();
+  return spaced.length > 0
+    ? spaced.charAt(0).toUpperCase() + spaced.slice(1)
+    : columnName;
+}
+
 function splitGoalText(goalText: string | null): string[] {
   if (!goalText) {
     return [];
@@ -522,6 +541,35 @@ function buildClarificationQuestionId(input: {
     )
     .digest("hex")
     .slice(0, 16)}`;
+}
+
+// Merges the two independent halves of context-extraction diagnostics —
+// Python's deterministic candidate/exclusion counts and the TS-side
+// prepared-table/epistemicRole signal from buildEvidenceTables — into the
+// shape buildActivityAnalysisV2Diagnostics expects. contextCandidateDiagnostics
+// is only absent for a response an older/mismatched Python build produced
+// before this field existed; all-zero counts there is the correct
+// "unknown" default, same as the diagnostics builder's own fallback.
+function buildContextExtractionDiagnosticsInput(
+  evidenceTableDiagnostics: EvidenceTableBuildDiagnostics,
+  contextCandidateDiagnostics:
+    ActivityAnalysisV2PlanContextCandidateDiagnostics | undefined,
+  contextCandidatesMaterialized: number,
+) {
+  return {
+    totalCategoricalColumnsSeen:
+      contextCandidateDiagnostics?.totalCategoricalColumnsSeen ?? 0,
+    contextCandidatesProposed:
+      contextCandidateDiagnostics?.contextCandidatesProposed ?? 0,
+    contextCandidatesExcludedByReferencedStrings:
+      contextCandidateDiagnostics?.contextCandidatesExcludedByReferencedStrings ??
+      0,
+    contextCandidatesExcludedByMissingEpistemicRole:
+      evidenceTableDiagnostics.missingEpistemicRoleColumnCount,
+    contextCandidatesMaterialized,
+    preparedTableFallbackTableCount:
+      evidenceTableDiagnostics.preparedTableFallbackTableCount,
+  };
 }
 
 export class ActivityAnalysisV2Service {
@@ -575,6 +623,102 @@ export class ActivityAnalysisV2Service {
       evidenceModality: item.evidenceModality,
       uploadedAt: item.uploadedAt,
     }));
+  }
+
+  // Executes a deterministic group-count for each context-catalog candidate
+  // the planner flagged (a `categorical` column with no goal link) and
+  // shapes the result into ContextCatalogEntry records. This runs as a
+  // *separate* tool-executor call from the goal-linked plan — its
+  // calculations are never merged into `execution.calculations` — so a
+  // context distribution can never leak into the goal/outcome catalog that
+  // feeds ProjectImpactStory's chart-plan and narrative LLM calls. See
+  // IMPACT_STORY_OUTCOME_EXTENSION_PLAN.md §3.4.
+  private async buildContextCatalogEntries(
+    contextCandidates: ActivityAnalysisV2PlanContextCandidate[],
+    evidenceSnapshot: CurrentActivityEvidenceSnapshot,
+    activity: Pick<ActivityPersistenceRecord, "id" | "name">,
+    runLimits: ActivityAnalysisRunV2RunLimits,
+    runStartedAt: number,
+  ): Promise<ContextCatalogEntry[]> {
+    if (contextCandidates.length === 0) {
+      return [];
+    }
+
+    // Defensive cap only — a real activity's categorical-with-no-goal-link
+    // columns are typically a handful, well inside maxToolCalls. This just
+    // keeps a pathological activity from exceeding the executor's own
+    // per-call limit rather than failing the whole run.
+    const boundedCandidates = contextCandidates.slice(
+      0,
+      runLimits.maxToolCalls,
+    );
+    const candidateByKey = new Map(
+      boundedCandidates.map((candidate) => [
+        `${candidate.tableName}::${candidate.columnName}`,
+        candidate,
+      ]),
+    );
+
+    const contextToolRequests: ActivityAnalysisV2ToolRequest[] =
+      boundedCandidates.map((candidate) => ({
+        toolName: "group_count",
+        arguments: {
+          uploadMetadataId: candidate.uploadMetadataId,
+          tableName: candidate.tableName,
+          columnName: candidate.columnName,
+        },
+      }));
+
+    const contextExecution = await this.activityAnalysisV2ToolExecutor.execute(
+      contextToolRequests,
+      evidenceSnapshot,
+      runLimits,
+      runStartedAt,
+    );
+
+    return contextExecution.calculations.flatMap((calculation) => {
+      const tableName = calculation.sourceTableNames[0];
+      const columnName = calculation.sourceColumns[0];
+      const candidate =
+        tableName && columnName
+          ? candidateByKey.get(`${tableName}::${columnName}`)
+          : undefined;
+      if (!candidate) {
+        return [];
+      }
+
+      const groups = Array.isArray(calculation.result.groups)
+        ? (calculation.result.groups as Array<{
+            value: string | null;
+            count: number;
+          }>)
+        : [];
+      const shares = groups
+        .filter((group) => group.value !== null)
+        .map((group) => ({
+          labelDe: group.value as string,
+          count: group.count,
+        }));
+      const n = shares.reduce((total, share) => total + share.count, 0);
+      const dimensionLabelDe = humanizeColumnName(candidate.columnName);
+
+      return [
+        {
+          entryId: `${activity.id}:context:${candidate.tableName}.${candidate.columnName}`,
+          activityId: activity.id,
+          activityName: activity.name,
+          labelDe: `Verteilung: ${dimensionLabelDe}`,
+          dimensionLabelDe,
+          shares,
+          n,
+          eligibleChartTypes: [
+            "hbar_target",
+            "donut_share",
+          ] as ContextCatalogEntry["eligibleChartTypes"],
+          sourceDe: `Quelle: ${tableName}`,
+        },
+      ];
+    });
   }
 
   // A question is only ever omitted here if it's in resolvedQuestionIds —
@@ -729,7 +873,10 @@ export class ActivityAnalysisV2Service {
     evidenceSnapshot: Awaited<
       ReturnType<CurrentActivityEvidenceLoader["load"]>
     >;
-  }): Promise<ActivityAnalysisV2EvidenceTableInput[]> {
+  }): Promise<{
+    tables: ActivityAnalysisV2EvidenceTableInput[];
+    diagnostics: EvidenceTableBuildDiagnostics;
+  }> {
     const results =
       await this.interpretationResultRepository.findLatestByUploadMetadataIds(
         input.evidenceSnapshot.evidence.map((item) => item.uploadMetadataId),
@@ -749,7 +896,10 @@ export class ActivityAnalysisV2Service {
       results.map((result) => [result.uploadMetadataId, result]),
     );
 
-    return input.evidenceSnapshot.evidence.flatMap((evidence) => {
+    let preparedTableFallbackTableCount = 0;
+    let missingEpistemicRoleColumnCount = 0;
+
+    const tables = input.evidenceSnapshot.evidence.flatMap((evidence) => {
       const result = resultByUploadId.get(evidence.uploadMetadataId) ?? null;
       const preparation = result
         ? (preparationByInterpretationResultId.get(result.id) ?? null)
@@ -765,8 +915,29 @@ export class ActivityAnalysisV2Service {
         const tableName = typeof table.name === "string" ? table.name : "table";
         const syntheticColumns =
           extractSyntheticQualitativeCodeColumnMetadata(table);
+        const matchedPreparedTable =
+          preparedTablesByName.get(tableName) ?? null;
+        // Every interpreted table is expected to have a matching prepared
+        // table by name once dataset preparation has run for its upload —
+        // a miss here means every raw column silently loses its
+        // epistemicRole below, which forecloses it from ever becoming a
+        // context-catalog candidate no matter what it actually contains.
+        // Counted (not just logged), so a run's diagnostics can
+        // distinguish "this table's columns were never classified" from
+        // "they were classified as something other than categorical."
+        if (!matchedPreparedTable) {
+          preparedTableFallbackTableCount += 1;
+          this.logger.warn(
+            {
+              activityId: input.activityId,
+              uploadMetadataId: evidence.uploadMetadataId,
+              tableName,
+            },
+            "ActivityAnalystV2 evidence table had no matching prepared table by name; falling back to raw column metadata with no epistemicRole",
+          );
+        }
         const preparedTable = preparedDatasetTableWithSyntheticColumns(
-          preparedTablesByName.get(tableName) ?? null,
+          matchedPreparedTable,
           syntheticColumns,
         );
         const rows = readRowRecords(table.rows);
@@ -796,6 +967,9 @@ export class ActivityAnalysisV2Service {
               epistemicRole: syntheticColumn?.epistemicRole ?? null,
             };
           });
+        missingEpistemicRoleColumnCount += columns.filter(
+          (column) => column.epistemicRole === null,
+        ).length;
 
         return {
           uploadMetadataId: evidence.uploadMetadataId,
@@ -812,6 +986,14 @@ export class ActivityAnalysisV2Service {
         };
       });
     });
+
+    return {
+      tables,
+      diagnostics: {
+        preparedTableFallbackTableCount,
+        missingEpistemicRoleColumnCount,
+      },
+    };
   }
 
   /**
@@ -944,7 +1126,7 @@ export class ActivityAnalysisV2Service {
       activityId: activity.id,
       projectId: project.id,
     };
-    const evidenceTables = await runLoggedPipelineStage(
+    const evidenceTablesResult = await runLoggedPipelineStage(
       this.logger,
       {
         ...stageContext,
@@ -958,7 +1140,7 @@ export class ActivityAnalysisV2Service {
           evidenceSnapshot,
         }),
       {
-        completedContext: (tables) => ({
+        completedContext: ({ tables, diagnostics }) => ({
           evidenceTableCount: tables.length,
           evidenceColumnCount: tables.reduce(
             (sum, table) => sum + table.columns.length,
@@ -974,9 +1156,15 @@ export class ActivityAnalysisV2Service {
               sum + (table.plannerHints?.dateCoverage.length ?? 0),
             0,
           ),
+          preparedTableFallbackTableCount:
+            diagnostics.preparedTableFallbackTableCount,
+          missingEpistemicRoleColumnCount:
+            diagnostics.missingEpistemicRoleColumnCount,
         }),
       },
     );
+    const evidenceTables = evidenceTablesResult.tables;
+    const evidenceTableDiagnostics = evidenceTablesResult.diagnostics;
     const persistedClarificationAnswers =
       activity.activityAnalysisV2ClarificationAnswers ?? [];
     // Needed so a planner-call failure (network error, timeout, malformed
@@ -1179,6 +1367,15 @@ export class ActivityAnalysisV2Service {
         calculationCount: 0,
         validation: failedValidation,
         assessment: null,
+        // No Python plan response was ever produced, but the TS-side
+        // evidence-table diagnostics (prepared-table matching,
+        // epistemicRole coverage) were already computed before the
+        // planner call and are still meaningful on their own.
+        contextExtraction: buildContextExtractionDiagnosticsInput(
+          evidenceTableDiagnostics,
+          undefined,
+          0,
+        ),
       });
       // The planner call threw before producing a new plan, so there are no
       // fresh drafts to build a question list from. Re-derive from the
@@ -1209,6 +1406,7 @@ export class ActivityAnalysisV2Service {
           ),
           toolCallTrace: [],
           calculations: [],
+          contextCatalogEntries: [],
           qualitativeFindings: [],
           assessment: null,
           diagnostics,
@@ -1248,6 +1446,11 @@ export class ActivityAnalysisV2Service {
         calculationCount: 0,
         validation: timeoutValidation,
         assessment: null,
+        contextExtraction: buildContextExtractionDiagnosticsInput(
+          evidenceTableDiagnostics,
+          plannerResponse.contextCandidateDiagnostics,
+          0,
+        ),
       });
       const timedOutRun = await this.activityAnalysisRunV2Repository.create(
         {
@@ -1267,6 +1470,7 @@ export class ActivityAnalysisV2Service {
           clarificationQuestions,
           toolCallTrace: [],
           calculations: [],
+          contextCatalogEntries: [],
           qualitativeFindings: [],
           assessment: null,
           diagnostics,
@@ -1292,6 +1496,11 @@ export class ActivityAnalysisV2Service {
         calculationCount: 0,
         validation: plannerResponse.validation,
         assessment: null,
+        contextExtraction: buildContextExtractionDiagnosticsInput(
+          evidenceTableDiagnostics,
+          plannerResponse.contextCandidateDiagnostics,
+          0,
+        ),
       });
       run = await this.activityAnalysisRunV2Repository.create(
         {
@@ -1311,6 +1520,7 @@ export class ActivityAnalysisV2Service {
           clarificationQuestions,
           toolCallTrace: [],
           calculations: [],
+          contextCatalogEntries: [],
           qualitativeFindings: [],
           assessment: null,
           diagnostics,
@@ -1355,6 +1565,11 @@ export class ActivityAnalysisV2Service {
         calculationCount: 0,
         validation: pausedValidation,
         assessment: null,
+        contextExtraction: buildContextExtractionDiagnosticsInput(
+          evidenceTableDiagnostics,
+          plannerResponse.contextCandidateDiagnostics,
+          0,
+        ),
       });
       run = await this.activityAnalysisRunV2Repository.create(
         {
@@ -1374,6 +1589,7 @@ export class ActivityAnalysisV2Service {
           clarificationQuestions,
           toolCallTrace: [],
           calculations: [],
+          contextCatalogEntries: [],
           qualitativeFindings: [],
           assessment: null,
           diagnostics,
@@ -1457,6 +1673,14 @@ export class ActivityAnalysisV2Service {
         },
       );
 
+      const contextCatalogEntries = await this.buildContextCatalogEntries(
+        plannerResponse.contextCandidates ?? [],
+        evidenceSnapshot,
+        activity,
+        PHASE_1_RUN_LIMITS,
+        runStartedAt,
+      );
+
       const diagnostics = buildActivityAnalysisV2Diagnostics({
         goals,
         evidenceCount: evidenceSnapshot.evidence.length,
@@ -1465,6 +1689,11 @@ export class ActivityAnalysisV2Service {
         calculationCount: execution.calculations.length,
         validation: assessmentResult.validation,
         assessment: assessmentResult.assessment,
+        contextExtraction: buildContextExtractionDiagnosticsInput(
+          evidenceTableDiagnostics,
+          plannerResponse.contextCandidateDiagnostics,
+          contextCatalogEntries.length,
+        ),
       });
       run = await this.activityAnalysisRunV2Repository.create(
         {
@@ -1484,6 +1713,7 @@ export class ActivityAnalysisV2Service {
           clarificationQuestions: [],
           toolCallTrace: execution.toolCallTrace,
           calculations: execution.calculations,
+          contextCatalogEntries,
           qualitativeFindings: execution.qualitativeFindings,
           assessment: assessmentResult.assessment,
           diagnostics,
@@ -1538,6 +1768,14 @@ export class ActivityAnalysisV2Service {
         calculationCount: calculations.length,
         validation: failedValidation,
         assessment: null,
+        // Materialization state is unknown here (buildContextCatalogEntries
+        // may or may not have run before whatever threw) — 0 is the safe
+        // default, matching every other non-success branch above.
+        contextExtraction: buildContextExtractionDiagnosticsInput(
+          evidenceTableDiagnostics,
+          plannerResponse.contextCandidateDiagnostics,
+          0,
+        ),
       });
       run = await this.activityAnalysisRunV2Repository.create(
         {
@@ -1557,6 +1795,7 @@ export class ActivityAnalysisV2Service {
           clarificationQuestions: [],
           toolCallTrace,
           calculations,
+          contextCatalogEntries: [],
           qualitativeFindings,
           assessment: null,
           diagnostics,

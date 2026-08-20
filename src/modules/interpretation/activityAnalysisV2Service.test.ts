@@ -508,6 +508,180 @@ test("previewActivityAnalysis persists a separate shadow run with current eviden
   assert.equal(fixture.createdRuns.length, 1);
 });
 
+test("previewActivityAnalysis executes context candidates through a separate tool-executor call and persists ContextCatalogEntry records", async () => {
+  const fixture = createServiceFixture({
+    plannerResponse: {
+      goalPlans: [
+        {
+          goalId: "output_1",
+          goalType: "output",
+          goalText: "Mindestens 70 Bewerbungen sammeln",
+          evaluationMode: "numeric_target",
+          status: "planned",
+          rationale: "No columns support this goal in this fixture.",
+          plannedToolNames: [],
+        },
+      ],
+      clarificationQuestions: [],
+      // Empty on purpose: the goal-linked execution path is skipped
+      // entirely (previewActivityAnalysis short-circuits to a hardcoded
+      // empty result when there are no tool requests), isolating this test
+      // to the separate context-candidate execution path.
+      toolRequests: [],
+      contextCandidates: [
+        {
+          tableName: "mentors",
+          columnName: "bezirk",
+          uploadMetadataId: "upload-1",
+        },
+      ],
+      limitations: [],
+      validation: { status: "passed", issues: [] },
+    },
+    executorResult: {
+      toolCallTrace: [
+        {
+          toolCallId: "tool_1_group_count",
+          toolName: "group_count",
+          arguments: {
+            uploadMetadataId: "upload-1",
+            tableName: "mentors",
+            columnName: "bezirk",
+          },
+          calculationIds: ["calc_bezirk_group_count"],
+          status: "succeeded",
+          errorMessage: null,
+          startedAt: NOW.toISOString(),
+          completedAt: NOW.toISOString(),
+          durationMs: 0,
+        },
+      ],
+      calculations: [
+        {
+          calculationId: "calc_bezirk_group_count",
+          toolName: "group_count",
+          label: "Group counts for bezirk in mentors",
+          description: "Counts records per category value in one column.",
+          formula: "GROUP_COUNT(bezirk)",
+          value: 2,
+          unit: "groups",
+          sourceUploadMetadataIds: ["upload-1"],
+          sourceTableNames: ["mentors"],
+          sourceColumns: ["bezirk"],
+          numerator: 5,
+          denominator: null,
+          denominatorType: "rows",
+          identifierColumn: null,
+          result: {
+            groups: [
+              { value: "Neukölln", count: 3 },
+              { value: "Mitte", count: 2 },
+            ],
+            basis: "analysis_rows",
+            sourceLabel: "mentors",
+            filters: [],
+          },
+        },
+      ],
+    },
+  });
+
+  const record = await fixture.service.previewActivityAnalysis(
+    "user-1",
+    "activity-1",
+  );
+
+  assert.equal(record.status, "completed");
+  // The goal path itself executed nothing (empty toolRequests), confirming
+  // the context candidates were not folded into the goal-linked execution.
+  assert.equal(record.toolCallTrace.length, 0);
+  assert.equal(record.calculations.length, 0);
+
+  assert.equal(fixture.createdRuns.length, 1);
+  const persistedContextCatalogEntries = fixture.createdRuns[0]
+    ?.contextCatalogEntries as Array<Record<string, unknown>>;
+  assert.equal(persistedContextCatalogEntries.length, 1);
+  assert.deepEqual(persistedContextCatalogEntries[0], {
+    entryId: "activity-1:context:mentors.bezirk",
+    activityId: "activity-1",
+    activityName: "Mentor:innengewinnung und Auswahl",
+    labelDe: "Verteilung: Bezirk",
+    dimensionLabelDe: "Bezirk",
+    shares: [
+      { labelDe: "Neukölln", count: 3 },
+      { labelDe: "Mitte", count: 2 },
+    ],
+    n: 5,
+    eligibleChartTypes: ["hbar_target", "donut_share"],
+    sourceDe: "Quelle: mentors",
+  });
+});
+
+test("previewActivityAnalysis flags an evidence table with no matching prepared table and counts its columns as missing epistemicRole", async () => {
+  const fixture = createServiceFixture({
+    privacySafeRepresentations: [
+      {
+        id: "psr-1",
+        uploadMetadataId: "upload-1",
+        payload: {
+          metadata: {
+            evidenceModality: "structured_quantitative",
+            interpretationDataType: "tabular_structured",
+          },
+          // The fixture's datasetPreparationService always returns a
+          // prepared table named "mentors" — this payload table is
+          // deliberately named something else so it has no match by
+          // tableName, forcing buildEvidenceTables's raw-column fallback.
+          tables: [
+            {
+              name: "teilnahme",
+              rows: [{ bezirk: "Mitte" }, { bezirk: "Neukölln" }],
+            },
+          ],
+        },
+      },
+    ],
+    plannerResponse: {
+      goalPlans: [
+        {
+          goalId: "output_1",
+          goalType: "output",
+          goalText: "Mindestens 70 Bewerbungen sammeln",
+          evaluationMode: "numeric_target",
+          status: "planned",
+          rationale: "No columns support this goal in this fixture.",
+          plannedToolNames: [],
+        },
+      ],
+      clarificationQuestions: [],
+      toolRequests: [],
+      contextCandidates: [],
+      limitations: [],
+      validation: { status: "passed", issues: [] },
+    },
+  });
+
+  const record = await fixture.service.previewActivityAnalysis(
+    "user-1",
+    "activity-1",
+  );
+
+  assert.equal(record.status, "completed");
+  assert.equal(
+    record.diagnostics.contextExtraction.preparedTableFallbackTableCount,
+    1,
+  );
+  // The payload's only table ("teilnahme") has one raw column ("bezirk");
+  // with no matching prepared table it falls back with epistemicRole:
+  // null, foreclosing it from ever becoming a context-catalog candidate
+  // regardless of what it actually contains.
+  assert.equal(
+    record.diagnostics.contextExtraction
+      .contextCandidatesExcludedByMissingEpistemicRole,
+    1,
+  );
+});
+
 test("previewActivityAnalysis blocks when a current upload still requires qualitative coding review approval", async () => {
   const fixture = createServiceFixture({
     interpretationResults: [

@@ -8,6 +8,21 @@ export async function registerProjectImpactStoryRoutes(
   authenticate: (request: FastifyRequest, reply: FastifyReply) => Promise<void>,
 ) {
   app.post(
+    "/projects/:projectId/analytics",
+    {
+      preHandler: authenticate,
+      config: processingKickoffRateLimitConfig,
+    },
+    controller.triggerProjectAnalyticsRun.bind(controller),
+  );
+
+  app.get(
+    "/projects/:projectId/analytics",
+    { preHandler: authenticate },
+    controller.getLatestProjectAnalytics.bind(controller),
+  );
+
+  app.post(
     "/projects/:projectId/impact-story",
     {
       preHandler: authenticate,

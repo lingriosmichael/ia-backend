@@ -12,6 +12,7 @@ import type {
   ActivityEvidenceLinkageResultRecord,
   ActivitySummary,
   ActivityWorkflowStageRecord,
+  OutcomeEvidencePairingActivityUploadState,
   ProjectInterpretationOverview,
   StartActivityInterpretationResponse,
   StartInterpretationResponse,
@@ -76,6 +77,13 @@ function getLatestJobByUploadMetadataId(
   }
 
   return latestJobByUploadId;
+}
+
+export interface ActivityInterpretationReadiness {
+  uploadCount: number;
+  activeUploadCount: number;
+  eligibleUploadCount: number;
+  uploadStates: OutcomeEvidencePairingActivityUploadState[];
 }
 
 function mapActivityEvidenceLinkageResult(
@@ -280,6 +288,11 @@ export class InterpretationService {
       activities.map((activity) => activity.id),
       databaseSession,
     );
+    const privacySafeRepresentations =
+      await this.privacySafeRepresentationRepository.findLatestByUploadMetadataIds(
+        uploads.map((upload) => upload.id),
+        databaseSession,
+      );
 
     const results =
       await this.interpretationResultRepository.findLatestByUploadMetadataIds(
@@ -306,6 +319,12 @@ export class InterpretationService {
         analysis,
       ]),
     );
+    const privacySafePayloadByUploadId = new Map(
+      privacySafeRepresentations.map((representation) => [
+        representation.uploadMetadataId,
+        representation.payload,
+      ]),
+    );
 
     return {
       results: results.map((result) =>
@@ -314,6 +333,8 @@ export class InterpretationService {
           datasetPreparation: preparationByResultId.get(result.id) ?? null,
           deterministicAnalysis:
             deterministicAnalysisByResultId.get(result.id) ?? null,
+          privacySafePayload:
+            privacySafePayloadByUploadId.get(result.uploadMetadataId) ?? null,
         }),
       ),
     };
@@ -326,17 +347,74 @@ export class InterpretationService {
   ): Promise<StartActivityInterpretationResponse> {
     await this.authorizationService.canEditActivity(userId, activityId);
 
+    const readiness =
+      await this.buildActivityInterpretationReadiness(activityId);
+
+    if (readiness.uploadCount === 0 || readiness.eligibleUploadCount === 0) {
+      this.logger.warn(
+        {
+          activityId,
+          uploadCount: readiness.uploadCount,
+          activeUploadCount: readiness.activeUploadCount,
+          uploadStates: readiness.uploadStates,
+        },
+        "Activity interpretation blocked because no evidence is ready for AI interpretation.",
+      );
+
+      throw new AppError(
+        "No evidence in this activity is ready for AI interpretation yet.",
+        409,
+        "activity_interpretation_not_ready",
+        { uploadStates: readiness.uploadStates },
+      );
+    }
+
+    const jobsStarted = [];
+    for (const upload of readiness.eligibleUploads) {
+      const started = await this.startInterpretation(
+        userId,
+        upload.id,
+        language,
+      );
+      jobsStarted.push(started.job);
+    }
+
+    return {
+      jobs: jobsStarted,
+      startedCount: jobsStarted.length,
+      skippedCount: readiness.uploadCount - jobsStarted.length,
+    };
+  }
+
+  async inspectActivityInterpretationReadiness(
+    userId: string,
+    activityId: string,
+  ): Promise<ActivityInterpretationReadiness> {
+    await this.authorizationService.canViewActivity(userId, activityId);
+    const readiness =
+      await this.buildActivityInterpretationReadiness(activityId);
+    return {
+      uploadCount: readiness.uploadCount,
+      activeUploadCount: readiness.activeUploadCount,
+      eligibleUploadCount: readiness.eligibleUploadCount,
+      uploadStates: readiness.uploadStates,
+    };
+  }
+
+  private async buildActivityInterpretationReadiness(activityId: string) {
     const uploads = await this.uploadMetadataRepository.listByActivityIds(
       [activityId],
       databaseSession,
     );
 
     if (uploads.length === 0) {
-      throw new AppError(
-        "This activity has no evidence to interpret.",
-        409,
-        "activity_interpretation_not_ready",
-      );
+      return {
+        uploadCount: 0,
+        activeUploadCount: 0,
+        eligibleUploadCount: 0,
+        uploadStates: [],
+        eligibleUploads: [] as typeof uploads,
+      };
     }
 
     const privacySafeRepresentations =
@@ -395,75 +473,52 @@ export class InterpretationService {
       return isEvidenceModalitySupported(evidenceModality);
     });
 
-    if (eligibleUploads.length === 0) {
-      const uploadStates = uploads.map((upload) => {
-        const latestJob = latestJobByUploadId.get(upload.id) ?? null;
-        const privacySafeRepresentation =
-          privacySafeRepresentationByUploadId.get(upload.id) ?? null;
-        const evidenceModality = privacySafeRepresentation
-          ? classifyEvidenceModalityFromPayload(
-              privacySafeRepresentation.payload,
-            )
-          : null;
+    const uploadStates = uploads.map((upload) => {
+      const latestJob = latestJobByUploadId.get(upload.id) ?? null;
+      const privacySafeRepresentation =
+        privacySafeRepresentationByUploadId.get(upload.id) ?? null;
+      const evidenceModality = privacySafeRepresentation
+        ? classifyEvidenceModalityFromPayload(privacySafeRepresentation.payload)
+        : null;
 
-        let reason:
-          | "active_job"
-          | "already_interpreted"
-          | "privacy_safe_representation_missing"
-          | "unsupported_modality";
+      let reason:
+        | "active_job"
+        | "already_interpreted"
+        | "ready_to_interpret"
+        | "privacy_safe_representation_missing"
+        | "unsupported_modality";
 
-        if (activeUploadIds.has(upload.id)) {
-          reason = "active_job";
-        } else if (latestResultByUploadId.has(upload.id)) {
-          reason = "already_interpreted";
-        } else if (!privacySafeRepresentation) {
-          reason = "privacy_safe_representation_missing";
-        } else {
-          reason = "unsupported_modality";
-        }
+      if (activeUploadIds.has(upload.id)) {
+        reason = "active_job";
+      } else if (latestResultByUploadId.has(upload.id)) {
+        reason = "already_interpreted";
+      } else if (!privacySafeRepresentation) {
+        reason = "privacy_safe_representation_missing";
+      } else if (
+        evidenceModality !== null &&
+        isEvidenceModalitySupported(evidenceModality)
+      ) {
+        reason = "ready_to_interpret";
+      } else {
+        reason = "unsupported_modality";
+      }
 
-        return {
-          uploadMetadataId: upload.id,
-          originalFileName: upload.originalFileName,
-          reason,
-          latestJobStatus: latestJob?.status ?? null,
-          latestJobType: latestJob?.jobType ?? null,
-          evidenceModality,
-        };
-      });
-
-      this.logger.warn(
-        {
-          activityId,
-          uploadCount: uploads.length,
-          activeUploadCount: activeUploadIds.size,
-          uploadStates,
-        },
-        "Activity interpretation blocked because no evidence is ready for AI interpretation.",
-      );
-
-      throw new AppError(
-        "No evidence in this activity is ready for AI interpretation yet.",
-        409,
-        "activity_interpretation_not_ready",
-        { uploadStates },
-      );
-    }
-
-    const jobsStarted = [];
-    for (const upload of eligibleUploads) {
-      const started = await this.startInterpretation(
-        userId,
-        upload.id,
-        language,
-      );
-      jobsStarted.push(started.job);
-    }
+      return {
+        uploadMetadataId: upload.id,
+        originalFileName: upload.originalFileName,
+        reason,
+        latestJobStatus: latestJob?.status ?? null,
+        latestJobType: latestJob?.jobType ?? null,
+        evidenceModality,
+      };
+    });
 
     return {
-      jobs: jobsStarted,
-      startedCount: jobsStarted.length,
-      skippedCount: uploads.length - jobsStarted.length,
+      uploadCount: uploads.length,
+      activeUploadCount: activeUploadIds.size,
+      eligibleUploadCount: eligibleUploads.length,
+      uploadStates,
+      eligibleUploads,
     };
   }
 
@@ -491,31 +546,37 @@ export class InterpretationService {
       return { activityId, stage: "no_evidence" };
     }
 
-    const [jobs, results, linkageResult, qualitativeCodingReviews] =
-      await Promise.all([
-        this.processingJobRepository.listByActivity(
-          activityId,
-          databaseSession,
-        ),
-        this.interpretationResultRepository.findLatestByUploadMetadataIds(
-          uploads.map((upload) => upload.id),
-          databaseSession,
-        ),
-        uploads.length >= 2
-          ? this.activityEvidenceLinkageResultRepository.findByActivityId(
-              activityId,
-              databaseSession,
-            )
-          : Promise.resolve(null),
-        Promise.all(
-          uploads.map((upload) =>
-            this.qualitativeCodingReviewRepository.findByUploadMetadataId(
-              upload.id,
-              databaseSession,
-            ),
+    const [
+      jobs,
+      results,
+      linkageResult,
+      qualitativeCodingReviews,
+      privacySafeRepresentations,
+    ] = await Promise.all([
+      this.processingJobRepository.listByActivity(activityId, databaseSession),
+      this.interpretationResultRepository.findLatestByUploadMetadataIds(
+        uploads.map((upload) => upload.id),
+        databaseSession,
+      ),
+      uploads.length >= 2
+        ? this.activityEvidenceLinkageResultRepository.findByActivityId(
+            activityId,
+            databaseSession,
+          )
+        : Promise.resolve(null),
+      Promise.all(
+        uploads.map((upload) =>
+          this.qualitativeCodingReviewRepository.findByUploadMetadataId(
+            upload.id,
+            databaseSession,
           ),
         ),
-      ]);
+      ),
+      this.privacySafeRepresentationRepository.findLatestByUploadMetadataIds(
+        uploads.map((upload) => upload.id),
+        databaseSession,
+      ),
+    ]);
     const qualitativeCodingReviewByUploadMetadataId = new Map(
       uploads.map((upload, index) => [
         upload.id,
@@ -532,12 +593,22 @@ export class InterpretationService {
         ) === "required_pending"
       );
     });
+    const privacySafePayloadByUploadId = new Map(
+      privacySafeRepresentations.map((representation) => [
+        representation.uploadMetadataId,
+        representation.payload,
+      ]),
+    );
 
     const stage = computeActivityWorkflowStage({
       isAcknowledged: Boolean(activity.interpretationAcknowledgedAt),
       uploadIds: uploads.map((upload) => upload.id),
       jobs,
-      results,
+      results: results.map((result) => ({
+        ...result,
+        privacySafePayload:
+          privacySafePayloadByUploadId.get(result.uploadMetadataId) ?? null,
+      })),
       hasPendingQualitativeCodingReview,
       hasLinkageResultIfApplicable: linkageResult?.status === "resolved",
     });
@@ -603,11 +674,17 @@ export class InterpretationService {
       await this.deterministicAnalysisService.findByInterpretationResultId(
         result.id,
       );
+    const privacySafeRepresentation =
+      await this.privacySafeRepresentationRepository.findById(
+        result.privacySafeRepresentationId,
+        databaseSession,
+      );
 
     return mapInterpretationResult({
       ...result,
       datasetPreparation,
       deterministicAnalysis,
+      privacySafePayload: privacySafeRepresentation?.payload ?? null,
     });
   }
 
@@ -648,6 +725,12 @@ export class InterpretationService {
     }
 
     await this.authorizationService.canEditProject(userId, result.projectId);
+    const privacySafeRepresentation =
+      await this.privacySafeRepresentationRepository.findById(
+        result.privacySafeRepresentationId,
+        databaseSession,
+      );
+    const privacySafePayload = privacySafeRepresentation?.payload ?? null;
 
     const questionById = new Map(
       result.questions.map((question) => [question.id, question]),
@@ -756,6 +839,7 @@ export class InterpretationService {
       ...(synthesized ?? updated),
       datasetPreparation: updatedPreparation,
       deterministicAnalysis,
+      privacySafePayload,
     });
   }
 
@@ -832,7 +916,22 @@ export class InterpretationService {
     // blocking questions remain pending, but that's a UX nicety, not the
     // real guarantee — same principle as privacy review approval. The
     // backend remains the source of truth for review completeness.
-    if (hasPendingBlockingQuestions(results)) {
+    const privacySafePayloadByUploadId = new Map(
+      privacySafeRepresentations.map((representation) => [
+        representation.uploadMetadataId,
+        representation.payload,
+      ]),
+    );
+
+    if (
+      hasPendingBlockingQuestions(
+        results.map((result) => ({
+          ...result,
+          privacySafePayload:
+            privacySafePayloadByUploadId.get(result.uploadMetadataId) ?? null,
+        })),
+      )
+    ) {
       throw new AppError(
         "This activity still has unresolved clarification questions.",
         409,

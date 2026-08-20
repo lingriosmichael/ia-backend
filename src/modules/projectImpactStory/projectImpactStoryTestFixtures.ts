@@ -96,6 +96,7 @@ export function buildRun(
     clarificationQuestions: [],
     toolCallTrace: [],
     calculations,
+    contextCatalogEntries: [],
     qualitativeFindings: [],
     assessment: { goalAssessments, limitations: [] },
     diagnostics: {
@@ -116,6 +117,14 @@ export function buildRun(
         mixedEvidence: 0,
         requiresClarification: 0,
         requiresCapability: 0,
+      },
+      contextExtraction: {
+        totalCategoricalColumnsSeen: 0,
+        contextCandidatesProposed: 0,
+        contextCandidatesExcludedByReferencedStrings: 0,
+        contextCandidatesExcludedByMissingEpistemicRole: 0,
+        contextCandidatesMaterialized: 0,
+        preparedTableFallbackTableCount: 0,
       },
     },
     validation: { status: "passed", issues: [] },

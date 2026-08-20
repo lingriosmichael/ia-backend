@@ -21,18 +21,14 @@ function toProjectImpactStoryRecord(
     id: document._id.toString(),
     organizationId: document.organizationId,
     projectId: document.projectId,
+    analyticsSnapshotId: document.analyticsSnapshotId,
     status: document.status as ProjectImpactStoryPersistenceRecord["status"],
-    sourceSnapshot: (document.sourceSnapshot ??
-      []) as ProjectImpactStoryPersistenceRecord["sourceSnapshot"],
-    activityCards: (document.activityCards ??
-      []) as ProjectImpactStoryPersistenceRecord["activityCards"],
-    headlineKpis: (document.headlineKpis ??
-      []) as ProjectImpactStoryPersistenceRecord["headlineKpis"],
-    chartPlan: (document.chartPlan ??
-      []) as ProjectImpactStoryPersistenceRecord["chartPlan"],
+    impactCatalog: (document.impactCatalog ??
+      []) as ProjectImpactStoryPersistenceRecord["impactCatalog"],
     narrativeSummary: document.narrativeSummary ?? null,
-    diagnostics:
-      document.diagnostics as ProjectImpactStoryPersistenceRecord["diagnostics"],
+    narrativeStatus:
+      (document.narrativeStatus as ProjectImpactStoryPersistenceRecord["narrativeStatus"]) ??
+      null,
     llmUsage:
       (document.llmUsage as ProjectImpactStoryPersistenceRecord["llmUsage"]) ??
       null,

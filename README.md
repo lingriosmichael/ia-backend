@@ -130,8 +130,11 @@ In a second terminal:
 npm run dev:analytics-worker
 ```
 
-This worker claims queued analytics executions from MongoDB, renews leases while
-they run, and continues processing independently of the API request lifecycle.
+`dev:analytics-worker` is kept as a compatibility alias for local tooling and
+deployment config. It currently starts `src/workers/activityAnalysisWorker.ts`,
+which claims `activity_analysis_v2`, `qualitative_coding_review`, and
+`project_impact_story` jobs and runs independently of the API request
+lifecycle.
 
 ## Start the Python services locally
 
@@ -324,7 +327,7 @@ Notes:
 
 - `src/server.ts` now honors Render's injected `PORT` automatically.
 - `/health` is the Render health check path.
-- the analytics worker should remain a separate Render background worker, not part of the web service process.
+- the analytics worker should remain a separate Render background worker, not part of the web service process. The `start:analytics-worker` script is a compatibility alias that currently launches `activityAnalysisWorker.js`.
 - use `10001` for the backend service port on Render so other Render services can reach it over the private network; Render reserves `10000` there
 
 That lets every backend replica read the same evidence files and organization logos instead of depending on one machine's disk.

@@ -37,6 +37,8 @@ function toActivityAnalysisRunV2Record(
       []) as ActivityAnalysisRunV2PersistenceRecord["toolCallTrace"],
     calculations: (document.calculations ??
       []) as ActivityAnalysisRunV2PersistenceRecord["calculations"],
+    contextCatalogEntries: (document.contextCatalogEntries ??
+      []) as ActivityAnalysisRunV2PersistenceRecord["contextCatalogEntries"],
     qualitativeFindings: (document.qualitativeFindings ??
       []) as ActivityAnalysisRunV2PersistenceRecord["qualitativeFindings"],
     assessment:

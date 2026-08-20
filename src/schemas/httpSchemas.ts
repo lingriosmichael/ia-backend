@@ -57,6 +57,8 @@ export const idParamSchema = z.object({
   qualitativeFindingId: z.string().min(1).optional(),
   invitationId: z.string().min(1).optional(),
   token: z.string().min(1).optional(),
+  outcomeStatementId: z.string().min(1).optional(),
+  linkId: z.string().min(1).optional(),
 });
 
 export const analysisRunListQuerySchema = z.object({
@@ -72,6 +74,33 @@ export const linkageProposalDecisionSchema = z.object({
   proposalId: z.string().min(1),
   decision: z.enum(["accept", "reject"]),
 });
+
+const outcomeTermSchema = z.enum(["short", "long"]);
+const outcomeStatementTextSchema = z.string().trim().min(1).max(2000);
+
+export const createProjectOutcomeStatementSchema = z.object({
+  term: outcomeTermSchema,
+  statement: outcomeStatementTextSchema,
+});
+
+export const updateProjectOutcomeStatementSchema = z.object({
+  term: outcomeTermSchema.optional(),
+  statement: outcomeStatementTextSchema.optional(),
+});
+
+export const outcomeEvidencePairingProposalDecisionSchema = z
+  .object({
+    // proposalId is a synthesized composite key with no fixed upper bound —
+    // same reasoning as linkageProposalDecisionSchema above, so it travels
+    // in the body rather than the URL.
+    proposalId: z.string().min(1),
+    decision: z.enum(["assign", "reject"]),
+    outcomeId: z.string().min(1).nullable().optional(),
+  })
+  .refine((value) => value.decision !== "assign" || Boolean(value.outcomeId), {
+    message: "outcomeId is required when decision is 'assign'.",
+    path: ["outcomeId"],
+  });
 
 export const registerSchema = z.object({
   fullName: z.string().trim().min(2).max(120),

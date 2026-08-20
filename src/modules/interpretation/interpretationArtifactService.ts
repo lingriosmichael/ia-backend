@@ -1,6 +1,7 @@
 import { databaseSession } from "../../shared/database/databaseClient.js";
 import type { FastifyBaseLogger } from "fastify";
 import type {
+  ActivitySystemType,
   DatasetProfile,
   DatasetProfileColumn,
   DatasetProfileColumnType,
@@ -76,6 +77,8 @@ const interpretationQuestionCodes: readonly InterpretationQuestionCode[] = [
   "primary_date_field",
   "epistemic_role_clarification",
   "validated_scale_confirmation",
+  "pairing_group_key",
+  "pairing_group_role",
 ];
 
 const DEFERRED_TO_ACTIVITY_ANALYSIS_V2_QUESTION_CODES =
@@ -637,8 +640,7 @@ function mapQualitativeFindings(
       return anchorType === "project_outcome" ||
         anchorType === "project_impact" ||
         anchorType === "activity_objective" ||
-        anchorType === "activity_output" ||
-        anchorType === "activity_outcome"
+        anchorType === "activity_output"
         ? anchorType
         : "unanchored";
     })(),
@@ -687,6 +689,46 @@ function mapQuestions(value: unknown): InterpretationQuestionCreateInput[] {
       },
     ];
   });
+}
+
+// Synthesized here, not in ia_python_service: the dataset-profiling stage
+// there operates purely per-upload with no notion of which activity (or
+// system activity type) an upload belongs to, and it shouldn't need to —
+// asking "which cohort is this?" only makes sense for the baseline/
+// impact_measurement system activities that outcome-evidence pairing
+// actually cares about (see outcomeEvidencePairingEvidenceLoader.ts), and
+// that scoping knowledge already lives here in ia_backend. Free text rather
+// than a closed choice from Project.targetGroups: threading project context
+// into this stage isn't worth it for a first cut (see
+// IMPACT_STORY_OUTCOME_EXTENSION_PLAN.md-style deferral reasoning) — a
+// human typing a short cohort label is a small, one-time cost.
+function buildCohortTagQuestions(
+  datasetProfile: DatasetProfile | null,
+  activitySystemType: ActivitySystemType | null,
+): InterpretationQuestionCreateInput[] {
+  if (
+    !datasetProfile ||
+    (activitySystemType !== "baseline" &&
+      activitySystemType !== "impact_measurement")
+  ) {
+    return [];
+  }
+
+  return datasetProfile.tables.map((table) => ({
+    prompt:
+      `Which cohort or participant segment does the table '${table.name}' represent (e.g. "Jugendliche", "Mentor:innen")? ` +
+      `This is used to avoid matching this table's evidence against a different cohort's baseline/Wirkungsmessung data. ` +
+      `Answer "not applicable" if this project only has a single cohort.`,
+    kind: "free_text",
+    questionDomain: "preparation",
+    options: null,
+    recommendedOption: null,
+    recommendedConfidence: null,
+    isBlocking: true,
+    questionCode: "cohort_tag",
+    targetTableName: table.name,
+    targetColumnName: null,
+  }));
 }
 
 function mapWarnings(value: unknown): InterpretationWarningCreateInput[] {
@@ -772,6 +814,11 @@ export class InterpretationArtifactService {
       supportingQuoteIdByKey.set(quote.quoteKey, quote.id);
     }
 
+    const datasetProfile = readDatasetProfile(interpretation.datasetProfile);
+    const activity = job.activityId
+      ? await this.activityRepository.findById(job.activityId, databaseSession)
+      : null;
+
     const created = await this.interpretationResultRepository.create(
       {
         organizationId: job.organizationId,
@@ -785,7 +832,7 @@ export class InterpretationArtifactService {
         datasetType: readString(interpretation.datasetType, "unknown"),
         overallConfidence: readNumber(interpretation.overallConfidence),
         evidenceRouting: readEvidenceRouting(interpretation.evidenceRouting),
-        datasetProfile: readDatasetProfile(interpretation.datasetProfile),
+        datasetProfile,
         entities,
         indicators,
         relationships: mapRelationships(
@@ -801,7 +848,13 @@ export class InterpretationArtifactService {
         supportingQuotes: supportingQuotes.map(
           ({ quoteKey: _quoteKey, ...quote }) => quote,
         ),
-        questions: mapQuestions(interpretation.questions),
+        questions: [
+          ...mapQuestions(interpretation.questions),
+          ...buildCohortTagQuestions(
+            datasetProfile,
+            activity?.systemType ?? null,
+          ),
+        ],
         warnings: mapWarnings(interpretation.warnings),
         goalAlignment: mapGoalAlignment(
           interpretation.goalAlignment,

@@ -93,10 +93,9 @@ async function runClaimedJob(
         language,
       );
     } else if (job.jobType === "project_impact_story") {
-      // buildProjectImpactStory re-validates readiness itself
-      // (assertReadyForImpactStoryRun) before doing any Python call, same
-      // reasoning as the activity_analysis_v2 branch above.
-      await context.projectImpactStoryService.buildProjectImpactStory(
+      // buildProjectAnalytics re-validates readiness itself before doing any
+      // Python call, same reasoning as the activity_analysis_v2 branch above.
+      await context.projectImpactStoryService.buildProjectAnalytics(
         job.triggeredById,
         job.projectId,
         language,

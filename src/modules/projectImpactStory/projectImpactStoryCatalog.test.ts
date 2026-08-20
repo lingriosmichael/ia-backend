@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import type { ContextCatalogEntry } from "../../shared/contracts.js";
 import {
   buildProjectImpactStoryCatalog,
   toProjectImpactStoryChartPlanRequestEntries,
@@ -121,4 +122,42 @@ test("flattens catalog entries into the chart-plan wire shape without leaking bu
   // carries label/description/toolName/unit context, never the buckets.
   assert.equal(rankRequestEntry?.value, null);
   assert.equal((rankRequestEntry as { buckets?: unknown }).buckets, undefined);
+});
+
+test("includes descriptive context distributions in the chart-plan catalog", () => {
+  const contextEntry: ContextCatalogEntry = {
+    entryId: "activity-1:context:survey.gender",
+    activityId: "activity-1",
+    activityName: "Workshop A",
+    labelDe: "Verteilung nach Geschlecht",
+    dimensionLabelDe: "Geschlecht",
+    shares: [
+      { labelDe: "weiblich", count: 30 },
+      { labelDe: "männlich", count: 12 },
+    ],
+    n: 42,
+    eligibleChartTypes: ["hbar_target", "donut_share"],
+    sourceDe: "Quelle: survey.gender",
+  };
+
+  const run = buildRun("run-1", "activity-1", [], [], {
+    contextCatalogEntries: [contextEntry],
+  });
+
+  const catalog = buildProjectImpactStoryCatalog(
+    [{ id: "activity-1", name: "Workshop A" }],
+    [run],
+    [buildUpload("upload-activity-1", "activity-1")],
+    "de",
+  );
+
+  const requestEntries = toProjectImpactStoryChartPlanRequestEntries(catalog);
+  const contextRequestEntry = requestEntries.find(
+    (entry) => entry.entryId === contextEntry.entryId,
+  );
+
+  assert.equal(contextRequestEntry?.kind, "context_distribution");
+  assert.equal(contextRequestEntry?.label, "Verteilung nach Geschlecht");
+  assert.match(contextRequestEntry?.description ?? "", /n=42/);
+  assert.equal(contextRequestEntry?.value, null);
 });

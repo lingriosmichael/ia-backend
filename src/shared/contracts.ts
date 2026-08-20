@@ -146,6 +146,26 @@ export interface ProjectImpactModel {
   outcomes: string | null;
 }
 
+// A discrete, structured outcome the project has declared — authored fresh
+// through a dedicated UI, independent of the freeform ProjectImpactModel
+// above. `statement` is plain user-authored text (no language suffix,
+// matching impactModel.outcomes' own convention) since a project's outcome
+// statements are written in whatever language the organization works in,
+// not toggled by the app's de/en interface language. Fully generic: no
+// target-group concept lives here or anywhere in the outcome-linkage
+// pipeline — see IMPACT_STORY_OUTCOME_EXTENSION_PLAN.md §4.1.
+export type OutcomeTerm = "short" | "long";
+
+export interface ProjectOutcomeStatement {
+  id: string;
+  projectId: string;
+  organizationId: string;
+  term: OutcomeTerm;
+  statement: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface ProjectSummary {
   id: string;
   organizationId: string;
@@ -532,6 +552,9 @@ export const interpretationQuestionCodeValues = [
   "primary_date_field",
   "epistemic_role_clarification",
   "validated_scale_confirmation",
+  "cohort_tag",
+  "pairing_group_key",
+  "pairing_group_role",
 ] as const;
 export type InterpretationQuestionCode =
   (typeof interpretationQuestionCodeValues)[number];
@@ -734,12 +757,17 @@ export const interpretationQualitativeFindingCategoryValues = [
 export type InterpretationQualitativeFindingCategory =
   (typeof interpretationQualitativeFindingCategoryValues)[number];
 
+// Matches ia_python_service's outcomeAnchorType Literal exactly (see
+// app/schemas/processing.py) — Python never emits "activity_outcome"; that
+// value was a stale TS-only leftover pointing at the now-deleted
+// activity.outcome field, dropped 2026-08-18. "project_outcome" already
+// covers "anchored to a declared outcome" now that outcomes are
+// project-scoped (ProjectOutcomeStatement).
 export const interpretationQualitativeOutcomeAnchorTypeValues = [
   "project_outcome",
   "project_impact",
   "activity_objective",
   "activity_output",
-  "activity_outcome",
   "unanchored",
 ] as const;
 export type InterpretationQualitativeOutcomeAnchorType =
@@ -982,6 +1010,23 @@ export interface PreparedDatasetColumn {
   // consumed by anything yet (Phase 1a of
   // QUALITATIVE_MIXED_EVIDENCE_PLAN.md).
   epistemicRole: EpistemicRole | null;
+  // Observed numeric bounds, carried over from DatasetProfileColumn.numericSummary
+  // (min/max) — used to reject an outcome-evidence pairing between two
+  // validated_scale columns whose scales don't actually match (e.g. a 1-5
+  // baseline instrument vs. a 0-10 endline one), see
+  // outcomeEvidencePairingCandidateMatcher.ts. Optional so every other
+  // existing PreparedDatasetColumn construction site is unaffected.
+  minValue?: number | null;
+  maxValue?: number | null;
+  // Human-declared, answered via pairing_group_key/pairing_group_role —
+  // only ever set when epistemicRole resolves to "validated_scale". Two
+  // columns (in the same or different tables) with the same normalized
+  // pairingGroupKey and opposite roles are the sole source of a
+  // paired_delta outcome-evidence candidate — see
+  // outcomeEvidencePairingCandidateMatcher.ts. Optional so every other
+  // existing PreparedDatasetColumn construction site is unaffected.
+  pairingGroupKey?: string | null;
+  pairingGroupRole?: "before" | "after" | null;
 }
 
 export interface PreparedDatasetTable {
@@ -995,6 +1040,12 @@ export interface PreparedDatasetTable {
   primaryDateColumn: string | null;
   columns: PreparedDatasetColumn[];
   notes: string[];
+  // Human-declared cohort/segment label (e.g. "Jugendliche" vs.
+  // "Mentor:innen"), answered once via the cohort_tag preparation question.
+  // Replaces sniffing a zielgruppe/target_group value out of row content —
+  // see outcomeEvidencePairingEvidenceLoader.ts. Optional so every other
+  // existing PreparedDatasetTable construction site is unaffected.
+  cohortTag?: string | null;
 }
 
 export interface PreparedDatasetSnapshot {
@@ -1314,6 +1365,236 @@ export interface ActivityEvidenceLinkageProposalDecisionRecord {
   decidedAt: string;
 }
 
+// Outcome-evidence linkage: a candidate pairing/distribution is proposed
+// mechanically (shared column-name stem or Activity.systemType role +
+// matching epistemicRole), but which declared ProjectOutcomeStatement it
+// belongs to is always a human-confirmed, closed-list pick — never
+// inferred. See IMPACT_STORY_OUTCOME_EXTENSION_PLAN.md §4.
+export type OutcomeEvidencePairingShape =
+  "paired_delta" | "single_distribution";
+
+// An LLM-proposed pre-fill for the human's outcome pick, computed once per
+// proposalId and cached on the persisted record — never a decision by
+// itself. `outcomeId: null` means the LLM was asked and wasn't confident
+// (a real, final answer); the proposal's own `suggestedOutcome` field being
+// `null` (not this type) means "not yet attempted." The backend
+// independently re-validates `outcomeId` against the project's actual
+// ProjectOutcomeStatement ids before ever persisting or displaying it —
+// this field must never be trusted as-is.
+export interface OutcomeEvidencePairingSuggestedOutcome {
+  outcomeId: string | null;
+  rationale: string;
+}
+
+export interface OutcomeEvidencePairingProposalPairedDelta {
+  proposalId: string;
+  shape: "paired_delta";
+  activityIdBefore: string;
+  activityIdAfter: string;
+  beforeUploadMetadataId: string;
+  beforeTableName: string;
+  beforeColumnName: string;
+  afterUploadMetadataId: string;
+  afterTableName: string;
+  afterColumnName: string;
+  matchKey: string;
+  // The human-declared instrument label from pairing_group_key — the
+  // reason this pair was proposed at all. Carried through for display
+  // (see projectImpactStoryImpactCatalog.ts's buildPairLabelDe).
+  pairingGroupKey: string;
+  suggestedOutcome: OutcomeEvidencePairingSuggestedOutcome | null;
+}
+
+export interface OutcomeEvidencePairingProposalSingleDistribution {
+  proposalId: string;
+  shape: "single_distribution";
+  activityId: string;
+  uploadMetadataId: string;
+  tableName: string;
+  categoryColumnName: string;
+  suggestedOutcome: OutcomeEvidencePairingSuggestedOutcome | null;
+}
+
+export type OutcomeEvidencePairingProposal =
+  | OutcomeEvidencePairingProposalPairedDelta
+  | OutcomeEvidencePairingProposalSingleDistribution;
+
+export type OutcomeEvidencePairingProposalDecision = "assign" | "reject";
+
+export interface OutcomeEvidencePairingProposalDecisionRecord {
+  proposalId: string;
+  decision: OutcomeEvidencePairingProposalDecision;
+  // Required when decision is "assign", absent when "reject" — enforced at
+  // the service layer, not the type layer, so a malformed decision fails
+  // with a clear validation error rather than a silent undefined.
+  outcomeId: string | null;
+  decidedById: string;
+  decidedAt: string;
+}
+
+export type OutcomeEvidencePairingReviewStatus = "needs_review" | "resolved";
+
+export type OutcomeEvidencePairingDiagnosticsTrigger = "propose" | "refresh";
+
+export type OutcomeEvidencePairingActivityDiagnosticStatus =
+  "no_uploads" | "already_ready" | "jobs_started" | "blocked";
+
+export type OutcomeEvidencePairingDiagnosticReasonCode =
+  | "no_ready_tables"
+  | "jobs_started"
+  | "no_shared_identifier"
+  | "no_matching_scale_columns"
+  | "no_categorical_columns"
+  | "duplicate_identifier_values"
+  | "scale_bounds_mismatch"
+  | "no_declared_pairing_groups";
+
+export interface OutcomeEvidencePairingDiagnosticReason {
+  code: OutcomeEvidencePairingDiagnosticReasonCode;
+}
+
+export interface OutcomeEvidencePairingActivityUploadState {
+  uploadMetadataId: string;
+  originalFileName: string;
+  reason:
+    | "active_job"
+    | "already_interpreted"
+    | "ready_to_interpret"
+    | "privacy_safe_representation_missing"
+    | "unsupported_modality";
+  latestJobStatus: ProcessingJobStatus | null;
+  latestJobType: ProcessingJobType | null;
+  evidenceModality: string | null;
+}
+
+export interface OutcomeEvidencePairingActivityDiagnostic {
+  activityId: string;
+  activityName: string;
+  systemType: ActivitySystemType | null;
+  uploadCount: number;
+  interpretedUploadCount: number;
+  readyTableCount: number;
+  status: OutcomeEvidencePairingActivityDiagnosticStatus;
+  startedCount: number;
+  skippedCount: number;
+  startedJobIds: string[];
+  uploadStates: OutcomeEvidencePairingActivityUploadState[];
+}
+
+export interface OutcomeEvidencePairingDiagnostics {
+  trigger: OutcomeEvidencePairingDiagnosticsTrigger;
+  activityCount: number;
+  candidateCount: number;
+  readyTableCount: number;
+  activityDiagnostics: OutcomeEvidencePairingActivityDiagnostic[];
+  reasons: OutcomeEvidencePairingDiagnosticReason[];
+}
+
+export interface OutcomeEvidencePairingResultRecord {
+  id: string;
+  organizationId: string;
+  projectId: string;
+  status: OutcomeEvidencePairingReviewStatus;
+  proposals: OutcomeEvidencePairingProposal[];
+  eligibleEvidenceOptions: OutcomeEvidencePairingProposal[];
+  proposalDecisions: OutcomeEvidencePairingProposalDecisionRecord[];
+  outcomeSections: OutcomeEvidencePairingOutcomeSection[];
+  unassignedProposals: OutcomeEvidencePairingProposal[];
+  diagnostics: OutcomeEvidencePairingDiagnostics;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface OutcomeEvidencePairingOutcomeSection {
+  outcomeStatement: ProjectOutcomeStatement;
+  confirmedLinks: OutcomeEvidenceLink[];
+  recommendedProposals: OutcomeEvidencePairingProposal[];
+}
+
+export interface OutcomeEvidenceLinkPairedDelta {
+  linkId: string;
+  outcomeId: string;
+  shape: "paired_delta";
+  activityIdBefore: string;
+  activityIdAfter: string;
+  beforeUploadMetadataId: string;
+  beforeTableName: string;
+  beforeColumnName: string;
+  afterUploadMetadataId: string;
+  afterTableName: string;
+  afterColumnName: string;
+  matchKey: string;
+  pairingGroupKey: string;
+  confirmedById: string;
+  confirmedAt: string;
+}
+
+export interface OutcomeEvidenceLinkSingleDistribution {
+  linkId: string;
+  outcomeId: string;
+  shape: "single_distribution";
+  activityId: string;
+  uploadMetadataId: string;
+  tableName: string;
+  categoryColumnName: string;
+  confirmedById: string;
+  confirmedAt: string;
+}
+
+export type OutcomeEvidenceLink =
+  OutcomeEvidenceLinkPairedDelta | OutcomeEvidenceLinkSingleDistribution;
+
+// The impact catalog is the outcome-linked counterpart to
+// ProjectImpactStoryCatalogEntry — the only catalog whose entries are ever
+// allowed to reach the narrative LLM call (see
+// IMPACT_STORY_OUTCOME_EXTENSION_PLAN.md §4.5/§4.6). Every entry resolves
+// from a human-confirmed OutcomeEvidenceLink; nothing here is inferred.
+export interface ImpactCatalogEntry {
+  entryId: string;
+  shape: "paired_delta";
+  outcomeId: string;
+  outcomeTerm: OutcomeTerm;
+  outcomeStatement: string;
+  pairLabelDe: string;
+  beforeValue: number;
+  afterValue: number;
+  // nMatched must always come from the join (paired_change's pairedCount),
+  // never independently-sized before/after aggregates — that's what makes
+  // the delta honest. nBaseline is the unmatched "before" table's total row
+  // count, kept only for a response-rate footnote, never for the delta
+  // itself.
+  nMatched: number;
+  nBaseline: number;
+  sourceDe: string;
+}
+
+export interface OutcomeDistributionEntry {
+  entryId: string;
+  shape: "single_distribution";
+  outcomeId: string;
+  outcomeTerm: OutcomeTerm;
+  outcomeStatement: string;
+  questionLabelDe: string;
+  shares: { labelDe: string; count: number }[];
+  n: number;
+  sourceDe: string;
+}
+
+// An outcome statement with zero confirmed OutcomeEvidenceLinks still
+// produces a synthesized entry so it renders as a fixed, deterministic
+// "not yet measurable" line rather than silently disappearing from the
+// impact catalog. Never sent to the LLM narrative call.
+export interface UnmeasuredOutcomeEntry {
+  entryId: string;
+  shape: "unmeasured";
+  outcomeId: string;
+  outcomeTerm: OutcomeTerm;
+  outcomeStatement: string;
+}
+
+export type ImpactCatalogItem =
+  ImpactCatalogEntry | OutcomeDistributionEntry | UnmeasuredOutcomeEntry;
+
 export interface LinkagePositiveStatusFieldDefinition {
   fieldName: string;
   positiveStatusValues: string[];
@@ -1510,6 +1791,24 @@ export interface ActivityAnalysisV2CalculationRecord {
   result: Record<string, unknown>;
 }
 
+// A pure descriptive distribution over a `categorical` evidence column with
+// no goal or outcome link (e.g. a district breakdown) — computed
+// deterministically and persisted on the V2 run
+// (activity_analysis_runs_v2.contextCatalogEntries) alongside calculations.
+// These entries are valid story-supporting context for chart planning, but
+// remain structurally separate from outcome-linked impactCatalog claims.
+export interface ContextCatalogEntry {
+  entryId: string;
+  activityId: string;
+  activityName: string;
+  labelDe: string;
+  dimensionLabelDe: string;
+  shares: Array<{ labelDe: string; count: number }>;
+  n: number;
+  eligibleChartTypes: Array<"hbar_target" | "donut_share">;
+  sourceDe: string;
+}
+
 export interface ActivityAnalysisV2QualitativeFindingRecord {
   findingId: string;
   toolName: ActivityAnalysisV2ToolName;
@@ -1599,6 +1898,34 @@ export interface ActivityAnalysisV2Diagnostics {
     mixedEvidence: number;
     requiresClarification: number;
     requiresCapability: number;
+  };
+  // Run-time visibility into why context-catalog (descriptive-chart)
+  // candidates did or didn't materialize for this run — without these
+  // counts, "bezirk never became a chart" has three indistinguishable
+  // causes (never classified as categorical because no prepared table
+  // matched, correctly excluded as goal-linked, or the backend group-count
+  // materialization step itself failed) that otherwise all look like the
+  // same silent zero. See activityAnalysisV2Diagnostics.ts.
+  contextExtraction: {
+    // Evidence-table columns whose epistemicRole never resolved at all
+    // (buildEvidenceTables's raw-column fallback path, used when no
+    // prepared table matched by tableName) — these could never have
+    // become "categorical" regardless of what they actually contain.
+    contextCandidatesExcludedByMissingEpistemicRole: number;
+    // How many of this run's evidence tables fell back to raw column
+    // metadata because dataset preparation had no matching prepared
+    // table for them.
+    preparedTableFallbackTableCount: number;
+    // The remaining fields mirror
+    // ActivityAnalysisV2PlanContextCandidateDiagnostics (Python's
+    // deterministic _collect_context_candidates pass) field-for-field.
+    totalCategoricalColumnsSeen: number;
+    contextCandidatesProposed: number;
+    contextCandidatesExcludedByReferencedStrings: number;
+    // Real distributions actually persisted by buildContextCatalogEntries
+    // — can be less than contextCandidatesProposed if a group_count tool
+    // call fails or produces no non-null groups.
+    contextCandidatesMaterialized: number;
   };
 }
 
@@ -1704,14 +2031,75 @@ export interface ProjectImpactStorySourceSnapshotItem {
   activityAnalysisRunId: string;
 }
 
+export type ProjectChartOpportunityKind =
+  | "context_distribution"
+  | "calculation"
+  | "goal_assessment"
+  | "paired_story_delta";
+
+export type ProjectChartOpportunityStatus =
+  "ready_now" | "blocked_by_extraction" | "blocked_by_missing_data";
+
+// One row of the deterministic (no LLM) chart-opportunity audit — see
+// projectChartOpportunityAudit.ts. Classifies every chart-worthy fact a
+// project's current V2 runs could support into whether it's already
+// materialized, blocked by a pipeline gap, or blocked by missing/
+// insufficient evidence.
+export interface ProjectChartOpportunityAuditEntry {
+  entryId: string;
+  kind: ProjectChartOpportunityKind;
+  activityId: string;
+  activityName: string;
+  title: string;
+  sourceTables: string[];
+  status: ProjectChartOpportunityStatus;
+  reasonCode: string;
+  reasonDetail: string;
+}
+
+// Diff between the opportunity audit's ready_now set and what the chart
+// planner actually selected into chartPlan/headlineKpis — see
+// projectChartSelectionAudit.ts. Answers "X was available, why didn't it
+// show up?", a failure mode the opportunity audit alone cannot.
+export interface ProjectChartSelectionAudit {
+  selectedEntryIds: string[];
+  unselectedReadyEntryIds: string[];
+  highSignalUnselectedEntryIds: string[];
+  selectionWarnings: string[];
+}
+
 export interface ProjectImpactStoryDiagnostics {
   activityCount: number;
   indicatorCount: number;
   excludedIndicatorCount: number;
   activitiesWithNoGroundedIndicators: string[];
+  // Optional because projectImpactStoryAssembly.ts's diagnostics object is
+  // built before chart planning runs and doesn't know either yet —
+  // projectImpactStoryService.ts always fills both in before persisting
+  // the final snapshot. Never actually absent on a persisted record.
+  chartOpportunityAudit?: ProjectChartOpportunityAuditEntry[];
+  chartSelectionAudit?: ProjectChartSelectionAudit;
 }
 
 export type ProjectImpactStoryStatus = "completed" | "failed";
+
+// Distinct from ProjectImpactStoryStatus, which only ever reflects the
+// chart-plan/activity-card half of a run (see buildProjectImpactStory) —
+// narrativeStatus exists so a narrative that fell back to a deterministic
+// summary, or failed outright, is never silently hidden behind an
+// otherwise-successful "completed" story. See
+// IMPACT_STORY_OUTCOME_EXTENSION_PLAN.md §4.6.
+export type ProjectImpactStoryNarrativeStatus =
+  // The LLM narrative passed grounding (on the first attempt or a retry).
+  | "generated"
+  // Grounding never passed after retries; narrativeSummary is the Python
+  // service's own deterministic, non-LLM templated summary — still real
+  // and readable, just not model-written prose.
+  | "deterministic_fallback"
+  // The call to the Python service itself failed (network error, timeout,
+  // 5xx) before any grounding could even be attempted; narrativeSummary is
+  // ia_backend's own template built from assembly.narrativeInput.
+  | "call_failed";
 
 // Project-level headline KPIs and chart plan — the LLM-planned, backend-
 // executed story layer on top of activityCards (see
@@ -1719,12 +2107,23 @@ export type ProjectImpactStoryStatus = "completed" | "failed";
 // is computed entirely by ia_backend from real catalog entries; the LLM
 // only ever nominates which catalog entries to feature and how to group
 // them (see ia_python_service/CLAUDE.md's chart-plan route documentation).
+// A goal-verdict traffic light, recomputed from measuredValue/targetValue
+// against fixed thresholds every time — never read from an evidence-embedded
+// "target met" flag. See IMPACT_STORY_OUTCOME_EXTENSION_PLAN.md §3.3.
+export type ProjectImpactStoryGoalStatus = "good" | "warn" | "risk";
+
 export interface ProjectImpactStoryHeadlineKpi {
   kpiId: string;
   label: string;
   value: number;
   formatAs: ImpactIndicatorTileFormat;
   narrativeReason: string;
+  // Present only for a KPI built from a single goal_assessment catalog
+  // entry with a resolved measuredValue/targetValue — a plain fact-count
+  // KPI (e.g. "Jugendliche im Programm") carries neither field.
+  status?: ProjectImpactStoryGoalStatus;
+  // Fixed German "needs attention" copy, present iff status is warn/risk.
+  statusCallout?: string;
 }
 
 export type ProjectImpactStoryChartType =
@@ -1757,6 +2156,15 @@ export interface ProjectImpactStoryChartSpec {
   subtitle: string | null;
   narrativeReason: string;
   data: ProjectImpactStoryChartDatum[];
+  // True only when every entry behind this chart is a paired_story_delta
+  // catalog entry — a before/after pair detected from declared pairing
+  // metadata but never human-confirmed as outcome evidence. The frontend
+  // must render this visually distinct from a confirmed impactCatalog
+  // chart (same before/after shape, different evidentiary weight) —
+  // never a claim of measured impact by itself. Omitted (not false) on
+  // every other chart, matching this contract's existing optional-field
+  // convention for "doesn't apply here."
+  isExploratory?: boolean;
 }
 
 export interface ProjectImpactStoryRecord {
@@ -1768,7 +2176,17 @@ export interface ProjectImpactStoryRecord {
   activityCards: ActivityImpactStoryCard[];
   headlineKpis: ProjectImpactStoryHeadlineKpi[];
   chartPlan: ProjectImpactStoryChartSpec[];
+  // Deterministic fallback descriptive charts. In the primary path, the LLM
+  // may already select descriptive distributions into chartPlan; this lane
+  // is only for the backup case where no selected charts were produced.
+  contextCharts: ContextCatalogEntry[];
+  // Outcome-linked entries built from confirmed OutcomeEvidenceLink records
+  // — the only catalog the narrative call is allowed to see. See
+  // projectImpactStoryImpactCatalog.ts and
+  // IMPACT_STORY_OUTCOME_EXTENSION_PLAN.md §4.5/§4.6.
+  impactCatalog: ImpactCatalogItem[];
   narrativeSummary: string | null;
+  narrativeStatus: ProjectImpactStoryNarrativeStatus | null;
   diagnostics: ProjectImpactStoryDiagnostics;
   llmUsage: LlmUsageSummary | null;
   errorMessage: string | null;

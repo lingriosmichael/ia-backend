@@ -22,7 +22,11 @@ export interface ActivityWorkflowStageInput {
   isAcknowledged: boolean;
   uploadIds: string[];
   jobs: WorkflowStageJob[];
-  results: InterpretationResultPersistenceRecord[];
+  results: Array<
+    InterpretationResultPersistenceRecord & {
+      privacySafePayload?: Record<string, unknown> | null;
+    }
+  >;
   hasPendingQualitativeCodingReview: boolean;
   /**
    * Whether ActivityEvidenceLinkageResultRepository.findByActivityId

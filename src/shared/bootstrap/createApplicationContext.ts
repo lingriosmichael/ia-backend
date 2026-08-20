@@ -26,8 +26,17 @@ import { ActivityAnalysisV2Service } from "../../modules/interpretation/activity
 import { MongoActivityAnalysisRunV2Repository } from "../../modules/interpretation/activityAnalysisRunV2MongoRepository.js";
 import { ActivityAnalysisV2ToolExecutor } from "../../modules/interpretation/activityAnalysisV2ToolExecutor.js";
 import { InterpretationController } from "../../modules/interpretation/interpretationController.js";
+import { MongoProjectAnalyticsSnapshotRepository } from "../../modules/projectImpactStory/projectAnalyticsSnapshotMongoRepository.js";
 import { MongoProjectImpactStoryRepository } from "../../modules/projectImpactStory/projectImpactStoryMongoRepository.js";
 import { ProjectImpactStoryService } from "../../modules/projectImpactStory/projectImpactStoryService.js";
+import { MongoProjectOutcomeStatementRepository } from "../../modules/outcome/projectOutcomeStatementMongoRepository.js";
+import { ProjectOutcomeStatementService } from "../../modules/outcome/projectOutcomeStatementService.js";
+import { ProjectOutcomeStatementController } from "../../modules/outcome/projectOutcomeStatementController.js";
+import { MongoOutcomeEvidencePairingResultRepository } from "../../modules/outcome/outcomeEvidencePairingResultMongoRepository.js";
+import { MongoOutcomeEvidenceLinkRepository } from "../../modules/outcome/outcomeEvidenceLinkMongoRepository.js";
+import { OutcomeEvidencePairingService } from "../../modules/outcome/outcomeEvidencePairingService.js";
+import { OutcomeEvidencePairingSuggestionService } from "../../modules/outcome/outcomeEvidencePairingSuggestionService.js";
+import { OutcomeEvidencePairingController } from "../../modules/outcome/outcomeEvidencePairingController.js";
 import { ProjectImpactStoryController } from "../../modules/projectImpactStory/projectImpactStoryController.js";
 import { MongoDeterministicAnalysisRepository } from "../../modules/interpretation/deterministicAnalysisMongoRepository.js";
 import { MongoDatasetPreparationRepository } from "../../modules/interpretation/datasetPreparationMongoRepository.js";
@@ -80,6 +89,12 @@ export function createApplicationContext(
   const userRepository = new MongoUserRepository();
   const organizationRepository = new MongoOrganizationRepository();
   const invitationRepository = new MongoInvitationRepository();
+  const projectOutcomeStatementRepository =
+    new MongoProjectOutcomeStatementRepository();
+  const outcomeEvidencePairingResultRepository =
+    new MongoOutcomeEvidencePairingResultRepository();
+  const outcomeEvidenceLinkRepository =
+    new MongoOutcomeEvidenceLinkRepository();
   const projectRepository = new MongoProjectRepository();
   const activityRepository = new MongoActivityRepository();
   const uploadMetadataRepository = new MongoUploadMetadataRepository();
@@ -98,6 +113,8 @@ export function createApplicationContext(
     new MongoDeterministicAnalysisRepository();
   const activityAnalysisRunV2Repository =
     new MongoActivityAnalysisRunV2Repository();
+  const projectAnalyticsSnapshotRepository =
+    new MongoProjectAnalyticsSnapshotRepository();
   const projectImpactStoryRepository = new MongoProjectImpactStoryRepository();
   const activityEvidenceLinkageResultRepository =
     new MongoActivityEvidenceLinkageResultRepository();
@@ -129,7 +146,10 @@ export function createApplicationContext(
     knowledgeIndicatorRepository,
     activityEvidenceLinkageResultRepository,
     activityAnalysisRunV2Repository,
+    projectAnalyticsSnapshotRepository,
     projectImpactStoryRepository,
+    outcomeEvidenceLinkRepository,
+    outcomeEvidencePairingResultRepository,
   );
   const authorizationService = new AuthorizationService(
     organizationRepository,
@@ -167,6 +187,7 @@ export function createApplicationContext(
     processingResourceCleanupService,
     organizationRepository,
     logger,
+    projectOutcomeStatementRepository,
   );
   const projectLlmTokenLedgerService = new ProjectLlmTokenLedgerService(
     projectRepository,
@@ -339,10 +360,37 @@ export function createApplicationContext(
     activityRepository,
     uploadMetadataRepository,
     activityAnalysisRunV2Repository,
+    projectAnalyticsSnapshotRepository,
     projectImpactStoryRepository,
     pythonProcessingClient,
     projectLlmTokenLedgerService,
+    projectOutcomeStatementRepository,
+    outcomeEvidenceLinkRepository,
+    currentActivityEvidenceLoader,
+    activityAnalysisV2ToolExecutor,
+    interpretationResultRepository,
+    datasetPreparationRepository,
+    privacySafeRepresentationRepository,
     logger,
+  );
+  const projectOutcomeStatementService = new ProjectOutcomeStatementService(
+    authorizationService,
+    projectOutcomeStatementRepository,
+  );
+  const outcomeEvidencePairingSuggestionService =
+    new OutcomeEvidencePairingSuggestionService(pythonProcessingClient, logger);
+  const outcomeEvidencePairingService = new OutcomeEvidencePairingService(
+    authorizationService,
+    activityRepository,
+    uploadMetadataRepository,
+    interpretationResultRepository,
+    datasetPreparationRepository,
+    privacySafeRepresentationRepository,
+    outcomeEvidencePairingResultRepository,
+    outcomeEvidenceLinkRepository,
+    projectOutcomeStatementRepository,
+    outcomeEvidencePairingSuggestionService,
+    interpretationService,
   );
   const invitationService = new InvitationService(
     invitationRepository,
@@ -367,6 +415,12 @@ export function createApplicationContext(
     healthController: new HealthController(),
     authController: new AuthController(authService, config),
     invitationController: new InvitationController(invitationService),
+    projectOutcomeStatementController: new ProjectOutcomeStatementController(
+      projectOutcomeStatementService,
+    ),
+    outcomeEvidencePairingController: new OutcomeEvidencePairingController(
+      outcomeEvidencePairingService,
+    ),
     organizationController: new OrganizationController(organizationService),
     projectController: new ProjectController(projectService),
     activityController: new ActivityController(activityService),

@@ -13,6 +13,7 @@ import type { ProcessingJobRepository } from "../ai/execution/processingJobRepos
 import type { ProcessingResourceCleanupService } from "../processing/processingResourceCleanupService.js";
 import type { UserRepository } from "../user/userRepository.js";
 import type { ProjectUpdateInput } from "./projectPersistence.js";
+import type { ProjectOutcomeStatementRepository } from "../outcome/projectOutcomeStatementRepository.js";
 
 function createOwnedProjectRecord(
   status: "planning" | "active" | "completed" = "planning",
@@ -49,6 +50,233 @@ function createOwnedProjectRecord(
     updatedAt: new Date("2026-01-02T00:00:00.000Z"),
   };
 }
+
+test(
+  "project creation auto-seeds long-term outcome statements from intended changes",
+  { concurrency: false },
+  async () => {
+    const createdOutcomeStatements: Array<{
+      projectId: string;
+      organizationId: string;
+      term: "short" | "long";
+      statement: string;
+    }> = [];
+
+    const projectRepository = {
+      create: async () => createOwnedProjectRecord(),
+    } as unknown as ProjectRepository;
+
+    const authorizationService = {
+      canCreateProject: async () => undefined,
+    } as unknown as AuthorizationService;
+
+    const activityRepository = {
+      ensureSystemActivity: async (input: {
+        projectId: string;
+        systemType: "baseline" | "impact_measurement";
+        name: string;
+      }) => ({
+        id: `system-${input.systemType}`,
+        projectId: input.projectId,
+        systemType: input.systemType,
+        name: input.name,
+        description: null,
+        activityType: null,
+        startDate: null,
+        endDate: null,
+        targetAudience: null,
+        objectives: null,
+        output: null,
+        concernTaggingInstruction: null,
+        status: "active",
+        interpretationAcknowledgedAt: null,
+        interpretationAcknowledgedById: null,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      }),
+    } as unknown as ActivityRepository;
+
+    const transactionManager = {
+      runInTransaction: async <T>(operation: (session: null) => Promise<T>) =>
+        operation(null),
+    } as unknown as TransactionManager;
+
+    const userRepository = {
+      findById: async () => ({
+        id: "user-1",
+        email: "owner@example.org",
+        fullName: "Project Owner",
+        passwordHash: "hash",
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      }),
+    } as unknown as UserRepository;
+
+    const outcomeStatementRepository = {
+      listByProjectId: async () => [],
+      create: async (input: {
+        projectId: string;
+        organizationId: string;
+        term: "short" | "long";
+        statement: string;
+      }) => {
+        createdOutcomeStatements.push(input);
+        return {
+          id: `outcome-${createdOutcomeStatements.length}`,
+          ...input,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        };
+      },
+    } as unknown as ProjectOutcomeStatementRepository;
+
+    const projectService = new ProjectService(
+      projectRepository,
+      authorizationService,
+      {} as FileStorageService,
+      activityRepository,
+      {} as UploadMetadataRepository,
+      {} as ProcessingJobRepository,
+      transactionManager,
+      userRepository,
+      {} as ProcessingResourceCleanupService,
+      {} as OrganizationRepository,
+      { error: () => undefined } as never,
+      outcomeStatementRepository,
+    );
+
+    await projectService.create("user-1", "organization-1", {
+      name: "Mentoring Programme 2026",
+      startMonth: "012026",
+      endMonth: "122026",
+      targetGroups: ["Jugendliche"],
+      intendedChanges: [
+        " Jugendliche zeigen erhöhte Selbstwirksamkeit ",
+        "Jugendliche gewinnen mehr berufliche Klarheit",
+      ],
+    });
+
+    assert.deepEqual(createdOutcomeStatements, [
+      {
+        projectId: "project-1",
+        organizationId: "organization-1",
+        term: "long",
+        statement: "Jugendliche zeigen erhöhte Selbstwirksamkeit",
+      },
+      {
+        projectId: "project-1",
+        organizationId: "organization-1",
+        term: "long",
+        statement: "Jugendliche gewinnen mehr berufliche Klarheit",
+      },
+    ]);
+  },
+);
+
+test(
+  "project updates auto-add newly introduced intended changes without duplicating existing outcome statements",
+  { concurrency: false },
+  async () => {
+    const createdOutcomeStatements: Array<{
+      projectId: string;
+      organizationId: string;
+      term: "short" | "long";
+      statement: string;
+    }> = [];
+
+    const projectRepository = {
+      update: async (_projectId: string, input: ProjectUpdateInput) => ({
+        ...createOwnedProjectRecord(),
+        intendedChanges: input.intendedChanges ?? [],
+      }),
+    } as unknown as ProjectRepository;
+
+    const authorizationService = {
+      canManageProject: async () => ({
+        membership: {
+          id: "membership-1",
+          userId: "user-1",
+          organizationId: "organization-1",
+          role: "PROJECT_MANAGER",
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        },
+        project: createOwnedProjectRecord("planning"),
+      }),
+      assertProjectIsOperational: () => undefined,
+    } as unknown as AuthorizationService;
+
+    const userRepository = {
+      findById: async () => ({
+        id: "user-1",
+        email: "owner@example.org",
+        fullName: "Project Owner",
+        passwordHash: "hash",
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      }),
+    } as unknown as UserRepository;
+
+    const outcomeStatementRepository = {
+      listByProjectId: async () => [
+        {
+          id: "outcome-1",
+          projectId: "project-1",
+          organizationId: "organization-1",
+          term: "long",
+          statement: "Jugendliche zeigen erhöhte Selbstwirksamkeit",
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        },
+      ],
+      create: async (input: {
+        projectId: string;
+        organizationId: string;
+        term: "short" | "long";
+        statement: string;
+      }) => {
+        createdOutcomeStatements.push(input);
+        return {
+          id: `outcome-${createdOutcomeStatements.length + 1}`,
+          ...input,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        };
+      },
+    } as unknown as ProjectOutcomeStatementRepository;
+
+    const service = new ProjectService(
+      projectRepository,
+      authorizationService,
+      {} as FileStorageService,
+      {} as ActivityRepository,
+      {} as UploadMetadataRepository,
+      {} as ProcessingJobRepository,
+      {} as TransactionManager,
+      userRepository,
+      {} as ProcessingResourceCleanupService,
+      {} as OrganizationRepository,
+      { error: () => undefined } as never,
+      outcomeStatementRepository,
+    );
+
+    await service.update("user-1", "project-1", {
+      intendedChanges: [
+        "Jugendliche zeigen erhöhte Selbstwirksamkeit",
+        "Jugendliche gewinnen mehr berufliche Klarheit",
+      ],
+    });
+
+    assert.deepEqual(createdOutcomeStatements, [
+      {
+        projectId: "project-1",
+        organizationId: "organization-1",
+        term: "long",
+        statement: "Jugendliche gewinnen mehr berufliche Klarheit",
+      },
+    ]);
+  },
+);
 
 test(
   "project deletion rejects a mismatched confirmation name",

@@ -17,6 +17,7 @@ const activityAnalysisRunV2Schema = new Schema(
     clarificationQuestions: { type: [Schema.Types.Mixed], default: [] },
     toolCallTrace: { type: [Schema.Types.Mixed], default: [] },
     calculations: { type: [Schema.Types.Mixed], default: [] },
+    contextCatalogEntries: { type: [Schema.Types.Mixed], default: [] },
     qualitativeFindings: { type: [Schema.Types.Mixed], default: [] },
     assessment: { type: Schema.Types.Mixed, default: null },
     diagnostics: { type: Schema.Types.Mixed, required: true },

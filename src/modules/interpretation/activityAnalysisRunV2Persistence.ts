@@ -6,6 +6,7 @@ import type {
   ActivityAnalysisV2ToolCallRecord,
   ActivityAnalysisRunV2Status,
   ActivityAnalysisRunV2ValidationStatus,
+  ContextCatalogEntry,
   InterpretationQuestion,
 } from "../../shared/contracts.js";
 
@@ -51,6 +52,7 @@ export interface ActivityAnalysisRunV2PersistenceRecord {
   clarificationQuestions: InterpretationQuestion[];
   toolCallTrace: ActivityAnalysisV2ToolCallRecord[];
   calculations: ActivityAnalysisV2CalculationRecord[];
+  contextCatalogEntries: ContextCatalogEntry[];
   qualitativeFindings: ActivityAnalysisV2QualitativeFindingRecord[];
   assessment: ActivityAssessmentV2 | null;
   diagnostics: ActivityAnalysisV2Diagnostics;
@@ -73,6 +75,7 @@ export interface ActivityAnalysisRunV2CreateInput {
   clarificationQuestions: InterpretationQuestion[];
   toolCallTrace: ActivityAnalysisV2ToolCallRecord[];
   calculations: ActivityAnalysisV2CalculationRecord[];
+  contextCatalogEntries: ContextCatalogEntry[];
   qualitativeFindings: ActivityAnalysisV2QualitativeFindingRecord[];
   assessment: ActivityAssessmentV2 | null;
   diagnostics: ActivityAnalysisV2Diagnostics;

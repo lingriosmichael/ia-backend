@@ -1,10 +1,7 @@
 import type {
-  ActivityImpactStoryCard,
+  ImpactCatalogItem,
   LlmUsageSummary,
-  ProjectImpactStoryChartSpec,
-  ProjectImpactStoryDiagnostics,
-  ProjectImpactStoryHeadlineKpi,
-  ProjectImpactStorySourceSnapshotItem,
+  ProjectImpactStoryNarrativeStatus,
   ProjectImpactStoryStatus,
 } from "../../shared/contracts.js";
 
@@ -12,13 +9,11 @@ export interface ProjectImpactStoryPersistenceRecord {
   id: string;
   organizationId: string;
   projectId: string;
+  analyticsSnapshotId: string;
   status: ProjectImpactStoryStatus;
-  sourceSnapshot: ProjectImpactStorySourceSnapshotItem[];
-  activityCards: ActivityImpactStoryCard[];
-  headlineKpis: ProjectImpactStoryHeadlineKpi[];
-  chartPlan: ProjectImpactStoryChartSpec[];
+  impactCatalog: ImpactCatalogItem[];
   narrativeSummary: string | null;
-  diagnostics: ProjectImpactStoryDiagnostics;
+  narrativeStatus: ProjectImpactStoryNarrativeStatus | null;
   llmUsage: LlmUsageSummary | null;
   errorMessage: string | null;
   createdAt: Date;
@@ -28,13 +23,11 @@ export interface ProjectImpactStoryPersistenceRecord {
 export interface ProjectImpactStoryCreateInput {
   organizationId: string;
   projectId: string;
+  analyticsSnapshotId: string;
   status: ProjectImpactStoryStatus;
-  sourceSnapshot: ProjectImpactStorySourceSnapshotItem[];
-  activityCards: ActivityImpactStoryCard[];
-  headlineKpis: ProjectImpactStoryHeadlineKpi[];
-  chartPlan: ProjectImpactStoryChartSpec[];
+  impactCatalog: ImpactCatalogItem[];
   narrativeSummary: string | null;
-  diagnostics: ProjectImpactStoryDiagnostics;
+  narrativeStatus: ProjectImpactStoryNarrativeStatus | null;
   llmUsage: LlmUsageSummary | null;
   errorMessage: string | null;
 }

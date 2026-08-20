@@ -331,27 +331,85 @@ interface ActivityAnalysisV2PlanRequest {
   planningTimeBudgetMs: number;
 }
 
+// A `categorical` evidence column the planner found no goal-linked tool
+// request referencing — a candidate for the project-level context catalog
+// (pure descriptive distributions, e.g. a district breakdown, with no goal
+// or outcome meaning). Detected deterministically in Python, not by the
+// LLM; carries no value/shares of its own — ia_backend computes the actual
+// distribution. See IMPACT_STORY_OUTCOME_EXTENSION_PLAN.md §3.4.
+export interface ActivityAnalysisV2PlanContextCandidate {
+  tableName: string;
+  columnName: string;
+  uploadMetadataId: string;
+}
+
+// Run-time visibility into the deterministic context-candidate pass
+// (analyst.py's _collect_context_candidates), so "why didn't column X
+// become a chart candidate" is traceable instead of a silent zero — see
+// activityAnalysisV2Diagnostics.ts's contextExtraction block, which merges
+// these counts with the TS-side prepared-table-fallback signal.
+export interface ActivityAnalysisV2PlanContextCandidateDiagnostics {
+  totalCategoricalColumnsSeen: number;
+  contextCandidatesProposed: number;
+  contextCandidatesExcludedByReferencedStrings: number;
+  contextCandidatesExcludedByDirectReference: number;
+  contextCandidatesExcludedByUnresolvedScopeFallback: number;
+}
+
 export interface ActivityAnalysisV2PlanResponse {
   goalPlans: ActivityAnalysisV2GoalPlan[];
   toolRequests: ActivityAnalysisV2PlanToolRequest[];
   clarificationQuestions?: ActivityAnalysisV2ClarificationQuestionDraft[];
   limitations: string[];
   validation: ActivityAnalysisV2PlanValidation;
+  contextCandidates?: ActivityAnalysisV2PlanContextCandidate[];
+  contextCandidateDiagnostics?: ActivityAnalysisV2PlanContextCandidateDiagnostics;
   llmUsage?: LlmUsageSummary | null;
 }
 
-export interface ProjectImpactStoryNarrativeTileRequest {
-  label: string;
-  description: string;
-  value: number;
-  formatAs: "number" | "percentage";
+// Mirrors ImpactCatalogEntry/OutcomeDistributionEntry/UnmeasuredOutcomeEntry
+// in contracts.ts field-for-field, minus their "De"-suffixed field names —
+// this request payload has no de/en split of its own, since the narrative
+// call's `language` field already tells Python which language to write in,
+// and these labels are plain display strings either way. See
+// projectImpactStoryImpactCatalog.ts (the builder) and
+// IMPACT_STORY_OUTCOME_EXTENSION_PLAN.md §4.6.
+export interface ProjectImpactStoryNarrativeCatalogPairedDeltaRequest {
+  entryId: string;
+  shape: "paired_delta";
+  outcomeId: string;
+  outcomeTerm: "short" | "long";
+  outcomeStatement: string;
+  pairLabel: string;
+  beforeValue: number;
+  afterValue: number;
+  nMatched: number;
+  nBaseline: number;
 }
 
-export interface ProjectImpactStoryNarrativeActivityRequest {
-  activityId: string;
-  activityName: string;
-  tiles: ProjectImpactStoryNarrativeTileRequest[];
+export interface ProjectImpactStoryNarrativeCatalogSingleDistributionRequest {
+  entryId: string;
+  shape: "single_distribution";
+  outcomeId: string;
+  outcomeTerm: "short" | "long";
+  outcomeStatement: string;
+  questionLabel: string;
+  shares: { label: string; count: number }[];
+  n: number;
 }
+
+export interface ProjectImpactStoryNarrativeCatalogUnmeasuredRequest {
+  entryId: string;
+  shape: "unmeasured";
+  outcomeId: string;
+  outcomeTerm: "short" | "long";
+  outcomeStatement: string;
+}
+
+export type ProjectImpactStoryNarrativeCatalogEntryRequest =
+  | ProjectImpactStoryNarrativeCatalogPairedDeltaRequest
+  | ProjectImpactStoryNarrativeCatalogSingleDistributionRequest
+  | ProjectImpactStoryNarrativeCatalogUnmeasuredRequest;
 
 export interface ProjectImpactStoryNarrativeRequest {
   projectId: string;
@@ -360,17 +418,24 @@ export interface ProjectImpactStoryNarrativeRequest {
   projectPeriod?: string | null;
   targetGroup?: string | null;
   region?: string | null;
-  activityCards: ProjectImpactStoryNarrativeActivityRequest[];
+  catalog: ProjectImpactStoryNarrativeCatalogEntryRequest[];
 }
 
 export interface ProjectImpactStoryNarrativeResponse {
   narrativeSummary: string;
+  groundingStatus: "PASSED" | "FAILED";
+  groundingRetryCount: number;
+  fellBackToDeterministicSummary: boolean;
   llmUsage?: LlmUsageSummary | null;
 }
 
 export interface ProjectImpactStoryChartPlanCatalogEntryRequest {
   entryId: string;
-  kind: "calculation" | "goal_assessment";
+  kind:
+    | "calculation"
+    | "goal_assessment"
+    | "context_distribution"
+    | "paired_story_delta";
   activityId: string;
   activityName: string;
   label: string;
@@ -414,6 +479,40 @@ export interface ProjectImpactStoryChartPlanResponse {
   chartPlan: ProjectImpactStoryChartPlanChartCandidate[];
   groundingStatus: "PASSED" | "FAILED";
   fellBackToDeterministicSelection: boolean;
+  llmUsage?: LlmUsageSummary | null;
+}
+
+export interface OutcomeEvidencePairingSuggestionOutcomeStatementRequest {
+  outcomeId: string;
+  term: "short" | "long";
+  statement: string;
+}
+
+export interface OutcomeEvidencePairingSuggestionCandidateRequest {
+  candidateId: string;
+  shape: "paired_delta" | "single_distribution";
+  beforeLabel?: string | null;
+  afterLabel?: string | null;
+  categoryLabel?: string | null;
+  activityLabel: string;
+}
+
+export interface OutcomeEvidencePairingSuggestionRequest {
+  projectId: string;
+  language: "de" | "en";
+  outcomeStatements: OutcomeEvidencePairingSuggestionOutcomeStatementRequest[];
+  candidates: OutcomeEvidencePairingSuggestionCandidateRequest[];
+}
+
+export interface OutcomeEvidencePairingSuggestionEntry {
+  candidateId: string;
+  outcomeId: string | null;
+  rationale: string;
+}
+
+export interface OutcomeEvidencePairingSuggestionResponse {
+  suggestions: OutcomeEvidencePairingSuggestionEntry[];
+  groundingStatus: "PASSED" | "FAILED";
   llmUsage?: LlmUsageSummary | null;
 }
 
@@ -519,6 +618,20 @@ const activityAnalysisV2ClarificationQuestionDraftSchema = z.object({
   targetColumnName: z.string().nullable(),
 });
 
+const activityAnalysisV2PlanContextCandidateSchema = z.object({
+  tableName: z.string(),
+  columnName: z.string(),
+  uploadMetadataId: z.string(),
+});
+
+const activityAnalysisV2PlanContextCandidateDiagnosticsSchema = z.object({
+  totalCategoricalColumnsSeen: z.number(),
+  contextCandidatesProposed: z.number(),
+  contextCandidatesExcludedByReferencedStrings: z.number(),
+  contextCandidatesExcludedByDirectReference: z.number(),
+  contextCandidatesExcludedByUnresolvedScopeFallback: z.number(),
+});
+
 const activityAnalysisV2PlanResponseSchema = z.object({
   goalPlans: z.array(activityAnalysisV2GoalPlanSchema),
   toolRequests: z.array(activityAnalysisV2PlanToolRequestSchema),
@@ -530,11 +643,19 @@ const activityAnalysisV2PlanResponseSchema = z.object({
     status: z.enum(["passed", "failed"]),
     issues: z.array(z.string()),
   }),
+  contextCandidates: z
+    .array(activityAnalysisV2PlanContextCandidateSchema)
+    .optional(),
+  contextCandidateDiagnostics:
+    activityAnalysisV2PlanContextCandidateDiagnosticsSchema.optional(),
   llmUsage: z.unknown().nullable().optional(),
 });
 
 const projectImpactStoryNarrativeResponseSchema = z.object({
   narrativeSummary: z.string(),
+  groundingStatus: z.enum(["PASSED", "FAILED"]),
+  groundingRetryCount: z.number(),
+  fellBackToDeterministicSummary: z.boolean(),
   llmUsage: z.unknown().nullable().optional(),
 });
 
@@ -565,6 +686,23 @@ const projectImpactStoryChartPlanResponseSchema = z.object({
   chartPlan: z.array(projectImpactStoryChartPlanChartCandidateSchema),
   groundingStatus: z.enum(["PASSED", "FAILED"]),
   fellBackToDeterministicSelection: z.boolean(),
+  llmUsage: z.unknown().nullable().optional(),
+});
+
+// outcomeId is intentionally z.string() here, not validated against a
+// closed list at this layer — the caller (outcomeEvidencePairingSuggestionService.ts)
+// re-validates every outcomeId against the project's real
+// ProjectOutcomeStatement ids, which is the real trust boundary. This
+// schema only confirms the response is well-formed JSON of the right shape.
+const outcomeEvidencePairingSuggestionEntrySchema = z.object({
+  candidateId: z.string(),
+  outcomeId: z.string().nullable(),
+  rationale: z.string(),
+});
+
+const outcomeEvidencePairingSuggestionResponseSchema = z.object({
+  suggestions: z.array(outcomeEvidencePairingSuggestionEntrySchema),
+  groundingStatus: z.enum(["PASSED", "FAILED"]),
   llmUsage: z.unknown().nullable().optional(),
 });
 
@@ -873,7 +1011,6 @@ interface MixedSynthesisQualitativeFinding {
     | "project_impact"
     | "activity_objective"
     | "activity_output"
-    | "activity_outcome"
     | "unanchored";
   relationToEvidence:
     "reinforces" | "contradicts" | "complicates" | "context_only";
@@ -1323,5 +1460,40 @@ export class PythonProcessingClient {
     }
 
     return parsed.data as ProjectImpactStoryChartPlanResponse;
+  }
+
+  async suggestOutcomeEvidencePairingOutcomes(
+    input: OutcomeEvidencePairingSuggestionRequest,
+  ): Promise<OutcomeEvidencePairingSuggestionResponse> {
+    const response = await this.request(
+      "/internal/outcome-evidence-pairing/suggest-outcomes",
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          ...this.authHeaders(),
+        },
+        body: JSON.stringify(input),
+      },
+      "The Python processing service could not suggest outcome-evidence pairing outcomes.",
+      "python_processing_outcome_evidence_pairing_suggestion_unavailable",
+      "The Python processing service timed out while suggesting outcome-evidence pairing outcomes.",
+      "python_processing_outcome_evidence_pairing_suggestion_timeout",
+      this.llmTimeoutMs,
+    );
+
+    const payload = await response.json();
+    const parsed =
+      outcomeEvidencePairingSuggestionResponseSchema.safeParse(payload);
+    if (!parsed.success) {
+      throw new AppError(
+        "The Python processing service returned a malformed outcome-evidence pairing suggestion.",
+        502,
+        "python_processing_outcome_evidence_pairing_suggestion_malformed",
+        parsed.error.flatten(),
+      );
+    }
+
+    return parsed.data as OutcomeEvidencePairingSuggestionResponse;
   }
 }

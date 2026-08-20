@@ -24,6 +24,7 @@ import type { UploadMetadataRepository } from "../upload/uploadMetadataRepositor
 import type { UserRepository } from "../user/userRepository.js";
 import { ProcessingResourceCleanupService } from "../processing/processingResourceCleanupService.js";
 import type { ProcessingJobRepository } from "../ai/execution/processingJobRepository.js";
+import type { ProjectOutcomeStatementRepository } from "../outcome/projectOutcomeStatementRepository.js";
 import type {
   ActiveProcessingJobStatus,
   ProjectStatus,
@@ -81,6 +82,10 @@ function toIso(value: Date) {
   return value.toISOString();
 }
 
+function normalizeOutcomeStatementValue(value: string) {
+  return value.trim().toLocaleLowerCase();
+}
+
 function resolveOverarchingTargetGroup(input: {
   overarchingTargetGroup?: string | null;
   targetGroups?: string[];
@@ -111,7 +116,56 @@ export class ProjectService {
     private readonly processingResourceCleanupService: ProcessingResourceCleanupService,
     private readonly organizationRepository: OrganizationRepository,
     private readonly logger: FastifyBaseLogger,
+    private readonly projectOutcomeStatementRepository?: ProjectOutcomeStatementRepository,
   ) {}
+
+  private async ensureOutcomeStatementsForIntendedChanges(
+    input: {
+      projectId: string;
+      organizationId: string;
+      intendedChanges: string[];
+    },
+    session = databaseSession,
+  ) {
+    if (
+      !this.projectOutcomeStatementRepository ||
+      input.intendedChanges.length === 0
+    ) {
+      return;
+    }
+
+    const existing =
+      await this.projectOutcomeStatementRepository.listByProjectId(
+        input.projectId,
+        session,
+      );
+    const existingStatements = new Set(
+      existing.map((statement) =>
+        normalizeOutcomeStatementValue(statement.statement),
+      ),
+    );
+
+    for (const intendedChange of input.intendedChanges) {
+      const normalizedValue = normalizeOutcomeStatementValue(intendedChange);
+      if (normalizedValue.length === 0) {
+        continue;
+      }
+      if (existingStatements.has(normalizedValue)) {
+        continue;
+      }
+
+      await this.projectOutcomeStatementRepository.create(
+        {
+          projectId: input.projectId,
+          organizationId: input.organizationId,
+          term: "long",
+          statement: intendedChange,
+        },
+        session,
+      );
+      existingStatements.add(normalizedValue);
+    }
+  }
 
   async listForOrganization(userId: string, organizationId: string) {
     const authorizationContext =
@@ -166,6 +220,7 @@ export class ProjectService {
     await this.authorizationService.canCreateProject(userId, organizationId);
 
     const targetGroups = trimStringArray(input.targetGroups) ?? [];
+    const intendedChanges = trimStringArray(input.intendedChanges) ?? [];
 
     const project = await this.transactionManager.runInTransaction(
       async (session) => {
@@ -186,7 +241,7 @@ export class ProjectService {
                 overarchingTargetGroup: input.overarchingTargetGroup,
                 targetGroups,
               }) ?? "",
-            intendedChanges: trimStringArray(input.intendedChanges) ?? [],
+            intendedChanges,
             areaOfOperation: trimNullableText(input.areaOfOperation) ?? null,
             partnerships: input.partnerships?.trim() ?? null,
             sdgs: input.sdgs ?? [],
@@ -210,6 +265,15 @@ export class ProjectService {
           createdById: userId,
           session,
         });
+
+        await this.ensureOutcomeStatementsForIntendedChanges(
+          {
+            projectId: createdProject.id,
+            organizationId: createdProject.organizationId,
+            intendedChanges,
+          },
+          session,
+        );
 
         return createdProject;
       },
@@ -261,6 +325,7 @@ export class ProjectService {
     }
 
     const targetGroups = trimStringArray(input.targetGroups);
+    const intendedChanges = trimStringArray(input.intendedChanges);
     const overarchingTargetGroup =
       input.overarchingTargetGroup !== undefined || targetGroups !== undefined
         ? (resolveOverarchingTargetGroup({
@@ -322,7 +387,7 @@ export class ProjectService {
         fundingOrganization: trimNullableText(input.fundingOrganization),
         targetGroups,
         overarchingTargetGroup,
-        intendedChanges: trimStringArray(input.intendedChanges),
+        intendedChanges,
         areaOfOperation: trimNullableText(input.areaOfOperation),
         partnerships: trimNullableText(input.partnerships),
         sdgs: input.sdgs,
@@ -341,6 +406,17 @@ export class ProjectService {
       },
       databaseSession,
     );
+
+    if (intendedChanges !== undefined) {
+      await this.ensureOutcomeStatementsForIntendedChanges(
+        {
+          projectId: updatedProject.id,
+          organizationId: updatedProject.organizationId,
+          intendedChanges,
+        },
+        databaseSession,
+      );
+    }
 
     return mapProjectSummary(
       {

@@ -3,26 +3,44 @@ import { databaseSession } from "../../shared/database/databaseClient.js";
 import { AppError } from "../../shared/errors/appError.js";
 import type { AuthorizationService } from "../../shared/auth/authorizationService.js";
 import type {
+  ImpactCatalogItem,
   LlmUsageSummary,
+  ProjectChartOpportunityAuditEntry,
   ProjectImpactStoryChartSpec,
   ProjectImpactStoryHeadlineKpi,
+  ProjectImpactStoryNarrativeStatus,
   ProjectImpactStoryRecord,
 } from "../../shared/contracts.js";
 import type { ActivityRepository } from "../activity/activityRepository.js";
 import type { ActivityPersistenceRecord } from "../activity/activityPersistence.js";
 import type { ActivityAnalysisRunV2Repository } from "../interpretation/activityAnalysisRunV2Repository.js";
 import type { ActivityAnalysisRunV2PersistenceRecord } from "../interpretation/activityAnalysisRunV2Persistence.js";
+import type { ActivityAnalysisV2ToolExecutor } from "../interpretation/activityAnalysisV2ToolExecutor.js";
+import type { CurrentActivityEvidenceLoader } from "../interpretation/currentActivityEvidenceLoader.js";
 import type { UploadMetadataRepository } from "../upload/uploadMetadataRepository.js";
 import type { UploadMetadataPersistenceRecord } from "../upload/uploadMetadataPersistence.js";
-import type { PythonProcessingClient } from "../processing/pythonProcessingClient.js";
+import type {
+  PythonProcessingClient,
+  ProjectImpactStoryNarrativeCatalogEntryRequest,
+} from "../processing/pythonProcessingClient.js";
 import type { ProjectLlmTokenLedgerService } from "../project/projectLlmTokenLedgerService.js";
+import type { OutcomeEvidenceLinkRepository } from "../outcome/outcomeEvidenceLinkRepository.js";
+import type { ProjectOutcomeStatementRepository } from "../outcome/projectOutcomeStatementRepository.js";
+import type { InterpretationResultRepository } from "../interpretation/interpretationResultRepository.js";
+import type { DatasetPreparationRepository } from "../interpretation/datasetPreparationRepository.js";
+import type { PrivacySafeRepresentationRepository } from "../processing/privacySafeRepresentationRepository.js";
 import { normalizeMonthValue } from "../../shared/utils/monthValue.js";
 import { buildProjectImpactStoryAssembly } from "./projectImpactStoryAssembly.js";
+import { buildProjectChartOpportunityAudit } from "./projectChartOpportunityAudit.js";
+import { buildProjectChartSelectionAudit } from "./projectChartSelectionAudit.js";
 import {
   buildProjectImpactStoryCatalog,
   toProjectImpactStoryChartPlanRequestEntries,
   type ProjectImpactStoryCatalogEntry,
 } from "./projectImpactStoryCatalog.js";
+import { buildProjectImpactStoryContextCatalog } from "./projectImpactStoryContextCatalog.js";
+import { buildProjectImpactStoryImpactCatalog } from "./projectImpactStoryImpactCatalog.js";
+import { buildProjectImpactStoryPairedStoryDeltaCatalog } from "./projectImpactStoryPairedStoryDeltaCatalog.js";
 import {
   executeProjectImpactStoryChartPlan,
   PROJECT_IMPACT_STORY_ALLOWED_CHART_TYPES,
@@ -30,27 +48,44 @@ import {
 } from "./projectImpactStoryChartPlanExecution.js";
 import { buildDeterministicFallbackChartPlan } from "./projectImpactStoryChartPlanFallback.js";
 import { computeProjectImpactStoryStaleness } from "./projectImpactStoryStaleness.js";
+import type { ProjectAnalyticsSnapshotRepository } from "./projectAnalyticsSnapshotRepository.js";
+import type { ProjectAnalyticsSnapshotPersistenceRecord } from "./projectAnalyticsSnapshotPersistence.js";
 import type { ProjectImpactStoryRepository } from "./projectImpactStoryRepository.js";
 import type { ProjectImpactStoryPersistenceRecord } from "./projectImpactStoryPersistence.js";
 
-function mapProjectImpactStoryRecord(
-  story: ProjectImpactStoryPersistenceRecord,
+function formatLatestTimestamp(
+  snapshot: ProjectAnalyticsSnapshotPersistenceRecord,
+  overlay: ProjectImpactStoryPersistenceRecord | null,
+): string {
+  const latestMillis = Math.max(
+    snapshot.updatedAt.getTime(),
+    overlay?.updatedAt.getTime() ?? 0,
+  );
+  return new Date(latestMillis).toISOString();
+}
+
+function composeProjectImpactStoryRecord(
+  snapshot: ProjectAnalyticsSnapshotPersistenceRecord,
+  overlay: ProjectImpactStoryPersistenceRecord | null,
 ): ProjectImpactStoryRecord {
   return {
-    id: story.id,
-    organizationId: story.organizationId,
-    projectId: story.projectId,
-    status: story.status,
-    sourceSnapshot: story.sourceSnapshot,
-    activityCards: story.activityCards,
-    headlineKpis: story.headlineKpis,
-    chartPlan: story.chartPlan,
-    narrativeSummary: story.narrativeSummary,
-    diagnostics: story.diagnostics,
-    llmUsage: story.llmUsage,
-    errorMessage: story.errorMessage,
-    createdAt: story.createdAt.toISOString(),
-    updatedAt: story.updatedAt.toISOString(),
+    id: snapshot.id,
+    organizationId: snapshot.organizationId,
+    projectId: snapshot.projectId,
+    status: snapshot.status,
+    sourceSnapshot: snapshot.sourceSnapshot,
+    activityCards: snapshot.activityCards,
+    headlineKpis: snapshot.headlineKpis,
+    chartPlan: snapshot.chartPlan,
+    contextCharts: snapshot.contextCharts,
+    impactCatalog: overlay?.impactCatalog ?? [],
+    narrativeSummary: overlay?.narrativeSummary ?? null,
+    narrativeStatus: overlay?.narrativeStatus ?? null,
+    diagnostics: snapshot.diagnostics,
+    llmUsage: mergeLlmUsage(snapshot.llmUsage, overlay?.llmUsage ?? null),
+    errorMessage: snapshot.errorMessage ?? overlay?.errorMessage ?? null,
+    createdAt: snapshot.createdAt.toISOString(),
+    updatedAt: formatLatestTimestamp(snapshot, overlay),
   };
 }
 
@@ -85,42 +120,99 @@ function mergeLlmUsage(
   };
 }
 
-function formatFallbackTileValue(value: number, formatAs: string) {
-  if (formatAs === "percentage") {
-    return `${Math.round(value * 100)}%`;
-  }
-
-  return new Intl.NumberFormat("de-DE").format(value);
+function formatFallbackDecimal(value: number): string {
+  return Number.isInteger(value) ? String(value) : value.toFixed(1);
 }
 
-function buildFallbackNarrativeSummary(
-  projectName: string,
-  assembly: ReturnType<typeof buildProjectImpactStoryAssembly>,
+// The emergency, non-LLM fallback for when the HTTP call to the Python
+// narrative endpoint fails outright (network error, timeout, 5xx) — a
+// different failure mode from Python's own within-service grounding-retry
+// exhaustion (see narrative_grounding.py / ProjectImpactStoryNarrativeStatus
+// "deterministic_fallback"), which already returns its own deterministic
+// summary and never reaches this function. Deliberately built only from
+// impactCatalog, mirroring narrative.py's own
+// _build_deterministic_fallback_summary field-for-field, so this emergency
+// path can never reintroduce the exact risk the impact-catalog restriction
+// exists to close (writing outcome-sounding prose off reach/process data).
+function buildImpactCatalogFallbackSentence(
+  entry: ImpactCatalogItem,
   language: "de" | "en",
-) {
-  const activityCount = assembly.activityCards.length;
-  const tileCount = assembly.activityCards.reduce(
-    (count, activity) => count + activity.tiles.length,
-    0,
-  );
-  const highlights = assembly.narrativeInput
-    .flatMap((activity) =>
-      activity.tiles.slice(0, 2).map((tile) => {
-        const value = formatFallbackTileValue(tile.value, tile.formatAs);
-        return `${activity.activityName}: ${tile.label} ${value}`;
-      }),
-    )
-    .slice(0, 3);
-
-  if (language === "en") {
-    const highlightSentence =
-      highlights.length > 0 ? ` Key signals: ${highlights.join("; ")}.` : "";
-    return `The impact story for ${projectName} summarizes ${activityCount} activities with ${tileCount} grounded indicator tiles.${highlightSentence} The detailed activity cards below show the computed evidence currently available.`;
+): string {
+  if (entry.shape === "paired_delta") {
+    if (language === "en") {
+      return `For "${entry.outcomeStatement}", ${entry.nMatched} matched respondents moved from ${formatFallbackDecimal(entry.beforeValue)} to ${formatFallbackDecimal(entry.afterValue)} on "${entry.pairLabelDe}".`;
+    }
+    return `Für „${entry.outcomeStatement}“ veränderte sich bei ${entry.nMatched} zugeordneten Teilnehmenden „${entry.pairLabelDe}“ von ${formatFallbackDecimal(entry.beforeValue)} auf ${formatFallbackDecimal(entry.afterValue)}.`;
   }
 
-  const highlightSentence =
-    highlights.length > 0 ? ` Zentrale Signale: ${highlights.join("; ")}.` : "";
-  return `Die Wirkungsgeschichte für ${projectName} fasst ${activityCount} Aktivitäten mit ${tileCount} belegten Kennzahlen zusammen.${highlightSentence} Die Detailkarten unten zeigen die aktuell berechnete Evidenz.`;
+  if (entry.shape === "single_distribution") {
+    const sharesText = entry.shares
+      .map((share) => `${share.labelDe}: ${share.count}`)
+      .join(", ");
+    if (language === "en") {
+      return `For "${entry.outcomeStatement}", ${entry.n} responses to "${entry.questionLabelDe}": ${sharesText}.`;
+    }
+    return `Für „${entry.outcomeStatement}“ liegen zu „${entry.questionLabelDe}“ ${entry.n} Antworten vor: ${sharesText}.`;
+  }
+
+  if (language === "en") {
+    return `"${entry.outcomeStatement}" is not yet measurable — no linked evidence yet.`;
+  }
+  return `„${entry.outcomeStatement}“ ist noch nicht messbar — es liegt noch keine verknüpfte Evidenz vor.`;
+}
+
+function buildImpactCatalogFallbackNarrativeSummary(
+  impactCatalog: ImpactCatalogItem[],
+  language: "de" | "en",
+): string {
+  return impactCatalog
+    .map((entry) => buildImpactCatalogFallbackSentence(entry, language))
+    .join(" ");
+}
+
+function toProjectImpactStoryNarrativeCatalogEntryRequests(
+  impactCatalog: ImpactCatalogItem[],
+): ProjectImpactStoryNarrativeCatalogEntryRequest[] {
+  return impactCatalog.map((entry) => {
+    if (entry.shape === "paired_delta") {
+      return {
+        entryId: entry.entryId,
+        shape: "paired_delta",
+        outcomeId: entry.outcomeId,
+        outcomeTerm: entry.outcomeTerm,
+        outcomeStatement: entry.outcomeStatement,
+        pairLabel: entry.pairLabelDe,
+        beforeValue: entry.beforeValue,
+        afterValue: entry.afterValue,
+        nMatched: entry.nMatched,
+        nBaseline: entry.nBaseline,
+      };
+    }
+
+    if (entry.shape === "single_distribution") {
+      return {
+        entryId: entry.entryId,
+        shape: "single_distribution",
+        outcomeId: entry.outcomeId,
+        outcomeTerm: entry.outcomeTerm,
+        outcomeStatement: entry.outcomeStatement,
+        questionLabel: entry.questionLabelDe,
+        shares: entry.shares.map((share) => ({
+          label: share.labelDe,
+          count: share.count,
+        })),
+        n: entry.n,
+      };
+    }
+
+    return {
+      entryId: entry.entryId,
+      shape: "unmeasured",
+      outcomeId: entry.outcomeId,
+      outcomeTerm: entry.outcomeTerm,
+      outcomeStatement: entry.outcomeStatement,
+    };
+  });
 }
 
 function formatNarrativeMonth(value: string | null): string | null {
@@ -203,9 +295,22 @@ export class ProjectImpactStoryService {
     private readonly activityRepository: ActivityRepository,
     private readonly uploadMetadataRepository: UploadMetadataRepository,
     private readonly activityAnalysisRunV2Repository: ActivityAnalysisRunV2Repository,
+    private readonly projectAnalyticsSnapshotRepository: ProjectAnalyticsSnapshotRepository,
     private readonly projectImpactStoryRepository: ProjectImpactStoryRepository,
     private readonly pythonProcessingClient: PythonProcessingClient,
     private readonly projectLlmTokenLedgerService: ProjectLlmTokenLedgerService,
+    private readonly projectOutcomeStatementRepository: ProjectOutcomeStatementRepository,
+    private readonly outcomeEvidenceLinkRepository: OutcomeEvidenceLinkRepository,
+    private readonly currentActivityEvidenceLoader: CurrentActivityEvidenceLoader,
+    private readonly activityAnalysisV2ToolExecutor: ActivityAnalysisV2ToolExecutor,
+    // Used only to load evidence tables for the exploratory paired-story-
+    // delta catalog (loadProjectEvidenceTablesForStoryPairing) — the same
+    // three repositories OutcomeEvidencePairingService already depends on
+    // for the confirmed-outcome pairing flow, reused here rather than
+    // re-instantiated.
+    private readonly interpretationResultRepository: InterpretationResultRepository,
+    private readonly datasetPreparationRepository: DatasetPreparationRepository,
+    private readonly privacySafeRepresentationRepository: PrivacySafeRepresentationRepository,
     private readonly logger: FastifyBaseLogger,
   ) {}
 
@@ -259,35 +364,128 @@ export class ProjectImpactStoryService {
       language,
     });
 
-    if (assembly.activityCards.length === 0) {
-      throw new AppError(
-        "No activity in this project has a grounded, quantitative indicator yet.",
-        409,
-        "project_impact_story_no_grounded_indicators",
-      );
-    }
-
     const catalog = buildProjectImpactStoryCatalog(
       normalizedActivities,
       activityAnalysisRuns,
       normalizedUploads,
       language,
     );
+    if (assembly.activityCards.length === 0 && catalog.length === 0) {
+      throw new AppError(
+        "No activity in this project has chartable analysis evidence yet.",
+        409,
+        "project_impact_story_no_grounded_indicators",
+      );
+    }
+
+    // Fallback-only deterministic descriptive charts. The primary planner
+    // catalog already includes descriptive distributions; this helper only
+    // survives so the analytics page can still show something if the chart
+    // planner returns no selected charts.
+    const fallbackContextCharts = buildProjectImpactStoryContextCatalog(
+      normalizedActivities,
+      activityAnalysisRuns,
+      normalizedUploads,
+    );
+
+    // The only catalog the narrative call is allowed to see — built only
+    // from human-confirmed OutcomeEvidenceLink records, entirely separate
+    // from `catalog`/`contextCharts` above. See
+    // IMPACT_STORY_OUTCOME_EXTENSION_PLAN.md §4.5/§4.6.
+    const outcomeStatements =
+      await this.projectOutcomeStatementRepository.listByProjectId(
+        project.id,
+        databaseSession,
+      );
+    const confirmedLinks =
+      await this.outcomeEvidenceLinkRepository.listByProjectId(
+        project.id,
+        databaseSession,
+      );
+    const impactCatalog = await buildProjectImpactStoryImpactCatalog(
+      {
+        currentActivityEvidenceLoader: this.currentActivityEvidenceLoader,
+        activityAnalysisV2ToolExecutor: this.activityAnalysisV2ToolExecutor,
+        logger: this.logger,
+      },
+      outcomeStatements,
+      confirmedLinks,
+    );
+
+    // Exploratory before/after story evidence — declared-pairing metadata
+    // only, reusing the same detection/measurement the confirmed impact
+    // catalog above uses, but across every activity (not just the two
+    // system activities) and excluding any pair already confirmed there.
+    // See projectImpactStoryPairedStoryDeltaCatalog.ts.
+    const pairedStoryDeltaCatalog =
+      await buildProjectImpactStoryPairedStoryDeltaCatalog(
+        {
+          outcomeEvidencePairingEvidenceLoaderDependencies: {
+            activityRepository: this.activityRepository,
+            uploadMetadataRepository: this.uploadMetadataRepository,
+            interpretationResultRepository: this.interpretationResultRepository,
+            datasetPreparationRepository: this.datasetPreparationRepository,
+            privacySafeRepresentationRepository:
+              this.privacySafeRepresentationRepository,
+          },
+          currentActivityEvidenceLoader: this.currentActivityEvidenceLoader,
+          activityAnalysisV2ToolExecutor: this.activityAnalysisV2ToolExecutor,
+          logger: this.logger,
+        },
+        project.id,
+        normalizedActivities,
+        confirmedLinks,
+      );
+    const fullCatalog = [...catalog, ...pairedStoryDeltaCatalog];
+
+    // Deterministic (no LLM) audit of every chart-worthy fact this run
+    // could support — computed here, from the exact same catalog data
+    // just assembled above, so its entryIds line up 1:1 with `fullCatalog`
+    // and its ready_now set reflects precisely this generation's
+    // candidate pool, not a later recomputation against since-changed
+    // data.
+    const chartOpportunityAudit = [
+      ...buildProjectChartOpportunityAudit(
+        normalizedActivities,
+        activityAnalysisRuns,
+        normalizedUploads,
+      ),
+      ...pairedStoryDeltaCatalog.map(
+        (entry): ProjectChartOpportunityAuditEntry => ({
+          entryId: entry.entryId,
+          kind: "paired_story_delta",
+          activityId: entry.activityId,
+          activityName: entry.activityName,
+          title: entry.pairLabelDe,
+          sourceTables: [],
+          status: "ready_now",
+          reasonCode: "materialized_paired_story_delta",
+          reasonDetail: `Exploratory before/after evidence, not confirmed outcome measurement (n=${entry.nMatched} matched).`,
+        }),
+      ),
+    ];
 
     return {
       project: project as ProjectImpactStoryProjectContext,
       activities,
       activityAnalysisRuns,
       assembly,
-      catalog,
+      catalog: fullCatalog,
+      contextCharts: fallbackContextCharts,
+      impactCatalog,
+      chartOpportunityAudit,
     };
   }
 
   private async generateNarrative(
     project: ProjectImpactStoryProjectContext,
-    assembly: ReturnType<typeof buildProjectImpactStoryAssembly>,
+    impactCatalog: ImpactCatalogItem[],
     language: "de" | "en",
-  ): Promise<{ narrativeSummary: string; llmUsage: LlmUsageSummary | null }> {
+  ): Promise<{
+    narrativeSummary: string;
+    narrativeStatus: ProjectImpactStoryNarrativeStatus;
+    llmUsage: LlmUsageSummary | null;
+  }> {
     const response =
       await this.pythonProcessingClient.generateProjectImpactStoryNarrative({
         projectId: project.id,
@@ -302,11 +500,8 @@ export class ProjectImpactStoryService {
           project.targetGroups.find((group) => group.trim().length > 0) ??
           null,
         region: project.areaOfOperation,
-        activityCards: assembly.narrativeInput.map((activity) => ({
-          activityId: activity.activityId,
-          activityName: activity.activityName,
-          tiles: activity.tiles,
-        })),
+        catalog:
+          toProjectImpactStoryNarrativeCatalogEntryRequests(impactCatalog),
       });
 
     const llmUsage = response.llmUsage ?? null;
@@ -316,7 +511,14 @@ export class ProjectImpactStoryService {
       databaseSession,
     );
 
-    return { narrativeSummary: response.narrativeSummary, llmUsage };
+    return {
+      narrativeSummary: response.narrativeSummary,
+      narrativeStatus:
+        response.groundingStatus === "PASSED"
+          ? "generated"
+          : "deterministic_fallback",
+      llmUsage,
+    };
   }
 
   // Never throws — a chart-plan failure must not prevent the rest of the
@@ -331,10 +533,16 @@ export class ProjectImpactStoryService {
   ): Promise<{
     headlineKpis: ProjectImpactStoryHeadlineKpi[];
     chartPlan: ProjectImpactStoryChartSpec[];
+    selectedEntryIds: string[];
     llmUsage: LlmUsageSummary | null;
   }> {
     if (catalog.length === 0) {
-      return { headlineKpis: [], chartPlan: [], llmUsage: null };
+      return {
+        headlineKpis: [],
+        chartPlan: [],
+        selectedEntryIds: [],
+        llmUsage: null,
+      };
     }
 
     try {
@@ -348,7 +556,11 @@ export class ProjectImpactStoryService {
           headlineKpiCount: PROJECT_IMPACT_STORY_HEADLINE_KPI_COUNT,
         });
 
-      const executed = executeProjectImpactStoryChartPlan(catalog, response);
+      const executed = executeProjectImpactStoryChartPlan(
+        catalog,
+        response,
+        language,
+      );
       const llmUsage = response.llmUsage ?? null;
       await this.projectLlmTokenLedgerService.recordUsage(
         project.id,
@@ -359,6 +571,7 @@ export class ProjectImpactStoryService {
       return {
         headlineKpis: executed.headlineKpis,
         chartPlan: executed.chartPlan,
+        selectedEntryIds: executed.selectedEntryIds,
         llmUsage,
       };
     } catch (error) {
@@ -371,6 +584,7 @@ export class ProjectImpactStoryService {
       return {
         headlineKpis: fallback.headlineKpis,
         chartPlan: [],
+        selectedEntryIds: [],
         llmUsage: null,
       };
     }
@@ -381,8 +595,14 @@ export class ProjectImpactStoryService {
     projectId: string,
     language: "de" | "en",
   ): Promise<ProjectImpactStoryRecord> {
-    const { project, assembly, catalog } =
-      await this.assertReadyForImpactStoryRun(userId, projectId, language);
+    const {
+      project,
+      assembly,
+      catalog,
+      contextCharts,
+      impactCatalog,
+      chartOpportunityAudit,
+    } = await this.assertReadyForImpactStoryRun(userId, projectId, language);
 
     const chartPlanResult = await this.planChartsAndKpis(
       project,
@@ -390,34 +610,69 @@ export class ProjectImpactStoryService {
       language,
     );
 
-    const basePersistenceInput = {
+    const fallbackContextCharts =
+      chartPlanResult.chartPlan.length === 0 ? contextCharts : [];
+
+    // Computed from this exact generation's own opportunity audit and
+    // selectedEntryIds — never a later recomputation against
+    // since-changed data, so the diff stays true to what this run actually
+    // saw and chose. See projectChartSelectionAudit.ts.
+    const chartSelectionAudit = buildProjectChartSelectionAudit(
+      chartOpportunityAudit,
+      chartPlanResult.selectedEntryIds,
+    );
+
+    const snapshot = await this.projectAnalyticsSnapshotRepository.create(
+      {
+        organizationId: project.organizationId,
+        projectId: project.id,
+        status: "completed",
+        sourceSnapshot: assembly.sourceSnapshot,
+        activityCards: assembly.activityCards,
+        headlineKpis: chartPlanResult.headlineKpis,
+        chartPlan: chartPlanResult.chartPlan,
+        contextCharts: fallbackContextCharts,
+        diagnostics: {
+          ...assembly.diagnostics,
+          chartOpportunityAudit,
+          chartSelectionAudit,
+        },
+        llmUsage: chartPlanResult.llmUsage,
+        errorMessage: null,
+      },
+      databaseSession,
+    );
+
+    const overlayPersistenceInput = {
       organizationId: project.organizationId,
       projectId: project.id,
-      sourceSnapshot: assembly.sourceSnapshot,
-      activityCards: assembly.activityCards,
-      headlineKpis: chartPlanResult.headlineKpis,
-      chartPlan: chartPlanResult.chartPlan,
-      diagnostics: assembly.diagnostics,
+      analyticsSnapshotId: snapshot.id,
+      impactCatalog,
     };
+
+    if (impactCatalog.length === 0) {
+      return composeProjectImpactStoryRecord(snapshot, null);
+    }
 
     try {
       const narrative = await this.generateNarrative(
         project,
-        assembly,
+        impactCatalog,
         language,
       );
 
       const story = await this.projectImpactStoryRepository.create(
         {
-          ...basePersistenceInput,
+          ...overlayPersistenceInput,
           status: "completed",
           narrativeSummary: narrative.narrativeSummary,
-          llmUsage: mergeLlmUsage(narrative.llmUsage, chartPlanResult.llmUsage),
+          narrativeStatus: narrative.narrativeStatus,
+          llmUsage: narrative.llmUsage,
           errorMessage: null,
         },
         databaseSession,
       );
-      return mapProjectImpactStoryRecord(story);
+      return composeProjectImpactStoryRecord(snapshot, story);
     } catch (error) {
       this.logger.error(
         { err: error, projectId: project.id },
@@ -426,21 +681,47 @@ export class ProjectImpactStoryService {
 
       const story = await this.projectImpactStoryRepository.create(
         {
-          ...basePersistenceInput,
+          ...overlayPersistenceInput,
           status: "completed",
-          narrativeSummary: buildFallbackNarrativeSummary(
-            project.name,
-            assembly,
+          narrativeSummary: buildImpactCatalogFallbackNarrativeSummary(
+            impactCatalog,
             language,
           ),
-          llmUsage: chartPlanResult.llmUsage,
+          narrativeStatus: "call_failed",
+          llmUsage: null,
           errorMessage:
             error instanceof Error ? error.message : "Unknown error.",
         },
         databaseSession,
       );
-      return mapProjectImpactStoryRecord(story);
+      return composeProjectImpactStoryRecord(snapshot, story);
     }
+  }
+
+  async assertReadyForProjectAnalyticsRun(
+    userId: string,
+    projectId: string,
+    language: "de" | "en",
+  ) {
+    return this.assertReadyForImpactStoryRun(userId, projectId, language);
+  }
+
+  async buildProjectAnalytics(
+    userId: string,
+    projectId: string,
+    language: "de" | "en",
+  ): Promise<ProjectImpactStoryRecord> {
+    return this.buildProjectImpactStory(userId, projectId, language);
+  }
+
+  async getLatestProjectAnalytics(
+    userId: string,
+    projectId: string,
+  ): Promise<{
+    story: ProjectImpactStoryRecord | null;
+    isStale: boolean;
+  }> {
+    return this.getLatestForProject(userId, projectId);
   }
 
   async getLatestForProject(
@@ -455,14 +736,23 @@ export class ProjectImpactStoryService {
       projectId,
     );
 
-    const story = await this.projectImpactStoryRepository.findLatestByProjectId(
-      project.id,
-      databaseSession,
-    );
+    const snapshot =
+      await this.projectAnalyticsSnapshotRepository.findLatestByProjectId(
+        project.id,
+        databaseSession,
+      );
 
-    if (!story) {
+    if (!snapshot) {
       return { story: null, isStale: false };
     }
+
+    const overlay =
+      await this.projectImpactStoryRepository.findLatestByProjectId(
+        project.id,
+        databaseSession,
+      );
+    const matchingOverlay =
+      overlay?.analyticsSnapshotId === snapshot.id ? overlay : null;
 
     const { activities, activityAnalysisRuns } = await loadProjectContext(
       this.activityRepository,
@@ -472,11 +762,14 @@ export class ProjectImpactStoryService {
     );
 
     const { isStale } = computeProjectImpactStoryStaleness(
-      story,
+      snapshot,
       activities,
       activityAnalysisRuns,
     );
 
-    return { story: mapProjectImpactStoryRecord(story), isStale };
+    return {
+      story: composeProjectImpactStoryRecord(snapshot, matchingOverlay),
+      isStale,
+    };
   }
 }

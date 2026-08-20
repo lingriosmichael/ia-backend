@@ -763,6 +763,7 @@ export function mapInterpretationResult(record: {
     createdAt: Date;
     updatedAt: Date;
   } | null;
+  privacySafePayload?: Record<string, unknown> | null;
   createdAt: Date;
   updatedAt: Date;
 }): InterpretationResultRecord {
@@ -786,7 +787,13 @@ export function mapInterpretationResult(record: {
     qualitativeFindings: record.qualitativeFindings,
     supportingQuotes: record.supportingQuotes,
     questions: record.questions
-      .filter((question) => !shouldIgnoreInterpretationQuestion(question))
+      .filter(
+        (question) =>
+          !shouldIgnoreInterpretationQuestion(question, {
+            datasetProfile: record.datasetProfile,
+            privacySafePayload: record.privacySafePayload,
+          }),
+      )
       .map((question) => ({
         id: question.id,
         prompt: question.prompt,

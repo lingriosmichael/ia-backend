@@ -4,11 +4,14 @@ import type { DeterministicAnalysisRepository } from "../interpretation/determin
 import type { InterpretationResultRepository } from "../interpretation/interpretationResultRepository.js";
 import type { DatasetPreparationRepository } from "../interpretation/datasetPreparationRepository.js";
 import type { ActivityAnalysisRunV2Repository } from "../interpretation/activityAnalysisRunV2Repository.js";
+import type { ProjectAnalyticsSnapshotRepository } from "../projectImpactStory/projectAnalyticsSnapshotRepository.js";
 import type { ProjectImpactStoryRepository } from "../projectImpactStory/projectImpactStoryRepository.js";
 import type { KnowledgeEntityRepository } from "../knowledge/knowledgeEntityRepository.js";
 import type { KnowledgeIndicatorRepository } from "../knowledge/knowledgeIndicatorRepository.js";
 import type { ProjectKnowledgeModelRepository } from "../knowledge/projectKnowledgeModelRepository.js";
 import type { ActivityEvidenceLinkageResultRepository } from "../linkage/activityEvidenceLinkageResultRepository.js";
+import type { OutcomeEvidenceLinkRepository } from "../outcome/outcomeEvidenceLinkRepository.js";
+import type { OutcomeEvidencePairingResultRepository } from "../outcome/outcomeEvidencePairingResultRepository.js";
 import type { ParsedRepresentationRepository } from "./parsedRepresentationRepository.js";
 import type { QualitativeCodingReviewRepository } from "./qualitativeCodingReviewRepository.js";
 import type { PrivacyReviewRepository } from "./privacyReviewRepository.js";
@@ -35,7 +38,10 @@ export class ProcessingResourceCleanupService {
     private readonly knowledgeIndicatorRepository: KnowledgeIndicatorRepository,
     private readonly activityEvidenceLinkageResultRepository: ActivityEvidenceLinkageResultRepository,
     private readonly activityAnalysisRunV2Repository: ActivityAnalysisRunV2Repository,
+    private readonly projectAnalyticsSnapshotRepository: ProjectAnalyticsSnapshotRepository,
     private readonly projectImpactStoryRepository: ProjectImpactStoryRepository,
+    private readonly outcomeEvidenceLinkRepository: OutcomeEvidenceLinkRepository,
+    private readonly outcomeEvidencePairingResultRepository: OutcomeEvidencePairingResultRepository,
   ) {}
 
   private async deleteLegacyAnalyticsDocuments(
@@ -92,15 +98,25 @@ export class ProcessingResourceCleanupService {
         projectId,
         session,
       ),
+      this.projectAnalyticsSnapshotRepository.deleteByProjectId(
+        projectId,
+        session,
+      ),
       this.projectImpactStoryRepository.deleteByProjectId(projectId, session),
+      this.outcomeEvidenceLinkRepository.deleteByProjectId(projectId, session),
+      this.outcomeEvidencePairingResultRepository.deleteByProjectId(
+        projectId,
+        session,
+      ),
     ]);
   }
 
   async deleteByActivityId(
     activityId: string,
     session: DatabaseSession,
+    options?: { projectId?: string },
   ): Promise<void> {
-    await Promise.all([
+    const work: Array<Promise<unknown>> = [
       this.parsedRepresentationRepository.deleteByActivityId(
         activityId,
         session,
@@ -132,7 +148,20 @@ export class ProcessingResourceCleanupService {
         activityId,
         session,
       ),
-    ]);
+      this.outcomeEvidenceLinkRepository.deleteByActivityId(
+        activityId,
+        session,
+      ),
+    ];
+    if (options?.projectId) {
+      work.push(
+        this.outcomeEvidencePairingResultRepository.deleteByProjectId(
+          options.projectId,
+          session,
+        ),
+      );
+    }
+    await Promise.all(work);
   }
 
   async deleteActivityAggregateStateByActivityId(
@@ -154,8 +183,9 @@ export class ProcessingResourceCleanupService {
   async deleteByUploadMetadataId(
     uploadMetadataId: string,
     session: DatabaseSession,
+    options?: { projectId?: string },
   ): Promise<void> {
-    await Promise.all([
+    const work: Array<Promise<unknown>> = [
       this.parsedRepresentationRepository.deleteByUploadMetadataId(
         uploadMetadataId,
         session,
@@ -184,6 +214,19 @@ export class ProcessingResourceCleanupService {
         uploadMetadataId,
         session,
       ),
-    ]);
+      this.outcomeEvidenceLinkRepository.deleteByUploadMetadataId(
+        uploadMetadataId,
+        session,
+      ),
+    ];
+    if (options?.projectId) {
+      work.push(
+        this.outcomeEvidencePairingResultRepository.deleteByProjectId(
+          options.projectId,
+          session,
+        ),
+      );
+    }
+    await Promise.all(work);
   }
 }

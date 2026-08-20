@@ -10,6 +10,8 @@ import { registerHealthRoutes } from "./modules/health/healthRoutes.js";
 import { registerInvitationRoutes } from "./modules/invitation/invitationRoutes.js";
 import { registerInterpretationRoutes } from "./modules/interpretation/interpretationRoutes.js";
 import { registerProjectImpactStoryRoutes } from "./modules/projectImpactStory/projectImpactStoryRoutes.js";
+import { registerProjectOutcomeStatementRoutes } from "./modules/outcome/projectOutcomeStatementRoutes.js";
+import { registerOutcomeEvidencePairingRoutes } from "./modules/outcome/outcomeEvidencePairingRoutes.js";
 import { registerOrganizationRoutes } from "./modules/organization/organizationRoutes.js";
 import { registerProjectRoutes } from "./modules/project/projectRoutes.js";
 import { registerPrivacyReviewRoutes } from "./modules/processing/privacyReviewRoutes.js";
@@ -244,6 +246,16 @@ export async function buildApp(config: BackendConfig) {
   await registerProjectImpactStoryRoutes(
     app,
     context.projectImpactStoryController,
+    context.authenticate,
+  );
+  await registerProjectOutcomeStatementRoutes(
+    app,
+    context.projectOutcomeStatementController,
+    context.authenticate,
+  );
+  await registerOutcomeEvidencePairingRoutes(
+    app,
+    context.outcomeEvidencePairingController,
     context.authenticate,
   );
 

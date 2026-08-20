@@ -715,6 +715,101 @@ test("a stale epistemic_role_clarification question on a structural identifier c
   );
 });
 
+test("a stale epistemic_role_clarification question on a constant column does not block readiness", async () => {
+  let capturedInput: DatasetPreparationUpsertInput | null = null;
+
+  const repository = {
+    upsertByInterpretationResultId: async (
+      input: DatasetPreparationUpsertInput,
+    ) => {
+      capturedInput = input;
+      return {
+        id: "prep-1",
+        ...input,
+        createdAt: NOW,
+        updatedAt: NOW,
+      };
+    },
+  } as unknown as DatasetPreparationRepository;
+
+  const privacySafeRepresentationRepository = {
+    findById: async () => ({
+      id: "psr-1",
+      organizationId: "org-1",
+      projectId: "project-1",
+      activityId: "activity-1",
+      uploadMetadataId: "upload-1",
+      processingJobId: "processing-1",
+      privacyReviewId: "review-1",
+      parsedRepresentationId: "parsed-1",
+      payload: {
+        metadata: { evidenceModality: "structured_quantitative" },
+        tables: [
+          {
+            name: "baseline",
+            rowCount: 5,
+            columns: ["befragung_typ"],
+            rows: Array.from({ length: 5 }, () => ({
+              befragung_typ: "baseline",
+            })),
+          },
+        ],
+      },
+      createdAt: NOW,
+      updatedAt: NOW,
+    }),
+  } as unknown as PrivacySafeRepresentationRepository;
+
+  const service = new DatasetPreparationService(
+    repository,
+    privacySafeRepresentationRepository,
+  );
+
+  await service.syncForInterpretationResult(
+    makeResult({
+      questions: [
+        {
+          id: "question-1",
+          prompt: "Was steht in der Spalte 'befragung_typ'?",
+          kind: "single_choice",
+          questionDomain: "preparation",
+          options: [
+            "Feste Auswahlwerte",
+            "Freie Texte",
+            "Einschätzung durch eine Person",
+            "Etwas anderes",
+          ],
+          recommendedOption: null,
+          recommendedConfidence: null,
+          isBlocking: true,
+          questionCode: "epistemic_role_clarification",
+          targetTableName: "baseline",
+          targetColumnName: "befragung_typ",
+          status: "pending",
+          answeredValue: null,
+          answeredById: null,
+          answeredAt: null,
+        },
+      ],
+      datasetProfile: null,
+    }),
+  );
+
+  const quantitativeInput = requireCapturedInput(capturedInput);
+  assert.equal(quantitativeInput.status, "ready_for_analysis");
+  assert.equal(quantitativeInput.blockingQuestionCount, 0);
+  assert.equal(quantitativeInput.answeredBlockingQuestionCount, 0);
+  assert.deepEqual(quantitativeInput.unansweredBlockingQuestionIds, []);
+  assert.ok(quantitativeInput.preparedDataset);
+  if (!quantitativeInput.preparedDataset) {
+    throw new Error("Expected prepared dataset snapshot.");
+  }
+  assert.equal(
+    quantitativeInput.preparedDataset.isReadyForDeterministicAnalysis,
+    true,
+  );
+});
+
 test("marks non-quantitative evidence as not applicable", async () => {
   let capturedInput: DatasetPreparationUpsertInput | null = null;
 

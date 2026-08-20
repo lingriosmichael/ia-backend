@@ -8,6 +8,19 @@ interface GoalDefinition {
   goalType: "output";
 }
 
+// Optional: the pre-planner-call failure branches (planner call threw, or
+// timed out before a plan was even produced) have none of this data yet,
+// so it's fine to omit and get an all-zero contextExtraction block rather
+// than force every call site to fabricate values it doesn't have.
+interface BuildActivityAnalysisV2DiagnosticsContextExtractionInput {
+  totalCategoricalColumnsSeen: number;
+  contextCandidatesProposed: number;
+  contextCandidatesExcludedByReferencedStrings: number;
+  contextCandidatesExcludedByMissingEpistemicRole: number;
+  contextCandidatesMaterialized: number;
+  preparedTableFallbackTableCount: number;
+}
+
 interface BuildActivityAnalysisV2DiagnosticsInput {
   goals: GoalDefinition[];
   evidenceCount: number;
@@ -16,7 +29,18 @@ interface BuildActivityAnalysisV2DiagnosticsInput {
   calculationCount: number;
   validation: ActivityAnalysisRunV2Validation;
   assessment: ActivityAssessmentV2 | null;
+  contextExtraction?: BuildActivityAnalysisV2DiagnosticsContextExtractionInput;
 }
+
+const EMPTY_CONTEXT_EXTRACTION_DIAGNOSTICS: BuildActivityAnalysisV2DiagnosticsContextExtractionInput =
+  {
+    totalCategoricalColumnsSeen: 0,
+    contextCandidatesProposed: 0,
+    contextCandidatesExcludedByReferencedStrings: 0,
+    contextCandidatesExcludedByMissingEpistemicRole: 0,
+    contextCandidatesMaterialized: 0,
+    preparedTableFallbackTableCount: 0,
+  };
 
 export function buildActivityAnalysisV2Diagnostics(
   input: BuildActivityAnalysisV2DiagnosticsInput,
@@ -29,6 +53,8 @@ export function buildActivityAnalysisV2Diagnostics(
     executedToolCallCount: input.executedToolCallCount,
     calculationCount: input.calculationCount,
     validationIssueCount: input.validation.issues.length,
+    contextExtraction:
+      input.contextExtraction ?? EMPTY_CONTEXT_EXTRACTION_DIAGNOSTICS,
     goalStatusCounts: {
       achieved:
         input.assessment?.goalAssessments.filter(

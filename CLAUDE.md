@@ -7,7 +7,7 @@ Stack: Node.js, TypeScript, Fastify, Mongoose, MongoDB, JWT auth.
 (Adjust this section to match reality as the codebase grows — keep it a
 truthful map, not an aspiration.)
 
-- `src/modules/<domain>/` — domain modules such as `organization`, `project`, `activity`, `upload`
+- `src/modules/<domain>/` — domain modules such as `organization`, `project`, `activity`, `upload`, `projectImpactStory`
 - `src/modules/<domain>/*Controller.ts` — request/response coordination
 - `src/modules/<domain>/*Routes.ts` — Fastify route registration
 - `src/modules/<domain>/*Service.ts` — business logic
@@ -19,10 +19,12 @@ truthful map, not an aspiration.)
 - `src/schemas/` — request validation schemas
 - `src/scripts/` — explicit maintenance/migration scripts
 - `src/workers/` — standalone worker entrypoints deployed as separate processes
-  from the main API (e.g. `analyticsWorker.ts`, started via `npm run
-start:analytics-worker`; `activityAnalysisWorker.ts`, started via `npm run
-start:activity-analysis-worker`, claims `activity_analysis_v2` and
-  `qualitative_coding_review` jobs) — not reachable through any HTTP route,
+  from the main API (e.g. `activityAnalysisWorker.ts`, started via `npm run
+start:activity-analysis-worker`; `npm run start:analytics-worker` is a
+  compatibility alias to the same entrypoint, used by existing local/Render
+  worker wiring, and it claims `activity_analysis_v2`,
+  `qualitative_coding_review`, and `project_impact_story` jobs) — not
+  reachable through any HTTP route,
   so grep here if async job processing looks like it "isn't doing anything"
 
 The suffix list above is a baseline, not a rule every file must fit. Some
@@ -37,6 +39,19 @@ interpretation → dataset preparation → deterministic analysis →
 `ActivityAnalystV2`) across all three services, see
 `CURRENT_ANALYSIS_PIPELINE.md` at the workspace root — it's the canonical
 map, not this file.
+
+The old `src/modules/analytics/` module (a configurable per-activity and
+per-project analytics dashboard) was deleted 2026-08-18, along with
+`src/workers/analyticsWorker.ts` — don't recreate it if it looks missing.
+It was replaced by `src/modules/projectImpactStory/`, a project-level
+feature that renders a narrative and chart plan from human-confirmed
+`OutcomeEvidenceLink` records rather than raw per-activity KPI tiles. This
+is a separate feature from the `ActivityAnalystV2` pipeline above, not a
+stage of it — it consumes V2 run outputs only indirectly, via evidence a
+human has already linked to a declared outcome. See
+`projectImpactStoryService.ts` here and `ia_python_service`'s
+`app/project_impact_story/` for the LLM-assisted narrative/chart-plan calls
+this module makes.
 
 ## Layering rule
 

@@ -1,5 +1,6 @@
 import type { DatabaseSession } from "../../shared/database/databaseClient.js";
 import type {
+  DatasetProfile,
   InterpretationQuestionCode,
   InterpretationQuestionKind,
   InterpretationQuestionStatus,
@@ -14,6 +15,9 @@ const FIRST_LAYER_BLOCKING_QUESTION_CODES = new Set<InterpretationQuestionCode>(
     "duplicate_identifier_resolution",
     "epistemic_role_clarification",
     "validated_scale_confirmation",
+    "cohort_tag",
+    "pairing_group_key",
+    "pairing_group_role",
   ],
 );
 
@@ -22,20 +26,30 @@ type ReviewQuestion = {
   kind: InterpretationQuestionKind;
   status: InterpretationQuestionStatus;
   questionCode?: InterpretationQuestionCode | null;
+  targetTableName?: string | null;
   targetColumnName?: string | null;
 };
 
 type ReviewResult = {
+  datasetProfile?: DatasetProfile | null;
+  privacySafePayload?: Record<string, unknown> | null;
   questions: ReviewQuestion[];
 };
 
-export function isBlockingQuestion(question: {
-  isBlocking?: boolean | null;
-  kind: InterpretationQuestionKind;
-  questionCode?: InterpretationQuestionCode | null;
-  targetColumnName?: string | null;
-}): boolean {
-  if (shouldIgnoreInterpretationQuestion(question)) {
+export function isBlockingQuestion(
+  question: {
+    isBlocking?: boolean | null;
+    kind: InterpretationQuestionKind;
+    questionCode?: InterpretationQuestionCode | null;
+    targetTableName?: string | null;
+    targetColumnName?: string | null;
+  },
+  context?: {
+    datasetProfile?: DatasetProfile | null;
+    privacySafePayload?: Record<string, unknown> | null;
+  },
+): boolean {
+  if (shouldIgnoreInterpretationQuestion(question, context)) {
     return false;
   }
 
@@ -52,7 +66,10 @@ export function hasPendingBlockingQuestions(results: ReviewResult[]): boolean {
   return results.some((result) =>
     result.questions.some(
       (question) =>
-        isBlockingQuestion(question) && question.status === "pending",
+        isBlockingQuestion(question, {
+          datasetProfile: result.datasetProfile,
+          privacySafePayload: result.privacySafePayload,
+        }) && question.status === "pending",
     ),
   );
 }
