@@ -5,11 +5,11 @@
 import type { ActivityAnalysisV2CalculationRecord } from "../../shared/contracts.js";
 import {
   toCategoryValue,
+  toDateValue,
   toNumericValue,
 } from "./deterministicAnalysisService.js";
 import {
   buildCalculationId,
-  toDateValue,
   type ActivityAnalysisV2ResolvedRowSource,
   type ActivityAnalysisV2RowAliasValue,
 } from "./activityAnalysisV2ToolRowResolution.js";

@@ -13,6 +13,7 @@ import {
 import {
   readRowRecords,
   readTableRecords,
+  resolveObservedValuesForColumn,
 } from "./deterministicAnalysisService.js";
 import type { InterpretationResultRepository } from "./interpretationResultRepository.js";
 import type { CurrentActivityEvidenceSnapshot } from "./currentActivityEvidenceLoader.js";
@@ -25,6 +26,7 @@ import {
   buildToolCallId,
   collectEpistemicRoles,
   mergeSourceColumnEpistemicRoles,
+  normalizeComparableText,
   requireScalarAliasValue,
   resolveSetSourceColumnName,
   resolveSourceRows,
@@ -73,6 +75,7 @@ import {
   executeCompareTarget,
 } from "./activityAnalysisV2ScalarMathTools.js";
 import { buildEpistemicRoleGateDowngradeMessage } from "./activityAnalysisV2EpistemicRoleGate.js";
+import { buildFilterValueGateRejectionMessage } from "./activityAnalysisV2FilterValueGate.js";
 
 const OUTCOME_CLAIM_BLOCKED_EPISTEMIC_ROLES = new Set<EpistemicRole>([
   "subjective_code",
@@ -744,6 +747,100 @@ export class ActivityAnalysisV2ToolExecutor {
     return null;
   }
 
+  // Defense-in-depth against a planner-emitted filter value that was never
+  // actually observed for the target column (e.g. `equals true` against a
+  // status column that only ever holds literal strings like
+  // "durchgeführt", or any other hallucinated/mismatched literal). Without
+  // this, such a filter doesn't error — matchesFilter just evaluates every
+  // row to false, so the tool call "succeeds" with a silently wrong
+  // zero-row (or otherwise incorrect) result. See analyst.py's planning
+  // instructions for the corresponding prompt-side guidance telling the
+  // planner to ground filter values in observedValues in the first place;
+  // this check is what actually enforces it regardless of whether the
+  // planner followed that instruction.
+  //
+  // Scoped to the direct single-table case (arguments carrying
+  // uploadMetadataId/tableName/filters directly, e.g. count_rows,
+  // aggregate_numeric, group_count, filter_result sourced from a table) —
+  // by far the most common shape, and the one the real production bug this
+  // gate was added for actually took. Filters applied to a cohortAlias/
+  // resultAlias or to a join's leftFilters/rightFilters are not covered by
+  // this pass; a future extension can widen this the same way
+  // collectColumnEpistemicRolesFromReference does for the epistemic-role
+  // gate above, if it turns out to matter in practice.
+  private getFilterValueGateRejectionMessage(
+    request: ActivityAnalysisV2ToolRequest,
+    tableContextIndex: Map<string, ActivityAnalysisV2TableContext>,
+  ): string | null {
+    const args = request.arguments as {
+      uploadMetadataId?: string;
+      tableName?: string;
+      filters?: Array<{
+        columnName?: string;
+        operator?: string;
+        value?: unknown;
+      }>;
+    };
+    if (!args.uploadMetadataId || !args.tableName || !args.filters?.length) {
+      return null;
+    }
+    const table = tableContextIndex.get(
+      buildTableContextKey(args.uploadMetadataId, args.tableName),
+    );
+    if (!table?.preparedTable) {
+      return null;
+    }
+
+    for (const filter of args.filters) {
+      if (
+        !filter.columnName ||
+        (filter.operator !== "equals" &&
+          filter.operator !== "not_equals" &&
+          filter.operator !== "in" &&
+          filter.operator !== "not_in")
+      ) {
+        continue;
+      }
+      const column = table.preparedTable.columns.find(
+        (candidate) => candidate.name === filter.columnName,
+      );
+      if (!column) {
+        continue;
+      }
+      const observedValues = resolveObservedValuesForColumn(column, table.rows);
+      if (!observedValues) {
+        continue;
+      }
+      const normalizedObserved = new Set(
+        observedValues.map((value) => normalizeComparableText(value)),
+      );
+
+      const filterValues = Array.isArray(filter.value)
+        ? filter.value
+        : filter.value === undefined
+          ? []
+          : [filter.value];
+      for (const value of filterValues) {
+        if (typeof value !== "string") {
+          // Booleans are always valid here: observedValues only exists for
+          // categorical/boolean/unknown-typed columns, and a genuine flag
+          // column's true/false is already normalized against its real
+          // ja/nein-style values by matchesFilter's normalizeBooleanLikeText.
+          continue;
+        }
+        if (!normalizedObserved.has(normalizeComparableText(value))) {
+          return buildFilterValueGateRejectionMessage({
+            toolName: request.toolName,
+            columnName: filter.columnName,
+            value,
+          });
+        }
+      }
+    }
+
+    return null;
+  }
+
   async execute(
     requests: ActivityAnalysisV2ToolRequest[],
     evidenceSnapshot: CurrentActivityEvidenceSnapshot,
@@ -792,7 +889,11 @@ export class ActivityAnalysisV2ToolExecutor {
         rowAliases,
         scalarAliasRoles,
       );
-      if (downgradeMessage) {
+      const filterValueRejectionMessage = downgradeMessage
+        ? null
+        : this.getFilterValueGateRejectionMessage(request, tableContextIndex);
+      const rejectionMessage = downgradeMessage ?? filterValueRejectionMessage;
+      if (rejectionMessage) {
         const completedAt = new Date();
         toolCallTrace.push({
           toolCallId: buildToolCallId(
@@ -805,7 +906,7 @@ export class ActivityAnalysisV2ToolExecutor {
           calculationIds: [],
           qualitativeFindingIds: [],
           status: "failed",
-          errorMessage: downgradeMessage,
+          errorMessage: rejectionMessage,
           startedAt: startedAt.toISOString(),
           completedAt: completedAt.toISOString(),
           durationMs: completedAt.getTime() - startedAt.getTime(),

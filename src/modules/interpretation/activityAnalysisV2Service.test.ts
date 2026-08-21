@@ -811,18 +811,24 @@ test("previewActivityAnalysis exposes approved synthetic qualitative code column
       role: "identifier",
       inferredType: "identifier",
       epistemicRole: "identifier",
+      observedValues: null,
     },
     {
       name: "status",
       role: "primary_status",
       inferredType: "categorical",
       epistemicRole: null,
+      // No "status" values appear anywhere in this fixture's row data, so
+      // there's nothing to observe and no confirmed positiveStatusValues
+      // to fall back to either.
+      observedValues: null,
     },
     {
       name: "reflection_note_coded",
       role: "other",
       inferredType: "categorical",
       epistemicRole: "subjective_code",
+      observedValues: ["improved", "uncertain"],
     },
   ]);
 });

@@ -25,6 +25,7 @@ import type { QualitativeCodingReviewRepository } from "../processing/qualitativ
 import {
   PythonProcessingClient,
   type ActivityAnalysisV2ClarificationQuestionDraft,
+  type ActivityAnalysisV2EvidenceColumnInput,
   type ActivityAnalysisV2EvidenceTableInput,
   type ActivityAnalysisV2GoalInput,
   type ActivityAnalysisV2PlanContextCandidate,
@@ -50,6 +51,7 @@ import type {
 import {
   readRowRecords,
   readTableRecords,
+  resolveObservedValuesForColumn,
 } from "./deterministicAnalysisService.js";
 import type { DatasetPreparationService } from "./datasetPreparationService.js";
 import type { InterpretationResultRepository } from "./interpretationResultRepository.js";
@@ -172,6 +174,12 @@ type PlannerHintColumnInput = {
     | "free_text"
     | "other"
     | null;
+  // Only present on columns sourced from a matched prepared table (see
+  // buildEvidenceTables) — the human-confirmed positive-value set for
+  // whichever column is the table's primaryStatusColumn. Empty/absent for
+  // every other column, including flag columns (see
+  // resolveObservedValuesForColumn).
+  positiveStatusValues?: string[];
 };
 
 function buildPlannerClarificationAnswer(
@@ -950,12 +958,13 @@ export class ActivityAnalysisV2Service {
             ...syntheticColumns.map((column) => column.name),
           ]),
         );
-        const columns =
+        const columns: PlannerHintColumnInput[] =
           preparedTable?.columns.map((column) => ({
             name: column.name,
             role: column.role,
             inferredType: column.inferredType,
             epistemicRole: column.epistemicRole,
+            positiveStatusValues: column.positiveStatusValues,
           })) ??
           fallbackColumnNames.map((columnName) => {
             const syntheticColumn =
@@ -971,6 +980,15 @@ export class ActivityAnalysisV2Service {
           (column) => column.epistemicRole === null,
         ).length;
 
+        const evidenceColumns: ActivityAnalysisV2EvidenceColumnInput[] =
+          columns.map((column) => ({
+            name: column.name,
+            role: column.role,
+            inferredType: column.inferredType,
+            epistemicRole: column.epistemicRole,
+            observedValues: resolveObservedValuesForColumn(column, rows),
+          }));
+
         return {
           uploadMetadataId: evidence.uploadMetadataId,
           originalFileName: evidence.originalFileName,
@@ -981,7 +999,7 @@ export class ActivityAnalysisV2Service {
           identifierHandling: preparedTable?.identifierHandling ?? null,
           primaryStatusColumn: preparedTable?.primaryStatusColumn ?? null,
           primaryDateColumn: preparedTable?.primaryDateColumn ?? null,
-          columns,
+          columns: evidenceColumns,
           plannerHints: buildPlannerHints(columns, rows),
         };
       });

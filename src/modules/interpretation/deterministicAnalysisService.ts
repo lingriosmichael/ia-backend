@@ -84,7 +84,20 @@ function normalizeText(value: string): string {
   return value.trim().toLowerCase();
 }
 
-function toMonthKey(value: unknown): string | null {
+// Matches an ISO datetime string with no trailing 'Z'/offset, e.g.
+// "2026-03-03T10:15:00" or "2026-03-03T10:15:00.123".
+const ISO_DATE_TIME_WITHOUT_ZONE_PATTERN =
+  /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d+)?)?$/;
+
+// Matches day-first dates using '.' or '/' separators, e.g. "10.07.2026" or
+// "10/07/2026" — the convention used throughout this codebase's NGO
+// spreadsheet uploads (German-locale exports). JS's native Date constructor
+// does not reliably parse these non-ISO formats, and where it does happen to
+// produce a result it assumes month-first, silently misreading e.g.
+// "10.07.2026" as October 7th instead of July 10th.
+const DAY_FIRST_DATE_PATTERN = /^(\d{1,2})[./](\d{1,2})[./](\d{4})$/;
+
+export function toDateValue(value: unknown): Date | null {
   if (
     typeof value !== "string" &&
     typeof value !== "number" &&
@@ -92,8 +105,40 @@ function toMonthKey(value: unknown): string | null {
   ) {
     return null;
   }
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) {
+
+  if (typeof value === "string") {
+    const dayFirstMatch = value.trim().match(DAY_FIRST_DATE_PATTERN);
+    if (dayFirstMatch) {
+      const day = Number(dayFirstMatch[1]);
+      const month = Number(dayFirstMatch[2]);
+      const year = Number(dayFirstMatch[3]);
+      if (month < 1 || month > 12 || day < 1 || day > 31) {
+        return null;
+      }
+      const date = new Date(Date.UTC(year, month - 1, day));
+      return Number.isNaN(date.getTime()) ? null : date;
+    }
+  }
+
+  // Every downstream date tool buckets/compares using getUTC*, so parsing
+  // must always resolve to UTC regardless of the server's configured
+  // timezone. A date-only string ("2026-03-03") already parses as UTC
+  // midnight per the Date constructor spec. A datetime string with no
+  // 'Z'/offset suffix does NOT — the constructor parses that in the
+  // server's local timezone instead, which would silently shift every
+  // downstream day/month/quarter bucket if this service is ever deployed
+  // outside UTC. Force UTC for that one ambiguous case.
+  const normalizedValue =
+    typeof value === "string" && ISO_DATE_TIME_WITHOUT_ZONE_PATTERN.test(value)
+      ? `${value}Z`
+      : value;
+  const date = new Date(normalizedValue);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function toMonthKey(value: unknown): string | null {
+  const date = toDateValue(value);
+  if (!date) {
     return null;
   }
   const year = date.getUTCFullYear();
@@ -116,6 +161,70 @@ export function toCategoryValue(value: unknown): string | null {
 
   const normalized = String(value).trim();
   return normalized.length > 0 ? normalized : null;
+}
+
+// Grounds a column's filter values in what it actually contains, instead of
+// a caller (the V2 planner payload builder, or the tool executor's
+// filter-value gate) guessing a literal string or a boolean. Shared by both
+// so the two never silently diverge on what counts as "grounded."
+//
+// Deliberately does NOT prefer positiveStatusValues over the freshly
+// observed set: positiveStatusValues (see datasetPreparationService.ts —
+// today only ever populated for a table's single primaryStatusColumn)
+// answers a narrower, different question — "which values count as
+// 'positive' for a ratio/count metric" — not "which literal values does
+// this column legitimately contain." A column like eignung_status can
+// legitimately be filtered on "bedingt" even though only "geeignet" is
+// confirmed positive; collapsing grounding to just positiveStatusValues
+// would make a real, observed filter value look ungrounded. Observed
+// values (from actual rows) are therefore the primary source; the
+// confirmed set is only used as a fallback when there are no rows to
+// observe from at all.
+//
+// Eligible for categorical/boolean/unknown-typed columns (this covers
+// epistemicRole "flag" columns too, since those are always inferredType
+// "boolean"). Returns null for numeric/identifier/temporal/free-text
+// columns, and for a categorical column with too many distinct values to
+// usefully ground in (reuses MAX_CATEGORICAL_DISTINCT_VALUES for the same
+// reason it's used elsewhere in this file: beyond that many distinct
+// values, a column reads as free-form text or a near-unique identifier
+// rather than a small set of status/flag values).
+export function resolveObservedValuesForColumn(
+  column: {
+    name: string;
+    inferredType: string | null;
+    positiveStatusValues?: string[] | null;
+  },
+  rows: Record<string, unknown>[],
+): string[] | null {
+  const eligibleType =
+    column.inferredType === "categorical" ||
+    column.inferredType === "boolean" ||
+    column.inferredType === "unknown";
+  if (!eligibleType) {
+    return null;
+  }
+
+  const counts = new Map<string, number>();
+  for (const row of rows) {
+    const value = toCategoryValue(row[column.name]);
+    if (value === null) {
+      continue;
+    }
+    counts.set(value, (counts.get(value) ?? 0) + 1);
+  }
+  if (counts.size === 0) {
+    return column.positiveStatusValues && column.positiveStatusValues.length > 0
+      ? column.positiveStatusValues
+      : null;
+  }
+  if (counts.size > MAX_CATEGORICAL_DISTINCT_VALUES) {
+    return null;
+  }
+
+  return Array.from(counts.entries())
+    .sort((left, right) => right[1] - left[1])
+    .map(([value]) => value);
 }
 
 export function toNumericValue(value: unknown): number | null {

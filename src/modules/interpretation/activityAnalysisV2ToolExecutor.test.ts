@@ -1312,6 +1312,121 @@ test("table tools can filter on categorical and numeric conditions over analysis
   ]);
 });
 
+test("count_rows applies range filters against day-first date strings", async () => {
+  // Regression test for a real production bug: raw date values arrive as
+  // ambiguous day-first strings (e.g. German-locale exports), and
+  // matchesFilter's range operators used to only support numeric
+  // comparison, so a filter like "datum <= 2026-09-30" silently matched
+  // zero rows regardless of the actual dates. See
+  // activityAnalysisV2ToolRowResolution.ts's matchesFilter date fallback.
+  const fixture = createExecutorFixture({
+    evidence: {
+      organizationId: "org-1",
+      projectId: "project-1",
+      activityId: "activity-1",
+      evidence: [
+        {
+          uploadMetadataId: "upload-1",
+          privacySafeRepresentationId: "psr-1",
+          logicalEvidenceId: "evidence-1",
+          versionNumber: 1,
+          originalFileName: "treffen_log.csv",
+          evidenceModality: "structured_quantitative",
+          uploadedAt: NOW,
+          payload: {
+            tables: [
+              {
+                name: "treffen_log",
+                rows: [
+                  { treffen_id: "T1", datum: "10.07.2026" },
+                  { treffen_id: "T2", datum: "20.07.2026" },
+                  { treffen_id: "T3", datum: "10.11.2026" },
+                ],
+              },
+            ],
+          },
+        },
+      ],
+      missingPrivacySafeUploads: [],
+    },
+    preparedTablesByResultId: new Map([
+      [
+        "result-1",
+        {
+          evidenceModality: "structured_quantitative",
+          isReadyForDeterministicAnalysis: true,
+          unresolvedRequirements: [],
+          tables: [
+            {
+              name: "treffen_log",
+              rowCount: 3,
+              columnCount: 2,
+              selectedRowGrain: "meeting record",
+              identifierColumn: "treffen_id",
+              identifierHandling: "assume_unique",
+              primaryStatusColumn: null,
+              primaryDateColumn: "datum",
+              columns: [
+                {
+                  name: "treffen_id",
+                  inferredType: "identifier",
+                  role: "identifier",
+                  positiveStatusValues: [],
+                  positiveStatusDefinitionText: null,
+                  normalizationAccepted: true,
+                },
+                {
+                  name: "datum",
+                  inferredType: "date",
+                  role: "primary_date",
+                  epistemicRole: "temporal",
+                  positiveStatusValues: [],
+                  positiveStatusDefinitionText: null,
+                  normalizationAccepted: true,
+                },
+              ],
+              notes: [],
+            },
+          ],
+        },
+      ],
+    ]),
+  });
+
+  const result = await fixture.executor.execute(
+    [
+      {
+        toolName: "count_rows",
+        arguments: {
+          uploadMetadataId: "upload-1",
+          tableName: "treffen_log",
+          useAnalysisRows: true,
+          filters: [
+            {
+              columnName: "datum",
+              operator: "less_than_or_equal",
+              value: "2026-09-30",
+            },
+          ],
+        },
+      },
+    ],
+    fixture.evidence,
+    {
+      maxToolCalls: 12,
+      maxLlmIterations: 4,
+      timeoutMs: 30_000,
+      maxEvidenceItems: 25,
+    },
+  );
+
+  // "10.07.2026" and "20.07.2026" are July, both <= 2026-09-30;
+  // "10.11.2026" is November, excluded. A misparse (e.g. treating
+  // "10.07.2026" as October 7th, or failing to parse at all) would
+  // produce 0 or 3 instead of 2.
+  assert.equal(result.calculations[0]?.value, 2);
+});
+
 test("group_count and crosstab_count can describe filtered subgroups", async () => {
   const fixture = createExecutorFixture();
 
@@ -2873,4 +2988,68 @@ test("event_gap, days_since_last_event, and period_change support cadence, recen
   assert.equal(result.calculations[4]?.result.baselineCount, 2);
   assert.equal(result.calculations[4]?.result.comparisonCount, 4);
   assert.equal(result.calculations[5]?.value, 1);
+});
+
+test("count_rows rejects a filter value never observed for the target column, without blocking other tool calls", async () => {
+  // Regression test for the flip side of the date-filter bug: a planner
+  // that guesses a literal string (or a boolean) for a categorical column
+  // instead of grounding in what the column actually contains used to
+  // silently execute and return a wrong (zero-row) result. The gate should
+  // reject just that one tool call instead.
+  const fixture = createExecutorFixture();
+
+  const result = await fixture.executor.execute(
+    [
+      {
+        toolName: "count_rows",
+        arguments: {
+          uploadMetadataId: "upload-1",
+          tableName: "applications",
+          useAnalysisRows: true,
+          filters: [
+            {
+              columnName: "eignung_status",
+              operator: "equals",
+              value: "unbekannt",
+            },
+          ],
+        },
+      },
+      {
+        toolName: "count_rows",
+        arguments: {
+          uploadMetadataId: "upload-1",
+          tableName: "applications",
+          useAnalysisRows: true,
+          // "bedingt" is a real observed value but not the confirmed
+          // positiveStatusValues entry ("geeignet") — must still be
+          // accepted, since grounding is the full observed set, not just
+          // the confirmed-positive subset.
+          filters: [
+            {
+              columnName: "eignung_status",
+              operator: "in",
+              value: ["geeignet", "bedingt"],
+            },
+          ],
+        },
+      },
+    ],
+    fixture.evidence,
+    {
+      maxToolCalls: 12,
+      maxLlmIterations: 4,
+      timeoutMs: 30_000,
+      maxEvidenceItems: 25,
+    },
+  );
+
+  assert.equal(result.toolCallTrace[0]?.status, "failed");
+  assert.match(
+    result.toolCallTrace[0]?.errorMessage ?? "",
+    /filter_value_gate_rejection/,
+  );
+  assert.equal(result.toolCallTrace[1]?.status, "succeeded");
+  assert.equal(result.calculations.length, 1);
+  assert.equal(result.calculations[0]?.value, 3);
 });

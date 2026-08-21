@@ -168,6 +168,22 @@ export interface ActivityAnalysisV2EvidenceColumnInput {
     | "unknown"
     | null;
   epistemicRole?: EpistemicRole | null;
+  // Grounds the planner's filter values in what the column actually
+  // contains, instead of it inventing a value (e.g. emitting `equals true`
+  // against a column that has never held a boolean, only literal strings
+  // like "durchgeführt"). Populated in activityAnalysisV2Service.ts's
+  // buildEvidenceTables (via resolveObservedValuesForColumn): a bounded
+  // list of the column's most common actually-observed values for
+  // categorical/boolean/unknown-typed columns, falling back to the
+  // column's human-confirmed positiveStatusValues only when there are no
+  // rows to observe from at all. Null when neither applies (numeric,
+  // identifier, temporal, free-text columns, or a categorical column with
+  // too many distinct values to usefully list).
+  // The executor independently re-validates filter values against this
+  // same set — see activityAnalysisV2ToolExecutor.ts's
+  // getFilterValueGateRejectionMessage — so this field is grounding, not a
+  // trust boundary by itself.
+  observedValues?: string[] | null;
 }
 
 export interface ActivityAnalysisV2EvidenceTableInput {

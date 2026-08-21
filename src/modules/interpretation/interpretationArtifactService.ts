@@ -90,6 +90,16 @@ const DEFERRED_TO_ACTIVITY_ANALYSIS_V2_QUESTION_CODES =
 
 const interpretationWarningSeverities: readonly InterpretationWarningSeverity[] =
   ["info", "warning"];
+const COHORT_TAG_QUESTION_TEMPLATES = {
+  de:
+    `Um wen geht es in der Tabelle '{table}'? Zum Beispiel um "Jugendliche" oder "Mentor:innen". ` +
+    `Das hilft dabei, nur passende Baseline- und Wirkungsmessungsdaten miteinander zu vergleichen. ` +
+    `Antworten Sie "nicht zutreffend", wenn dieses Projekt nur eine einzige Kohorte hat.`,
+  en:
+    `Who is the table '{table}' about? For example "young people" or "mentors". ` +
+    `This helps compare only the right baseline and endline data with each other. ` +
+    `Answer "not applicable" if this project only has a single cohort.`,
+} as const;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
@@ -119,6 +129,42 @@ function readStringArray(value: unknown): string[] {
 
 function readRecordArray(value: unknown): Record<string, unknown>[] {
   return Array.isArray(value) ? value.filter(isRecord) : [];
+}
+
+function readJobLanguage(
+  payload: Record<string, unknown> | null | undefined,
+): "de" | "en" {
+  return payload?.language === "en" ? "en" : "de";
+}
+
+function suggestCohortTagFromTableName(tableName: string): {
+  recommendedOption: string | null;
+  recommendedConfidence: number | null;
+} {
+  const normalized = tableName.trim().toLowerCase();
+
+  if (
+    normalized.includes("jugend") ||
+    normalized.includes("schueler") ||
+    normalized.includes("schüler")
+  ) {
+    return {
+      recommendedOption: "Jugendliche",
+      recommendedConfidence: 0.92,
+    };
+  }
+
+  if (normalized.includes("mentor")) {
+    return {
+      recommendedOption: "Mentor:innen",
+      recommendedConfidence: 0.92,
+    };
+  }
+
+  return {
+    recommendedOption: null,
+    recommendedConfidence: null,
+  };
 }
 
 function readInterpretationLlmUsage(
@@ -705,6 +751,7 @@ function mapQuestions(value: unknown): InterpretationQuestionCreateInput[] {
 function buildCohortTagQuestions(
   datasetProfile: DatasetProfile | null,
   activitySystemType: ActivitySystemType | null,
+  language: "de" | "en",
 ): InterpretationQuestionCreateInput[] {
   if (
     !datasetProfile ||
@@ -714,21 +761,22 @@ function buildCohortTagQuestions(
     return [];
   }
 
-  return datasetProfile.tables.map((table) => ({
-    prompt:
-      `Which cohort or participant segment does the table '${table.name}' represent (e.g. "Jugendliche", "Mentor:innen")? ` +
-      `This is used to avoid matching this table's evidence against a different cohort's baseline/Wirkungsmessung data. ` +
-      `Answer "not applicable" if this project only has a single cohort.`,
-    kind: "free_text",
-    questionDomain: "preparation",
-    options: null,
-    recommendedOption: null,
-    recommendedConfidence: null,
-    isBlocking: true,
-    questionCode: "cohort_tag",
-    targetTableName: table.name,
-    targetColumnName: null,
-  }));
+  const promptTemplate = COHORT_TAG_QUESTION_TEMPLATES[language];
+  return datasetProfile.tables.map((table) => {
+    const recommendation = suggestCohortTagFromTableName(table.name);
+    return {
+      prompt: promptTemplate.replace("{table}", table.name),
+      kind: "free_text",
+      questionDomain: "preparation",
+      options: null,
+      recommendedOption: recommendation.recommendedOption,
+      recommendedConfidence: recommendation.recommendedConfidence,
+      isBlocking: true,
+      questionCode: "cohort_tag",
+      targetTableName: table.name,
+      targetColumnName: null,
+    };
+  });
 }
 
 function mapWarnings(value: unknown): InterpretationWarningCreateInput[] {
@@ -818,6 +866,9 @@ export class InterpretationArtifactService {
     const activity = job.activityId
       ? await this.activityRepository.findById(job.activityId, databaseSession)
       : null;
+    const language = readJobLanguage(
+      isRecord(job.payload) ? job.payload : null,
+    );
 
     const created = await this.interpretationResultRepository.create(
       {
@@ -853,6 +904,7 @@ export class InterpretationArtifactService {
           ...buildCohortTagQuestions(
             datasetProfile,
             activity?.systemType ?? null,
+            language,
           ),
         ],
         warnings: mapWarnings(interpretation.warnings),

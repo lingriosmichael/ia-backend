@@ -12,6 +12,7 @@ import type {
 import {
   resolveAnalysisRowContext,
   toCategoryValue,
+  toDateValue,
   toNumericValue,
   type AnalysisRowContext,
 } from "./deterministicAnalysisService.js";
@@ -270,19 +271,38 @@ export function matchesFilter(
     filter.operator === "less_than_or_equal"
   ) {
     const threshold = toNumericValue(filterValues[0] ?? null);
-    if (numericValue === null || threshold === null) {
+    if (numericValue !== null && threshold !== null) {
+      if (filter.operator === "greater_than") {
+        return numericValue > threshold;
+      }
+      if (filter.operator === "greater_than_or_equal") {
+        return numericValue >= threshold;
+      }
+      if (filter.operator === "less_than") {
+        return numericValue < threshold;
+      }
+      return numericValue <= threshold;
+    }
+
+    // Not cleanly numeric on at least one side — the common case is a
+    // temporal column compared against a date-string threshold (e.g.
+    // "datum <= 2026-09-30"). Fall back to date comparison instead of
+    // treating every row as non-matching just because it isn't a number.
+    const dateValue = toDateValue(rowValue);
+    const dateThreshold = toDateValue(filterValues[0] ?? null);
+    if (dateValue === null || dateThreshold === null) {
       return false;
     }
     if (filter.operator === "greater_than") {
-      return numericValue > threshold;
+      return dateValue.getTime() > dateThreshold.getTime();
     }
     if (filter.operator === "greater_than_or_equal") {
-      return numericValue >= threshold;
+      return dateValue.getTime() >= dateThreshold.getTime();
     }
     if (filter.operator === "less_than") {
-      return numericValue < threshold;
+      return dateValue.getTime() < dateThreshold.getTime();
     }
-    return numericValue <= threshold;
+    return dateValue.getTime() <= dateThreshold.getTime();
   }
 
   const normalizedRowValue =
@@ -575,35 +595,6 @@ export function countDistinctValues(
   columnName: string,
 ): number {
   return buildSetFromColumn(rows, columnName).size;
-}
-
-// Matches an ISO datetime string with no trailing 'Z'/offset, e.g.
-// "2026-03-03T10:15:00" or "2026-03-03T10:15:00.123".
-const ISO_DATE_TIME_WITHOUT_ZONE_PATTERN =
-  /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d+)?)?$/;
-
-export function toDateValue(value: unknown): Date | null {
-  if (
-    typeof value !== "string" &&
-    typeof value !== "number" &&
-    !(value instanceof Date)
-  ) {
-    return null;
-  }
-  // Every downstream date tool buckets/compares using getUTC*, so parsing
-  // must always resolve to UTC regardless of the server's configured
-  // timezone. A date-only string ("2026-03-03") already parses as UTC
-  // midnight per the Date constructor spec. A datetime string with no
-  // 'Z'/offset suffix does NOT — the constructor parses that in the
-  // server's local timezone instead, which would silently shift every
-  // downstream day/month/quarter bucket if this service is ever deployed
-  // outside UTC. Force UTC for that one ambiguous case.
-  const normalizedValue =
-    typeof value === "string" && ISO_DATE_TIME_WITHOUT_ZONE_PATTERN.test(value)
-      ? `${value}Z`
-      : value;
-  const date = new Date(normalizedValue);
-  return Number.isNaN(date.getTime()) ? null : date;
 }
 
 export function toTimeBucketKey(

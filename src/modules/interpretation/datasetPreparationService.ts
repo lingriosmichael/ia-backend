@@ -138,7 +138,8 @@ function parseIdentifierHandling(
   if (
     answer.includes("multiple events") ||
     answer.includes("interactions") ||
-    answer.includes("mehrere ereignisse")
+    answer.includes("mehrere ereignisse") ||
+    answer.includes("mehrere einträge")
   ) {
     return "allow_duplicate_rows_as_events";
   }
@@ -174,6 +175,9 @@ function parseEpistemicRoleClarificationAnswer(
   if (
     normalized.includes("person's judgement") ||
     normalized.includes("einschätzung durch eine person") ||
+    normalized.includes("short rating") ||
+    normalized.includes("kurze bewertung") ||
+    normalized.includes("einschätzung") ||
     normalized.includes("reviewer") ||
     normalized.includes("prüfende")
   ) {
@@ -182,6 +186,8 @@ function parseEpistemicRoleClarificationAnswer(
   if (
     normalized.includes("free text") ||
     normalized.includes("freie texte") ||
+    normalized.includes("free-text answers") ||
+    normalized.includes("freie antworten") ||
     normalized.includes("quote") ||
     normalized.includes("comment") ||
     normalized.includes("zitat") ||
@@ -192,6 +198,9 @@ function parseEpistemicRoleClarificationAnswer(
   if (
     normalized.includes("fixed choice values") ||
     normalized.includes("feste auswahlwerte") ||
+    normalized.includes("fixed choices") ||
+    normalized.includes("feste auswahl") ||
+    normalized.includes("kategorien") ||
     normalized.includes("something else") ||
     normalized.includes("etwas anderes") ||
     normalized.includes("plain descriptive") ||
@@ -295,14 +304,16 @@ function parsePairingGroupRoleAnswer(
   if (
     normalized.startsWith("before") ||
     normalized.startsWith("baseline") ||
-    normalized.startsWith("vorher")
+    normalized.startsWith("vorher") ||
+    normalized.startsWith("am anfang")
   ) {
     return "before";
   }
   if (
     normalized.startsWith("after") ||
     normalized.startsWith("endline") ||
-    normalized.startsWith("nachher")
+    normalized.startsWith("nachher") ||
+    normalized.startsWith("am ende")
   ) {
     return "after";
   }
@@ -317,6 +328,9 @@ function parsePositiveStatusValues(
     return [];
   }
   const normalizedAnswer = normalizeText(answer);
+  if (normalizedAnswer === "alle" || normalizedAnswer === "all") {
+    return observedValues;
+  }
   const exactTokens = new Set(
     answer
       .split(/[,;\n]/)
