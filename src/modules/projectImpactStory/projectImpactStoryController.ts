@@ -5,6 +5,7 @@ import { resolveRequestLanguage } from "../../shared/http/resolveRequestLanguage
 import { idParamSchema } from "../../schemas/httpSchemas.js";
 import { ProcessingJobService } from "../ai/execution/processingJobService.js";
 import { ProjectImpactStoryService } from "./projectImpactStoryService.js";
+import { requireParam } from "../../shared/http/requireParam.js";
 
 export class ProjectImpactStoryController {
   constructor(
@@ -29,7 +30,7 @@ export class ProjectImpactStoryController {
     const { project } =
       await this.projectImpactStoryService.assertReadyForProjectAnalyticsRun(
         auth.userId,
-        params.projectId!,
+        requireParam(params, "projectId"),
         language,
       );
     const job = await this.processingJobService.create(
@@ -54,7 +55,7 @@ export class ProjectImpactStoryController {
     const response =
       await this.projectImpactStoryService.getLatestProjectAnalytics(
         auth.userId,
-        params.projectId!,
+        requireParam(params, "projectId"),
       );
     return successResponse(response);
   }

@@ -4,6 +4,7 @@ import type {
   LlmUsageSummary,
   ProjectImpactStoryChartSpec,
   ProjectImpactStoryDiagnostics,
+  ProjectImpactStoryGoalProgressEntry,
   ProjectImpactStoryHeadlineKpi,
   ProjectImpactStorySourceSnapshotItem,
   ProjectImpactStoryStatus,
@@ -18,7 +19,9 @@ export interface ProjectAnalyticsSnapshotPersistenceRecord {
   activityCards: ActivityImpactStoryCard[];
   headlineKpis: ProjectImpactStoryHeadlineKpi[];
   chartPlan: ProjectImpactStoryChartSpec[];
+  backlogChartPlan: ProjectImpactStoryChartSpec[];
   contextCharts: ContextCatalogEntry[];
+  goalProgressEntries: ProjectImpactStoryGoalProgressEntry[];
   diagnostics: ProjectImpactStoryDiagnostics;
   llmUsage: LlmUsageSummary | null;
   errorMessage: string | null;
@@ -34,7 +37,9 @@ export interface ProjectAnalyticsSnapshotCreateInput {
   activityCards: ActivityImpactStoryCard[];
   headlineKpis: ProjectImpactStoryHeadlineKpi[];
   chartPlan: ProjectImpactStoryChartSpec[];
+  backlogChartPlan: ProjectImpactStoryChartSpec[];
   contextCharts: ContextCatalogEntry[];
+  goalProgressEntries: ProjectImpactStoryGoalProgressEntry[];
   diagnostics: ProjectImpactStoryDiagnostics;
   llmUsage: LlmUsageSummary | null;
   errorMessage: string | null;

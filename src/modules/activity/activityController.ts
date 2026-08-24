@@ -7,6 +7,7 @@ import {
   updateActivitySchema,
 } from "../../schemas/httpSchemas.js";
 import { ActivityService } from "./activityService.js";
+import { requireParam } from "../../shared/http/requireParam.js";
 
 export class ActivityController {
   constructor(private readonly activityService: ActivityService) {}
@@ -17,7 +18,7 @@ export class ActivityController {
     const params = idParamSchema.parse(request.params);
     const activities = await this.activityService.listForProject(
       auth.userId,
-      params.projectId!,
+      requireParam(params, "projectId"),
     );
     return successResponse(activities);
   }
@@ -29,7 +30,7 @@ export class ActivityController {
     const payload = createActivitySchema.parse(request.body);
     const activity = await this.activityService.create(
       auth.userId,
-      params.projectId!,
+      requireParam(params, "projectId"),
       payload,
     );
     return successResponse(activity);
@@ -41,7 +42,7 @@ export class ActivityController {
     const params = idParamSchema.parse(request.params);
     const activity = await this.activityService.getById(
       auth.userId,
-      params.activityId!,
+      requireParam(params, "activityId"),
     );
     return successResponse(activity);
   }
@@ -53,7 +54,7 @@ export class ActivityController {
     const payload = updateActivitySchema.parse(request.body);
     const activity = await this.activityService.update(
       auth.userId,
-      params.activityId!,
+      requireParam(params, "activityId"),
       payload,
     );
     return successResponse(activity);
@@ -65,7 +66,7 @@ export class ActivityController {
     const params = idParamSchema.parse(request.params);
     const activity = await this.activityService.delete(
       auth.userId,
-      params.activityId!,
+      requireParam(params, "activityId"),
     );
     return successResponse(activity);
   }

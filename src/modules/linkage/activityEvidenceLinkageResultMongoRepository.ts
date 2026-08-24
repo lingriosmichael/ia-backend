@@ -30,6 +30,7 @@ function toActivityEvidenceLinkageResultRecord(
       []) as ActivityEvidenceLinkageResultPersistenceRecord["proposals"],
     proposalDecisions: (document.proposalDecisions ??
       []) as ActivityEvidenceLinkageResultPersistenceRecord["proposalDecisions"],
+    concernTaggingInstruction: document.concernTaggingInstruction ?? null,
     createdAt: document.createdAt,
     updatedAt: document.updatedAt,
   };
@@ -52,6 +53,7 @@ export class MongoActivityEvidenceLinkageResultRepository implements ActivityEvi
             groups: input.groups,
             proposals: input.proposals,
             proposalDecisions: input.proposalDecisions,
+            concernTaggingInstruction: input.concernTaggingInstruction,
           },
         },
         { upsert: true, returnDocument: "after" },

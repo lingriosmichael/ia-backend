@@ -120,7 +120,9 @@ function readNullableString(value: unknown): string | null {
   return typeof value === "string" ? value : null;
 }
 
-function readLanguageFromPayload(
+// Exported so activityAnalysisWorker.ts can share this exact default-
+// language logic instead of maintaining an independent copy.
+export function readLanguageFromPayload(
   payload: Record<string, unknown> | null,
 ): "de" | "en" {
   return payload?.language === "en" ? "en" : "de";
@@ -451,18 +453,38 @@ export class ProcessingJobService {
       return mapProcessingJob(job);
     }
 
-    const updatedJob = await this.processingJobRepository.update(
-      job.id,
+    // Scoped by leaseOwner, the same ownership guarantee renewLease
+    // enforces: if this worker's lease already expired and was reclaimed by
+    // another worker (e.g. after a heartbeat gap), this call must not
+    // overwrite whatever that other worker is doing or has already
+    // persisted. Without this check, a stale worker finishing late could
+    // clobber a newer worker's in-progress or completed job state.
+    const updatedJob = await this.processingJobRepository.completeIfLeaseOwned(
       {
+        processingJobId: job.id,
+        workerId,
         status: outcome.status,
         errorMessage: outcome.errorMessage ?? null,
-        leaseOwner: null,
-        leaseExpiresAt: null,
-        lastHeartbeatAt: null,
         completedAt: new Date(),
       },
       databaseSession,
     );
+
+    if (!updatedJob) {
+      this.logger.warn(
+        {
+          processingJobId: job.id,
+          jobType: job.jobType,
+          workerId,
+        },
+        "backend-executed job completion ignored: lease is no longer owned by this worker",
+      );
+      const currentJob = await this.processingJobRepository.findById(
+        job.id,
+        databaseSession,
+      );
+      return mapProcessingJob(currentJob ?? job);
+    }
 
     this.logger.info(
       {
@@ -886,6 +908,13 @@ export class ProcessingJobService {
             externalJobId: processorStatus.externalJobId,
             status: processorStatus.status,
             updatedAt: processorStatus.updatedAt,
+            // processorStatus.details is schema-validated at the HTTP
+            // boundary (jsonPayloadSchema, see processingJobCallbackSchema)
+            // but only for "is this valid JSON," not any particular shape —
+            // merged straight through here on the assumption that no
+            // downstream consumer (evidenceProcessingArtifactService,
+            // interpretationArtifactService) needs more structure than
+            // that. Revisit if one starts trusting a specific shape.
             details: processorStatus.details ?? null,
           },
           sync: {

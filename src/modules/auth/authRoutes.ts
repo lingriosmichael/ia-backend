@@ -1,6 +1,9 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { AuthController } from "./authController.js";
 
+// Deliberately IP-keyed (Fastify's default), not per-authenticated-user:
+// there is no user identity yet at register/login time to key on, unlike
+// rate limits elsewhere in this codebase that key by authenticated user.
 const authRateLimitConfig = {
   rateLimit: {
     max: 5,

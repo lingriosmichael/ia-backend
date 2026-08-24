@@ -26,6 +26,8 @@
     "migrate:remove-activity-outcome-field": "tsx src/scripts/removeDeprecatedActivityOutcomeField.ts",
     "migrate:remove-activity-analysis-narrative-fields": "tsx src/scripts/removeDeprecatedActivityAnalysisNarrativeFields.ts",
     "migrate:remove-activity-analysis-outcome-goals": "tsx src/scripts/removeDeprecatedActivityAnalysisOutcomeGoals.ts",
+    "migrate:backfill-clarification-question-copy": "tsx src/scripts/backfillClarificationQuestionUserFacingCopy.ts",
+    "migrate:backfill-activity-analysis-v2-clarification-copy": "tsx src/scripts/backfillActivityAnalysisV2ClarificationCopy.ts",
     "reset:structure-only": "tsx src/scripts/resetWorkspaceToStructureOnly.ts"
   },
   "dependencies": {

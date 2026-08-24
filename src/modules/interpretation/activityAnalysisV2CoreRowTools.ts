@@ -191,6 +191,14 @@ export function executeFilterResult(
   ];
 }
 
+// Returns null only when *every* component column is null for this row —
+// a row with one populated key column and one missing one still produces a
+// real composite key. This is intentional for how join_tables/anti_join use
+// this: two rows that share one real identifying column and both happen to
+// be missing another should still be treated as the same composite entity
+// rather than silently excluded from the join. If a future caller needs
+// "all key components must be present" semantics instead, that's a
+// different, stricter helper — don't change this one's behavior in place.
 export function buildCompositeKey(
   row: Record<string, unknown>,
   columnNames: string[],

@@ -93,4 +93,21 @@ export interface ProcessingJobRepository {
     completedAt: Date,
     session: DatabaseSession,
   ): Promise<ProcessingJobPersistenceRecord | null>;
+  /**
+   * Completes a job only if `workerId` still holds its lease, the same
+   * ownership guarantee renewLease enforces. Returns null (rather than
+   * writing) if the lease was reassigned to another worker in the meantime
+   * — see completeBackendExecutedJob in processingJobService.ts for why
+   * that distinction matters.
+   */
+  completeIfLeaseOwned(
+    input: {
+      processingJobId: string;
+      workerId: string;
+      status: "completed" | "failed";
+      errorMessage: string | null;
+      completedAt: Date;
+    },
+    session: DatabaseSession,
+  ): Promise<ProcessingJobPersistenceRecord | null>;
 }

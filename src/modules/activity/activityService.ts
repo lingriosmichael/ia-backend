@@ -131,14 +131,13 @@ export class ActivityService {
       status?: "active" | "completed";
     },
   ) {
-    const activity = await this.activityRepository.findById(
-      activityId,
-      databaseSession,
-    );
-
-    if (!activity) {
-      throw new AppError("Activity not found.", 404, "activity_not_found");
-    }
+    // Authorization must run before any activity-derived data (including
+    // whether it's a system activity) is inspected or leaked back to the
+    // caller in an error — checking systemType against an unauthorized
+    // fetch used to let any authenticated user learn that attribute about
+    // an activity belonging to another organization's project.
+    const { project, activity } =
+      await this.authorizationService.canEditActivity(userId, activityId);
 
     if (activity.systemType) {
       throw new AppError(
@@ -147,11 +146,6 @@ export class ActivityService {
         "system_activity_read_only",
       );
     }
-
-    const { project } = await this.authorizationService.canEditActivity(
-      userId,
-      activityId,
-    );
     const nextName =
       input.name === undefined ? activity.name : trimRequiredText(input.name);
     const nextDescription =

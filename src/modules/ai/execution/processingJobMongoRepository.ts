@@ -473,6 +473,43 @@ export class MongoProcessingJobRepository implements ProcessingJobRepository {
     return toPlainProcessingJob(document);
   }
 
+  async completeIfLeaseOwned(
+    input: {
+      processingJobId: string;
+      workerId: string;
+      status: "completed" | "failed";
+      errorMessage: string | null;
+      completedAt: Date;
+    },
+    session: DatabaseSession,
+  ): Promise<ProcessingJobPersistenceRecord | null> {
+    const document = await applyMongoSession(
+      ProcessingJobMongoModel.findOneAndUpdate(
+        {
+          _id: input.processingJobId,
+          leaseOwner: input.workerId,
+          status: { $in: [...activeProcessingJobStatusValues] },
+        },
+        {
+          $set: {
+            status: input.status,
+            errorMessage: input.errorMessage,
+            leaseOwner: null,
+            leaseExpiresAt: null,
+            lastHeartbeatAt: null,
+            completedAt: input.completedAt,
+          },
+        },
+        {
+          returnDocument: "after",
+        },
+      ),
+      session,
+    ).exec();
+
+    return toPlainProcessingJob(document);
+  }
+
   async cancelIfActive(
     processingJobId: string,
     completedAt: Date,

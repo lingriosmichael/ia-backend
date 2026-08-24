@@ -10,6 +10,7 @@ import type { ActivityRepository } from "../activity/activityRepository.js";
 import type { OrganizationRepository } from "../organization/organizationRepository.js";
 import type { UploadMetadataRepository } from "../upload/uploadMetadataRepository.js";
 import type { ProcessingJobRepository } from "../ai/execution/processingJobRepository.js";
+import type { ProjectDerivedStateInvalidationService } from "./projectDerivedStateInvalidationService.js";
 import type { ProcessingResourceCleanupService } from "../processing/processingResourceCleanupService.js";
 import type { UserRepository } from "../user/userRepository.js";
 import type { ProjectUpdateInput } from "./projectPersistence.js";
@@ -140,6 +141,7 @@ test(
       transactionManager,
       userRepository,
       {} as ProcessingResourceCleanupService,
+      {} as ProjectDerivedStateInvalidationService,
       {} as OrganizationRepository,
       { error: () => undefined } as never,
       outcomeStatementRepository,
@@ -177,6 +179,7 @@ test(
   "project updates auto-add newly introduced intended changes without duplicating existing outcome statements",
   { concurrency: false },
   async () => {
+    const calls: string[] = [];
     const createdOutcomeStatements: Array<{
       projectId: string;
       organizationId: string;
@@ -243,6 +246,7 @@ test(
           updatedAt: new Date(),
         };
       },
+      deleteById: async () => true,
     } as unknown as ProjectOutcomeStatementRepository;
 
     const service = new ProjectService(
@@ -254,7 +258,19 @@ test(
       {} as ProcessingJobRepository,
       {} as TransactionManager,
       userRepository,
-      {} as ProcessingResourceCleanupService,
+      {
+        resetOutcomeEvidencePairingByProjectId: async (projectId: string) => {
+          calls.push(`resetPairing:${projectId}`);
+        },
+        deleteByOutcomeStatementIds: async () => {
+          calls.push("deleteOutcomeStatementState");
+        },
+      } as unknown as ProcessingResourceCleanupService,
+      {
+        invalidateProject: async (projectId: string) => {
+          calls.push(`invalidate:${projectId}`);
+        },
+      } as unknown as ProjectDerivedStateInvalidationService,
       {} as OrganizationRepository,
       { error: () => undefined } as never,
       outcomeStatementRepository,
@@ -274,6 +290,131 @@ test(
         term: "long",
         statement: "Jugendliche gewinnen mehr berufliche Klarheit",
       },
+    ]);
+    assert.deepEqual(calls, ["resetPairing:project-1", "invalidate:project-1"]);
+  },
+);
+
+test(
+  "project updates remove stale outcome statements for removed intended changes and cascade Wirkungsaussage cleanup",
+  { concurrency: false },
+  async () => {
+    const calls: string[] = [];
+
+    const projectRepository = {
+      update: async (_projectId: string, input: ProjectUpdateInput) => ({
+        ...createOwnedProjectRecord(),
+        intendedChanges: input.intendedChanges ?? [],
+      }),
+    } as unknown as ProjectRepository;
+
+    const authorizationService = {
+      canManageProject: async () => ({
+        membership: {
+          id: "membership-1",
+          userId: "user-1",
+          organizationId: "organization-1",
+          role: "PROJECT_MANAGER",
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        },
+        project: {
+          ...createOwnedProjectRecord("planning"),
+          intendedChanges: [
+            "Jugendliche zeigen erhöhte Selbstwirksamkeit",
+            "Jugendliche gewinnen mehr berufliche Klarheit",
+          ],
+        },
+      }),
+      assertProjectIsOperational: () => undefined,
+    } as unknown as AuthorizationService;
+
+    const userRepository = {
+      findById: async () => ({
+        id: "user-1",
+        email: "owner@example.org",
+        fullName: "Project Owner",
+        passwordHash: "hash",
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      }),
+    } as unknown as UserRepository;
+
+    const outcomeStatementRepository = {
+      listByProjectId: async () => [
+        {
+          id: "outcome-1",
+          projectId: "project-1",
+          organizationId: "organization-1",
+          term: "long",
+          statement: "Jugendliche zeigen erhöhte Selbstwirksamkeit",
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        },
+        {
+          id: "outcome-2",
+          projectId: "project-1",
+          organizationId: "organization-1",
+          term: "long",
+          statement: "Jugendliche gewinnen mehr berufliche Klarheit",
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        },
+      ],
+      create: async (_input: {
+        projectId: string;
+        organizationId: string;
+        term: "short" | "long";
+        statement: string;
+      }) => {
+        throw new Error("should not create");
+      },
+      deleteById: async (outcomeStatementId: string) => {
+        calls.push(`deleteOutcomeStatement:${outcomeStatementId}`);
+        return true;
+      },
+    } as unknown as ProjectOutcomeStatementRepository;
+
+    const service = new ProjectService(
+      projectRepository,
+      authorizationService,
+      {} as FileStorageService,
+      {} as ActivityRepository,
+      {} as UploadMetadataRepository,
+      {} as ProcessingJobRepository,
+      {} as TransactionManager,
+      userRepository,
+      {
+        resetOutcomeEvidencePairingByProjectId: async () => {
+          calls.push("resetPairing");
+        },
+        deleteByOutcomeStatementIds: async (
+          projectId: string,
+          outcomeStatementIds: string[],
+        ) => {
+          calls.push(
+            `cleanupOutcomeState:${projectId}:${outcomeStatementIds.join(",")}`,
+          );
+        },
+      } as unknown as ProcessingResourceCleanupService,
+      {
+        invalidateProject: async (projectId: string) => {
+          calls.push(`invalidate:${projectId}`);
+        },
+      } as unknown as ProjectDerivedStateInvalidationService,
+      {} as OrganizationRepository,
+      { error: () => undefined } as never,
+      outcomeStatementRepository,
+    );
+
+    await service.update("user-1", "project-1", {
+      intendedChanges: ["Jugendliche zeigen erhöhte Selbstwirksamkeit"],
+    });
+
+    assert.deepEqual(calls, [
+      "deleteOutcomeStatement:outcome-2",
+      "cleanupOutcomeState:project-1:outcome-2",
+      "invalidate:project-1",
     ]);
   },
 );
@@ -350,6 +491,7 @@ test(
       transactionManager,
       userRepository,
       processingResourceCleanupService,
+      {} as ProjectDerivedStateInvalidationService,
       {} as unknown as OrganizationRepository,
       { error: () => undefined } as never,
     );
@@ -459,6 +601,7 @@ test(
       transactionManager,
       userRepository,
       processingResourceCleanupService,
+      {} as ProjectDerivedStateInvalidationService,
       {} as unknown as OrganizationRepository,
       { error: () => undefined } as never,
     );
@@ -561,6 +704,7 @@ test(
       transactionManager,
       userRepository,
       processingResourceCleanupService,
+      {} as ProjectDerivedStateInvalidationService,
       {} as unknown as OrganizationRepository,
       { error: () => undefined } as never,
     );
@@ -646,6 +790,7 @@ test(
       {} as TransactionManager,
       userRepository,
       {} as ProcessingResourceCleanupService,
+      {} as ProjectDerivedStateInvalidationService,
       {} as OrganizationRepository,
       { error: () => undefined } as never,
     );
@@ -729,6 +874,7 @@ test(
       {} as TransactionManager,
       userRepository,
       {} as ProcessingResourceCleanupService,
+      {} as ProjectDerivedStateInvalidationService,
       {} as OrganizationRepository,
       { error: () => undefined } as never,
     );
@@ -812,6 +958,7 @@ test(
       {} as TransactionManager,
       userRepository,
       {} as ProcessingResourceCleanupService,
+      {} as ProjectDerivedStateInvalidationService,
       {} as OrganizationRepository,
       { error: () => undefined } as never,
     );
@@ -850,6 +997,7 @@ test(
       {} as TransactionManager,
       userRepository,
       {} as ProcessingResourceCleanupService,
+      {} as ProjectDerivedStateInvalidationService,
       {} as OrganizationRepository,
       { error: () => undefined } as never,
     );
@@ -1012,6 +1160,7 @@ test(
       {
         deleteByProjectId: async () => undefined,
       } as unknown as ProcessingResourceCleanupService,
+      {} as ProjectDerivedStateInvalidationService,
       {} as unknown as OrganizationRepository,
       { error: () => undefined } as never,
     );

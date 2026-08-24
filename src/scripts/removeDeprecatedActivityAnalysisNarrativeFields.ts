@@ -1,39 +1,40 @@
 import mongoose from "mongoose";
-import { loadConfig } from "../shared/config/env.js";
-import {
-  connectMongoDatabase,
-  disconnectMongoDatabase,
-} from "../shared/database/mongoose.js";
+import { runMigrationScript } from "./shared/migrationScriptRunner.js";
 
-async function run() {
-  const config = loadConfig();
-  await connectMongoDatabase(config);
-
+function getCollection() {
   const database = mongoose.connection.db;
   if (!database) {
     throw new Error("Mongo database connection is not available.");
   }
+  return database.collection("activity_analysis_runs_v2");
+}
 
-  await database.collection("activity_analysis_runs_v2").updateMany(
-    {},
-    {
+const narrativeFieldFilter = {
+  $or: [
+    { renderedSummary: { $exists: true } },
+    { recommendationText: { $exists: true } },
+  ],
+};
+
+runMigrationScript({
+  scriptLabel:
+    "ActivityAnalystV2 narrative field (renderedSummary/recommendationText) removal",
+  preview: async () => {
+    const affectedCount =
+      await getCollection().countDocuments(narrativeFieldFilter);
+    console.log(
+      `${affectedCount} activity_analysis_runs_v2 document(s) currently carry renderedSummary and/or recommendationText.`,
+    );
+  },
+  apply: async () => {
+    const result = await getCollection().updateMany(narrativeFieldFilter, {
       $unset: {
         renderedSummary: "",
         recommendationText: "",
       },
-    },
-  );
-}
-
-run()
-  .then(async () => {
-    await disconnectMongoDatabase();
+    });
     console.log(
-      "ActivityAnalystV2 narrative field (renderedSummary/recommendationText) removal completed.",
+      `Unset renderedSummary/recommendationText on ${result.modifiedCount} document(s).`,
     );
-  })
-  .catch(async (error) => {
-    console.error(error);
-    await disconnectMongoDatabase();
-    process.exit(1);
-  });
+  },
+});

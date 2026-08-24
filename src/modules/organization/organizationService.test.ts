@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { AppError } from "../../shared/errors/appError.js";
 import type { ActivityRepository } from "../activity/activityRepository.js";
 import type { ProjectRepository } from "../project/projectRepository.js";
 import type { AuthorizationService } from "../../shared/auth/authorizationService.js";
@@ -250,4 +251,107 @@ test("organization update keeps top-level fields synchronized with organization 
   assert.equal(updatedOrganization.name, "Updated Org");
   assert.equal(updatedOrganization.mission, "Updated mission");
   assert.equal(updatedOrganization.settings.isRecognizedNonProfit, true);
+});
+
+test("getLogo returns the stored logo for a member of the organization", async () => {
+  const organizationRepository = {
+    findById: async () => ({
+      id: "organization-1",
+      logoUrl: "organizations/organization-1/logo.png",
+    }),
+  } as unknown as OrganizationRepository;
+
+  const fileStorageService = {
+    readStoredFile: async () => ({ buffer: Buffer.from("fake-image-bytes") }),
+    getContentTypeForPath: () => "image/png",
+  } as unknown as FileStorageService;
+
+  let canViewOrganizationCall:
+    { userId: string; organizationId: string } | undefined;
+  const authorizationService = {
+    canViewOrganization: async (userId: string, organizationId: string) => {
+      canViewOrganizationCall = { userId, organizationId };
+      return {
+        membership: {
+          id: "membership-1",
+          userId,
+          organizationId,
+          role: "ORGANIZATION_MEMBER",
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        },
+      };
+    },
+  } as unknown as AuthorizationService;
+
+  const organizationService = new OrganizationService(
+    organizationRepository,
+    fileStorageService,
+    {} as ProjectRepository,
+    {} as ActivityRepository,
+    {} as UploadMetadataRepository,
+    {} as TransactionManager,
+    authorizationService,
+    {} as UserRepository,
+  );
+
+  const logo = await organizationService.getLogo("user-1", "organization-1");
+
+  assert.equal(canViewOrganizationCall?.userId, "user-1");
+  assert.equal(canViewOrganizationCall?.organizationId, "organization-1");
+  assert.equal(logo.contentType, "image/png");
+  assert.equal(logo.buffer.toString(), "fake-image-bytes");
+});
+
+test("getLogo rejects a caller who is not a member of the organization, without reading the stored file", async () => {
+  // Regression test: GET /organizations/:organizationId/logo used to have
+  // no authentication or membership check at all — any caller who knew or
+  // guessed an organizationId could fetch that org's logo. See
+  // organizationRoutes.ts / organizationController.ts / this method.
+  let readStoredFileCalled = false;
+  const fileStorageService = {
+    readStoredFile: async () => {
+      readStoredFileCalled = true;
+      return { buffer: Buffer.from("fake-image-bytes") };
+    },
+    getContentTypeForPath: () => "image/png",
+  } as unknown as FileStorageService;
+
+  const authorizationService = {
+    canViewOrganization: async () => {
+      throw new AppError(
+        "You do not have access to this organization.",
+        403,
+        "organization_access_denied",
+      );
+    },
+  } as unknown as AuthorizationService;
+
+  const organizationRepository = {
+    findById: async () => ({
+      id: "organization-1",
+      logoUrl: "organizations/organization-1/logo.png",
+    }),
+  } as unknown as OrganizationRepository;
+
+  const organizationService = new OrganizationService(
+    organizationRepository,
+    fileStorageService,
+    {} as ProjectRepository,
+    {} as ActivityRepository,
+    {} as UploadMetadataRepository,
+    {} as TransactionManager,
+    authorizationService,
+    {} as UserRepository,
+  );
+
+  await assert.rejects(
+    organizationService.getLogo("user-1", "organization-1"),
+    (error: unknown) => {
+      assert.ok(error instanceof AppError);
+      assert.equal(error.code, "organization_access_denied");
+      return true;
+    },
+  );
+  assert.equal(readStoredFileCalled, false);
 });

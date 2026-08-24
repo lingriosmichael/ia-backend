@@ -128,6 +128,10 @@ function makePreparation(
       primaryDateFields: [],
       epistemicRoleClarifications: [],
       validatedScaleConfirmations: [],
+      cohortTags: [],
+      pairingGroupKeys: [],
+      pairingGroupRoles: [],
+      declaredScaleBounds: [],
     },
     preparedDataset: {
       evidenceModality: "structured_quantitative",
@@ -231,6 +235,10 @@ function makeService(options: {
   const privacySafeRepresentationRepository = {
     findById: async (id: string) =>
       options.privacySafeRepresentationsById.get(id) ?? null,
+    findByIds: async (ids: string[]) =>
+      ids
+        .map((id) => options.privacySafeRepresentationsById.get(id))
+        .filter((representation) => representation !== undefined),
   } as unknown as PrivacySafeRepresentationRepository;
 
   const activityEvidenceLinkageResultRepository = {
@@ -613,4 +621,87 @@ test("concern tagging flows end to end into the generic cohort-flag-prevalence c
   // p-2 has no concern_flag field to begin with — neither counts.
   assert.equal(prevalence.flaggedCount, 1);
   assert.deepEqual(prevalence.flaggedEntityKeys, ["p-1"]);
+});
+
+test("concern tagging reuses cached results on a second reconciliation instead of re-calling the LLM for unchanged evidence", async () => {
+  // Regression test: reconcileForActivity runs on every GET of the linkage
+  // review, not just when evidence actually changes — without a cache,
+  // simply reloading the page re-ran a live LLM call for every entity on
+  // every view. See EvidenceLinkageReconciliationService's
+  // applyConcernTaggingIfConfigured.
+  const matrixColumns = [
+    makeColumn("participant_id", "identifier"),
+    makeColumn("empfehlung", "primary_status", ["geeignet"]),
+  ];
+  const notesColumns = [
+    makeColumn("participant_id", "identifier"),
+    makeColumn("remark", "free_text"),
+  ];
+  const matrixRows = [
+    { participant_id: "p-1", empfehlung: "geeignet" },
+    { participant_id: "p-2", empfehlung: "geeignet" },
+    { participant_id: "p-3", empfehlung: "geeignet" },
+  ];
+  const notesRows = [
+    { participant_id: "p-1", remark: "Insists on meeting alone at home." },
+    { participant_id: "p-2", remark: "Great communicator, very reliable." },
+    { participant_id: "p-3", remark: "" },
+  ];
+
+  const { service, capture } = makeService({
+    uploadIds: ["upload-matrix", "upload-notes"],
+    results: [
+      makeResult("result-matrix", "upload-matrix", "psr-matrix"),
+      makeResult("result-notes", "upload-notes", "psr-notes"),
+    ],
+    preparations: [
+      makePreparation(
+        "prep-matrix",
+        "result-matrix",
+        "matrix",
+        matrixColumns,
+        "empfehlung",
+      ),
+      makePreparation("prep-notes", "result-notes", "notes", notesColumns),
+    ],
+    privacySafeRepresentationsById: new Map([
+      [
+        "psr-matrix",
+        makePrivacySafeRepresentation("psr-matrix", "matrix", matrixRows),
+      ],
+      [
+        "psr-notes",
+        makePrivacySafeRepresentation("psr-notes", "notes", notesRows),
+      ],
+    ]),
+    concernTaggingInstruction: "Flag any note suggesting a safety concern.",
+    concernTaggingResults: [
+      { entityKey: "p-1", flagged: true, reason: "Wants to meet alone." },
+      { entityKey: "p-2", flagged: false, reason: "" },
+    ],
+  });
+
+  const first = await service.reconcileForActivity(ACTIVITY_ID);
+  assert.equal(capture.concernTaggingRequests.length, 1);
+  assert.equal(
+    first?.concernTaggingInstruction,
+    "Flag any note suggesting a safety concern.",
+  );
+
+  const second = await service.reconcileForActivity(ACTIVITY_ID);
+
+  // No new LLM call — both entities' free text is unchanged, so both are
+  // served entirely from the cache built off the first run's persisted
+  // groups.
+  assert.equal(capture.concernTaggingRequests.length, 1);
+  assert.ok(second);
+  const [group] = second.groups;
+  assert.ok(group);
+  const flaggedEntity = group.entities.find(
+    (entity) => entity.entityKey === "p-1",
+  );
+  const concernFlagField = flaggedEntity?.fields.find(
+    (field) => field.fieldName === "concern_flag",
+  );
+  assert.equal(concernFlagField?.value, "yes");
 });

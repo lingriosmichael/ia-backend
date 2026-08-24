@@ -7,19 +7,9 @@ import type {
 } from "../../shared/contracts.js";
 import type { ActivityRepository } from "../activity/activityRepository.js";
 import { shouldIgnoreInterpretationQuestion } from "../../shared/utils/interpretationQuestionFilters.js";
-
-const FIRST_LAYER_BLOCKING_QUESTION_CODES = new Set<InterpretationQuestionCode>(
-  [
-    "normalization_merge",
-    "row_grain",
-    "duplicate_identifier_resolution",
-    "epistemic_role_clarification",
-    "validated_scale_confirmation",
-    "cohort_tag",
-    "pairing_group_key",
-    "pairing_group_role",
-  ],
-);
+// Shared with datasetPreparationService.ts's PREPARATION_QUESTION_CODES —
+// see that file for why this is one definition instead of two.
+import { PREPARATION_QUESTION_CODES as FIRST_LAYER_BLOCKING_QUESTION_CODES } from "./datasetPreparationService.js";
 
 type ReviewQuestion = {
   isBlocking?: boolean | null;

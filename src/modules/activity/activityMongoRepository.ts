@@ -4,6 +4,7 @@ import {
   applyMongoSession,
   getMongoSessionOptions,
 } from "../../shared/database/mongoSession.js";
+import { UNPAGINATED_LIST_QUERY_MAX_RESULTS } from "../../shared/database/queryLimits.js";
 import { AppError } from "../../shared/errors/appError.js";
 import {
   ActivityMongoModel,
@@ -180,31 +181,74 @@ export class MongoActivityRepository implements ActivityRepository {
     answer: ActivityAnalysisV2ClarificationAnswerPersistenceRecord,
     session: DatabaseSession,
   ): Promise<ActivityPersistenceRecord> {
-    // Two atomic array operators (pull, then push) instead of a
-    // read-modify-write of the whole array: concurrent answers to different
-    // questions never race on a full-array $set and clobber each other.
-    await applyMongoSession(
-      ActivityMongoModel.updateOne(
-        { _id: activityId },
-        {
-          $pull: {
-            activityAnalysisV2ClarificationAnswers: {
-              questionId: answer.questionId,
-            },
-          },
-        },
-      ),
-      session,
-    ).exec();
-
+    // A single atomic aggregation-pipeline update, not a separate $pull
+    // then $push: two concurrent answers to the *same* questionId could
+    // both pass the $pull step before either $push ran, leaving duplicate
+    // entries for that questionId instead of one clean overwrite. This
+    // pipeline replaces the matching element in place when questionId
+    // already exists, or appends when it doesn't — both branches resolved
+    // in one atomic per-document operation, so there's no window between
+    // "check" and "write" for a concurrent answer to land in.
     const document = await applyMongoSession(
       ActivityMongoModel.findByIdAndUpdate(
         activityId,
-        {
-          $push: { activityAnalysisV2ClarificationAnswers: answer },
-        },
+        [
+          {
+            $set: {
+              activityAnalysisV2ClarificationAnswers: {
+                $cond: [
+                  {
+                    $in: [
+                      answer.questionId,
+                      {
+                        $map: {
+                          input: {
+                            $ifNull: [
+                              "$activityAnalysisV2ClarificationAnswers",
+                              [],
+                            ],
+                          },
+                          as: "existing",
+                          in: "$$existing.questionId",
+                        },
+                      },
+                    ],
+                  },
+                  {
+                    $map: {
+                      input: "$activityAnalysisV2ClarificationAnswers",
+                      as: "existing",
+                      in: {
+                        $cond: [
+                          { $eq: ["$$existing.questionId", answer.questionId] },
+                          answer,
+                          "$$existing",
+                        ],
+                      },
+                    },
+                  },
+                  {
+                    $concatArrays: [
+                      {
+                        $ifNull: [
+                          "$activityAnalysisV2ClarificationAnswers",
+                          [],
+                        ],
+                      },
+                      [answer],
+                    ],
+                  },
+                ],
+              },
+            },
+          },
+        ],
         {
           returnDocument: "after",
+          // Required whenever the update argument is a pipeline (an array
+          // of stages, as above) rather than a plain update-operator
+          // object — Mongoose throws at call time without this.
+          updatePipeline: true,
         },
       ),
       session,
@@ -253,7 +297,9 @@ export class MongoActivityRepository implements ActivityRepository {
     session: DatabaseSession,
   ): Promise<ActivityPersistenceRecord[]> {
     const documents = await applyMongoSession(
-      ActivityMongoModel.find({ projectId }).sort({ createdAt: 1 }),
+      ActivityMongoModel.find({ projectId })
+        .sort({ createdAt: 1 })
+        .limit(UNPAGINATED_LIST_QUERY_MAX_RESULTS),
       session,
     ).exec();
 

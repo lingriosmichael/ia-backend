@@ -34,12 +34,20 @@ function toUnknownRecord(value: unknown): Record<string, unknown> | null {
     : null;
 }
 
+// Returns undefined (not 0) when the component is absent or not a finite
+// number, so callers can distinguish "this field is genuinely 0" from
+// "this field isn't present at all" — see mapComputedValue below, which
+// used to fold both cases together via `||`, causing a real
+// denominatorCount of 0 to be silently skipped in favor of a fallback
+// field's value instead of being reported as 0.
 function readNumberComponent(
   components: Record<string, unknown>,
   key: string,
-): number {
+): number | undefined {
   const value = components[key];
-  return typeof value === "number" && Number.isFinite(value) ? value : 0;
+  return typeof value === "number" && Number.isFinite(value)
+    ? value
+    : undefined;
 }
 
 function mapEntitiesForReplacement(
@@ -160,14 +168,18 @@ function mapSuggestedCalculation(
   };
 }
 
-function mapComputedValue(
+// Exported for direct unit testing of the recordsIncluded fallback chain
+// below, which is easier to exercise directly than through this service's
+// full synthesis orchestration.
+export function mapComputedValue(
   metric: DeterministicAnalysisPersistenceRecord["metrics"][number],
 ) {
   const recordsIncluded =
-    readNumberComponent(metric.components, "denominatorCount") ||
-    readNumberComponent(metric.components, "rowCount") ||
-    readNumberComponent(metric.components, "distinctCount") ||
-    readNumberComponent(metric.components, "positiveCount");
+    readNumberComponent(metric.components, "denominatorCount") ??
+    readNumberComponent(metric.components, "rowCount") ??
+    readNumberComponent(metric.components, "distinctCount") ??
+    readNumberComponent(metric.components, "positiveCount") ??
+    0;
 
   return {
     sourceKind: "computed_from_table" as const,

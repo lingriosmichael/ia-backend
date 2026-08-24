@@ -250,6 +250,10 @@ function createDependencies(options: {
       qualitativeCodingReviews.find(
         (review) => review.uploadMetadataId === uploadMetadataId,
       ) ?? null,
+    findByUploadMetadataIds: async (uploadMetadataIds: string[]) =>
+      qualitativeCodingReviews.filter((review) =>
+        uploadMetadataIds.includes(review.uploadMetadataId),
+      ),
   } as unknown as QualitativeCodingReviewRepository;
 
   // Fully normalizes a fixture result (which only ever specifies the

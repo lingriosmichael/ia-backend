@@ -735,9 +735,17 @@ export class InterpretationService {
     const questionById = new Map(
       result.questions.map((question) => [question.id, question]),
     );
-    // Validate the entire batch against the pre-answer question snapshot
-    // before persisting anything, so an invalid answer rejects the whole
-    // batch rather than leaving some questions answered and others not.
+    // Validates the entire batch against the pre-answer question snapshot
+    // before persisting anything, so an invalid answeredValue rejects the
+    // whole batch with nothing written. This is validation-level atomicity
+    // only, not a database transaction: the writes themselves still happen
+    // one question at a time in the loop below (no transactionManager is
+    // injected here), so a failure mid-loop — a concurrent deletion of a
+    // later question, or a transient write error — can still leave earlier
+    // questions in this same call persisted while later ones aren't. That
+    // window is narrow (it requires state to change mid-request) but real;
+    // don't read this comment as a durability guarantee across the whole
+    // batch.
     const resolvedAnswers = answers.map((answer) => {
       const question = questionById.get(answer.questionId);
       if (!question) {

@@ -458,7 +458,9 @@ export class OrganizationService {
     };
   }
 
-  async getLogo(organizationId: string) {
+  async getLogo(userId: string, organizationId: string) {
+    await this.authorizationService.canViewOrganization(userId, organizationId);
+
     const organization = await this.organizationRepository.findById(
       organizationId,
       databaseSession,

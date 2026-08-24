@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { DeterministicAnalysisService } from "./deterministicAnalysisService.js";
+import {
+  DeterministicAnalysisService,
+  toDateValue,
+  toNumericValue,
+} from "./deterministicAnalysisService.js";
 import type { DeterministicAnalysisRepository } from "./deterministicAnalysisRepository.js";
 import type { DeterministicAnalysisUpsertInput } from "./deterministicAnalysisPersistence.js";
 import type { PrivacySafeRepresentationRepository } from "../processing/privacySafeRepresentationRepository.js";
@@ -68,6 +72,10 @@ function makePreparation(
       primaryDateFields: [],
       epistemicRoleClarifications: [],
       validatedScaleConfirmations: [],
+      cohortTags: [],
+      pairingGroupKeys: [],
+      pairingGroupRoles: [],
+      declaredScaleBounds: [],
     },
     preparedDataset: {
       evidenceModality: "structured_quantitative",
@@ -645,4 +653,50 @@ test("marks non-quantitative evidence as not applicable", async () => {
   assert.equal(input.categoricalCrosstabs.length, 0);
   assert.equal(input.numericCategorySummaries.length, 0);
   assert.equal(input.numericCorrelations.length, 0);
+});
+
+test("toNumericValue treats a single comma followed by 1-2 digits as a decimal separator", () => {
+  assert.equal(toNumericValue("12,5"), 12.5);
+  assert.equal(toNumericValue("-3,4"), -3.4);
+  assert.equal(toNumericValue("7,05"), 7.05);
+});
+
+test("toNumericValue treats comma-grouped digits as thousands separators, not decimals", () => {
+  assert.equal(toNumericValue("1,234"), 1234);
+  assert.equal(toNumericValue("1,234,567"), 1234567);
+  assert.equal(toNumericValue("1,234.56"), 1234.56);
+});
+
+test("toNumericValue parses plain numeric strings and numbers unchanged", () => {
+  assert.equal(toNumericValue("1234"), 1234);
+  assert.equal(toNumericValue("12.5"), 12.5);
+  assert.equal(toNumericValue(42), 42);
+  assert.equal(toNumericValue("not a number"), null);
+  assert.equal(toNumericValue(""), null);
+});
+
+test("toDateValue rejects a day-first date whose day doesn't exist in that month", () => {
+  // Regression test: day > 31 alone doesn't catch every invalid date — a
+  // typo like "30.02.2026" (day=30, month=2) used to pass validation and
+  // Date.UTC silently rolled it into March instead of rejecting it. See
+  // toDateValue's daysInMonth check.
+  assert.equal(toDateValue("30.02.2026"), null);
+  assert.equal(toDateValue("31.04.2026"), null);
+  assert.equal(toDateValue("31.06.2026"), null);
+});
+
+test("toDateValue accepts the last valid day of a month, including Feb 29 in a leap year", () => {
+  assert.equal(
+    toDateValue("28.02.2026")?.toISOString(),
+    "2026-02-28T00:00:00.000Z",
+  );
+  assert.equal(
+    toDateValue("29.02.2024")?.toISOString(),
+    "2024-02-29T00:00:00.000Z",
+  );
+  assert.equal(toDateValue("29.02.2026"), null);
+  assert.equal(
+    toDateValue("31.01.2026")?.toISOString(),
+    "2026-01-31T00:00:00.000Z",
+  );
 });

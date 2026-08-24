@@ -80,6 +80,60 @@ function isAllowedContextDistributionChartType(
   return false;
 }
 
+// Whether one context_distribution entry reads as a genuine part-to-whole
+// (pie-worthy) rather than a ranking — a structural property of the data,
+// not a domain judgment, so it's decided here instead of trusted from the
+// LLM's chartType choice (which proved unreliable at picking pie for this
+// shape even under explicit instruction — see chart_plan.py). Deliberately
+// mirrors the same two structural gates the chart-plan prompt already
+// states: a "few segments" cap (pie stops being readable past ~5 wedges)
+// and a "clearly different sizes" spread test (a pie of near-equal wedges
+// is unreadable — comparing areas is a much weaker perceptual channel than
+// comparing bar lengths).
+const CONTEXT_DISTRIBUTION_PIE_MIN_SEGMENTS = 2;
+const CONTEXT_DISTRIBUTION_PIE_MAX_SEGMENTS = 5;
+const CONTEXT_DISTRIBUTION_PIE_MIN_SPREAD = 0.3;
+
+function isPartToWholeShape(
+  entry: Extract<
+    ProjectImpactStoryCatalogEntry,
+    { kind: "context_distribution" }
+  >,
+): boolean {
+  const counts = entry.shares
+    .map((share) => share.count)
+    .filter((count) => count > 0);
+  if (
+    counts.length < CONTEXT_DISTRIBUTION_PIE_MIN_SEGMENTS ||
+    counts.length > CONTEXT_DISTRIBUTION_PIE_MAX_SEGMENTS
+  ) {
+    return false;
+  }
+  const max = Math.max(...counts);
+  const min = Math.min(...counts);
+  return (max - min) / max >= CONTEXT_DISTRIBUTION_PIE_MIN_SPREAD;
+}
+
+// Resolves the chart type actually rendered for a single context_distribution
+// entry, overriding the LLM's candidate.chartType rather than merely
+// validating it: pie is forced whenever the data structurally qualifies
+// (guaranteeing it shows up, instead of hoping the LLM picks it), and
+// downgraded to the safe 'distribution' default whenever the LLM chose pie
+// for a shape that doesn't qualify (e.g. near-equal segments), rather than
+// shipping a misleading pie.
+export function resolveContextDistributionChartType(
+  entry: Extract<
+    ProjectImpactStoryCatalogEntry,
+    { kind: "context_distribution" }
+  >,
+  candidateChartType: ProjectImpactStoryChartType,
+): ProjectImpactStoryChartType {
+  if (isPartToWholeShape(entry)) {
+    return "pie";
+  }
+  return candidateChartType === "pie" ? "distribution" : candidateChartType;
+}
+
 function resolveEntries(
   entryIds: string[],
   entriesById: Map<string, ProjectImpactStoryCatalogEntry>,
@@ -148,7 +202,7 @@ const PROJECT_IMPACT_STORY_GOAL_WARN_THRESHOLD = 0.8;
 // measuredValue as a fraction of target; at_most goals (a ceiling, e.g. "no
 // more than X dropouts") track how far measuredValue exceeds the allowed
 // target instead, since "achieved" there means staying at or under it.
-function computeGoalStatus(
+export function computeGoalStatus(
   achieved: boolean | null,
   measuredValue: number | null,
   targetValue: number | null,
@@ -336,9 +390,10 @@ function buildPairedStoryDeltaLabels(language: "de" | "en"): {
     : { beforeLabel: "Before", afterLabel: "After" };
 }
 
-function buildChartData(
+export function buildChartData(
   entries: ProjectImpactStoryCatalogEntry[],
   language: "de" | "en",
+  hasGoalProgressChart: boolean,
 ): {
   data: ProjectImpactStoryChartDatum[];
   dataKind: ProjectImpactStoryChartDataKind;
@@ -397,6 +452,20 @@ function buildChartData(
   const allGoalAssessments = entries.every(
     (entry) => entry.kind === "goal_assessment",
   );
+  // The deterministic "Ziel vs. erreicht" chart (projectImpactStoryGoalProgress.ts)
+  // already shows every goal_assessment entry with a resolved measured/
+  // target value, ranked by its own progress — whenever it exists, an
+  // LLM-proposed chart that re-groups the same entries by status is a
+  // duplicate of the same underlying facts at a coarser resolution, not a
+  // distinct beat. Drop it here rather than rely on the chart-plan prompt
+  // alone to avoid proposing it (see this session's history: prompt-only
+  // "don't do X" guidance for chart selection has repeatedly proven
+  // unreliable). Only drop when the deterministic chart actually exists —
+  // a project whose goals have no measurable target still needs this as
+  // its only way to show aggregate goal status.
+  if (allGoalAssessments && entries.length > 0 && hasGoalProgressChart) {
+    return null;
+  }
   if (allGoalAssessments && entries.length > 0) {
     const countByStatus = new Map<string, number>();
     for (const entry of entries) {
@@ -463,6 +532,7 @@ function buildChart(
   candidate: ProjectImpactStoryChartPlanChartCandidate,
   entriesById: Map<string, ProjectImpactStoryCatalogEntry>,
   language: "de" | "en",
+  hasGoalProgressChart: boolean,
 ): ProjectImpactStoryChartSpec | null {
   if (
     !PROJECT_IMPACT_STORY_ALLOWED_CHART_TYPES.includes(
@@ -499,14 +569,22 @@ function buildChart(
     return null;
   }
 
-  const built = buildChartData(entries, language);
+  const built = buildChartData(entries, language, hasGoalProgressChart);
   if (!built || built.data.length === 0) {
     return null;
   }
 
+  const resolvedChartType =
+    entries.length === 1 && entries[0]!.kind === "context_distribution"
+      ? resolveContextDistributionChartType(
+          entries[0]!,
+          candidate.chartType as ProjectImpactStoryChartType,
+        )
+      : (candidate.chartType as ProjectImpactStoryChartType);
+
   return {
     chartId: candidate.chartId,
-    chartType: candidate.chartType as ProjectImpactStoryChartType,
+    chartType: resolvedChartType,
     dataKind: built.dataKind,
     valueFormat: built.valueFormat,
     title: candidate.title,
@@ -528,6 +606,12 @@ export function executeProjectImpactStoryChartPlan(
   // are unaffected; only the goal-assessment statusCallout text below
   // actually varies by language.
   language: "de" | "en" = "de",
+  // Whether the deterministic goal-progress chart (see
+  // projectImpactStoryGoalProgress.ts) will render for this project —
+  // when it will, a chart-plan candidate that groups goal_assessment
+  // entries by status is dropped as a duplicate. Defaults to false so
+  // existing callers/tests that don't exercise this are unaffected.
+  hasGoalProgressChart = false,
 ): ProjectImpactStoryChartPlanExecutionResult {
   const entriesById = new Map(catalog.map((entry) => [entry.entryId, entry]));
   const selectedEntryIds = new Set<string>();
@@ -565,7 +649,12 @@ export function executeProjectImpactStoryChartPlan(
       continue;
     }
 
-    const chart = buildChart(candidate, entriesById, language);
+    const chart = buildChart(
+      candidate,
+      entriesById,
+      language,
+      hasGoalProgressChart,
+    );
     if (chart) {
       chartPlan.push(chart);
       acceptedChartEntryIdSetSignatures.add(signature);

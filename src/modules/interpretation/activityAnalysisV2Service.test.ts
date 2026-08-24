@@ -65,6 +65,11 @@ function createServiceFixture(options?: {
   // Runs at the start of every mocked planner call, before it resolves —
   // used to simulate a call consuming wall-clock time under fake timers.
   plannerCallSideEffect?: () => void;
+  // Number of times activityAnalysisRunV2Repository.create() should throw
+  // before it's allowed to succeed — used to simulate a persistence-layer
+  // failure (e.g. a transient Mongo error) after execution/assessment have
+  // already completed successfully.
+  createFailureCount?: number;
 }) {
   const uploads = options?.uploads ?? [
     {
@@ -108,6 +113,10 @@ function createServiceFixture(options?: {
       qualitativeCodingReviews.find(
         (review) => review.uploadMetadataId === uploadMetadataId,
       ) ?? null,
+    findByUploadMetadataIds: async (uploadMetadataIds: string[]) =>
+      qualitativeCodingReviews.filter((review) =>
+        uploadMetadataIds.includes(review.uploadMetadataId),
+      ),
   } as unknown as QualitativeCodingReviewRepository;
   const interpretationResults =
     options?.interpretationResults ??
@@ -164,8 +173,13 @@ function createServiceFixture(options?: {
 
   const createdRuns: Array<Record<string, unknown>> = [];
   let latestRun: Record<string, unknown> | null = null;
+  let remainingCreateFailures = options?.createFailureCount ?? 0;
   const activityAnalysisRunV2Repository = {
     create: async (input: Record<string, unknown>) => {
+      if (remainingCreateFailures > 0) {
+        remainingCreateFailures -= 1;
+        throw new Error("Simulated transient persistence failure");
+      }
       createdRuns.push(input);
       latestRun = {
         id: "run-1",
@@ -287,6 +301,7 @@ function createServiceFixture(options?: {
             toolCallTrace: [
               {
                 toolCallId: "tool_1_count_distinct",
+                goalId: "output_1",
                 toolName: "count_distinct",
                 arguments: {
                   uploadMetadataId: "upload-1",
@@ -303,6 +318,7 @@ function createServiceFixture(options?: {
               },
               {
                 toolCallId: "tool_2_compare_target",
+                goalId: "output_1",
                 toolName: "compare_target",
                 arguments: {
                   valueAlias: "applications_count",
@@ -542,6 +558,8 @@ test("previewActivityAnalysis executes context candidates through a separate too
       toolCallTrace: [
         {
           toolCallId: "tool_1_group_count",
+          // Context-candidate tool calls aren't tied to a planned goal.
+          goalId: null,
           toolName: "group_count",
           arguments: {
             uploadMetadataId: "upload-1",
@@ -1376,6 +1394,7 @@ test("answerClarificationQuestion rejects an answer that isn't one of the questi
             kind: "single_choice",
             questionDomain: "interpretation",
             options: ["status", "entscheidung"],
+            questionData: { candidateColumnNames: ["status", "entscheidung"] },
             recommendedOption: "status",
             recommendedConfidence: 0.79,
             isBlocking: true,
@@ -1651,6 +1670,7 @@ test("answerClarificationQuestions rejects the whole batch and persists nothing 
           kind: "single_choice",
           questionDomain: "interpretation",
           options: ["status", "entscheidung"],
+          questionData: { candidateColumnNames: ["status", "entscheidung"] },
           recommendedOption: null,
           recommendedConfidence: null,
           isBlocking: true,
@@ -1664,6 +1684,9 @@ test("answerClarificationQuestions rejects the whole batch and persists nothing 
           kind: "single_choice",
           questionDomain: "interpretation",
           options: ["eingang_datum", "entscheidung_datum"],
+          questionData: {
+            candidateColumnNames: ["eingang_datum", "entscheidung_datum"],
+          },
           recommendedOption: null,
           recommendedConfidence: null,
           isBlocking: true,
@@ -1927,4 +1950,87 @@ test("previewActivityAnalysis rejects when any current upload is still missing p
     },
   );
   assert.equal(fixture.createdRuns.length, 0);
+});
+
+test("previewActivityAnalysis retries the persistence write and still returns the correct completed run when create() fails once after execution and assessment already succeeded", async () => {
+  // Regression test: create() used to be covered by the same catch block
+  // that handles planner/execution/assessment failures, which recovered
+  // toolCallTrace/calculations only by duck-typing properties off the
+  // thrown error. A create() failure after execution/assessment already
+  // succeeded would fall through to that duck-typing (finding nothing) and
+  // persist an empty "failed" run, discarding the correct, already-computed
+  // result. See activityAnalysisV2Service.ts's catch block.
+  const fixture = createServiceFixture({ createFailureCount: 1 });
+
+  const record = await fixture.service.previewActivityAnalysis(
+    "user-1",
+    "activity-1",
+  );
+
+  assert.equal(record.status, "completed");
+  assert.equal(record.phase, "phase_4_rendering");
+  assert.equal(record.toolCallTrace.length, 2);
+  assert.equal(record.calculations.length, 2);
+  assert.ok(record.assessment);
+  assert.equal(record.assessment?.goalAssessments.length, 1);
+  // Only the successful retried write should have been persisted — no
+  // fabricated empty "failed" run in between.
+  assert.equal(fixture.createdRuns.length, 1);
+  assert.equal(fixture.createdRuns[0]?.status, "completed");
+});
+
+test("previewActivityAnalysis throws instead of persisting a fabricated failed run when create() keeps failing after execution and assessment already succeeded", async () => {
+  const fixture = createServiceFixture({ createFailureCount: 2 });
+
+  await assert.rejects(
+    fixture.service.previewActivityAnalysis("user-1", "activity-1"),
+  );
+  // Neither the first attempt nor the single retry should have persisted
+  // anything — an infra failure here must surface as a thrown error (so the
+  // caller's job wrapper marks the *job* failed and retries it), not as a
+  // wrongly-labeled "failed" run record with the real results discarded.
+  assert.equal(fixture.createdRuns.length, 0);
+});
+
+test("previewActivityAnalysis reports a planner-validation failure, not a generic timeout, when both conditions are true", async (t) => {
+  // Regression test: the timeout check used to run before the planner-
+  // validation-failure check, so a run that hit both got the less
+  // informative generic timeout message logged/persisted instead of the
+  // planner's own validation issues — losing the actual reason the plan
+  // was rejected. See activityAnalysisV2Service.ts's ordering comment.
+  t.mock.timers.enable({ apis: ["Date"] });
+
+  const fixture = createServiceFixture({
+    // Simulates the planner call itself consuming the entire run time
+    // budget (PHASE_1_RUN_LIMITS.timeoutMs = 330_000ms), so the timeout
+    // check would also be true by the time validation is checked.
+    plannerCallSideEffect: () => t.mock.timers.tick(400_000),
+    plannerResponse: {
+      goalPlans: [],
+      clarificationQuestions: [],
+      toolRequests: [
+        { goalId: "output_1", alias: null, toolName: "compare_target" },
+        { goalId: "output_1", alias: null, toolName: "compare_target" },
+      ],
+      limitations: [],
+      validation: {
+        status: "failed",
+        issues: ["expected at most one compare_target result per goal"],
+      },
+    },
+  });
+
+  const record = await fixture.service.previewActivityAnalysis(
+    "user-1",
+    "activity-1",
+  );
+
+  assert.equal(record.status, "failed");
+  assert.equal(
+    record.errorMessage,
+    "ActivityAnalystV2 planner returned an invalid plan.",
+  );
+  assert.deepEqual(record.validation.issues, [
+    "expected at most one compare_target result per goal",
+  ]);
 });

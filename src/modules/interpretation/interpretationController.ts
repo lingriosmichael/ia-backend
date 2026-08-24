@@ -14,6 +14,7 @@ import {
 import { ProcessingJobService } from "../ai/execution/processingJobService.js";
 import { ActivityAnalysisV2Service } from "./activityAnalysisV2Service.js";
 import { InterpretationService } from "./interpretationService.js";
+import { requireParam } from "../../shared/http/requireParam.js";
 
 export class InterpretationController {
   constructor(
@@ -29,7 +30,7 @@ export class InterpretationController {
     const payload = startInterpretationSchema.parse(request.body ?? {});
     const response = await this.interpretationService.startInterpretation(
       auth.userId,
-      params.evidenceId!,
+      requireParam(params, "evidenceId"),
       payload.language,
     );
     return successResponse(response);
@@ -41,7 +42,7 @@ export class InterpretationController {
     const params = idParamSchema.parse(request.params);
     const response = await this.interpretationService.getByProject(
       auth.userId,
-      params.projectId!,
+      requireParam(params, "projectId"),
     );
     return successResponse(response);
   }
@@ -54,7 +55,7 @@ export class InterpretationController {
     const response =
       await this.interpretationService.startActivityInterpretation(
         auth.userId,
-        params.activityId!,
+        requireParam(params, "activityId"),
         payload.language,
       );
     return successResponse(response);
@@ -72,13 +73,13 @@ export class InterpretationController {
     const { project } =
       await this.activityAnalysisV2Service.assertReadyForV2Run(
         auth.userId,
-        params.activityId!,
+        requireParam(params, "activityId"),
       );
     const job = await this.processingJobService.create(
       auth.userId,
       project.id,
       {
-        activityId: params.activityId!,
+        activityId: requireParam(params, "activityId"),
         jobType: "activity_analysis_v2",
         payload: {
           language,
@@ -96,7 +97,7 @@ export class InterpretationController {
     const response =
       await this.activityAnalysisV2Service.getLatestActivityAnalysis(
         auth.userId,
-        params.activityId!,
+        requireParam(params, "activityId"),
       );
     return successResponse(response);
   }
@@ -108,13 +109,13 @@ export class InterpretationController {
     const payload = answerActivityAnalysisV2QuestionsSchema.parse(request.body);
     await this.activityAnalysisV2Service.answerClarificationQuestions(
       auth.userId,
-      params.activityId!,
+      requireParam(params, "activityId"),
       payload.answers,
     );
     const job = await this.createActivityAnalysisV2ReplanJob(
       request,
       auth.userId,
-      params.activityId!,
+      requireParam(params, "activityId"),
     );
     return successResponse(job);
   }
@@ -147,7 +148,7 @@ export class InterpretationController {
     const query = analysisRunListQuerySchema.parse(request.query ?? {});
     const response = await this.activityAnalysisV2Service.listActivityAnalyses(
       auth.userId,
-      params.activityId!,
+      requireParam(params, "activityId"),
       query.limit,
     );
     return successResponse(response);
@@ -160,7 +161,7 @@ export class InterpretationController {
     const query = analysisRunListQuerySchema.parse(request.query ?? {});
     const response = await this.activityAnalysisV2Service.listProjectAnalyses(
       auth.userId,
-      params.projectId!,
+      requireParam(params, "projectId"),
       query.limit,
     );
     return successResponse(response);
@@ -172,7 +173,7 @@ export class InterpretationController {
     const params = idParamSchema.parse(request.params);
     const response = await this.interpretationService.getActivityWorkflowStage(
       auth.userId,
-      params.activityId!,
+      requireParam(params, "activityId"),
     );
     return successResponse(response);
   }
@@ -183,7 +184,7 @@ export class InterpretationController {
     const params = idParamSchema.parse(request.params);
     const response = await this.interpretationService.getActivityLinkageReview(
       auth.userId,
-      params.activityId!,
+      requireParam(params, "activityId"),
     );
     return successResponse(response);
   }
@@ -196,7 +197,7 @@ export class InterpretationController {
     const response =
       await this.interpretationService.reviewActivityLinkageProposal(
         auth.userId,
-        params.activityId!,
+        requireParam(params, "activityId"),
         payload.proposalId,
         payload.decision,
       );
@@ -209,7 +210,7 @@ export class InterpretationController {
     const params = idParamSchema.parse(request.params);
     const response = await this.interpretationService.getById(
       auth.userId,
-      params.interpretationResultId!,
+      requireParam(params, "interpretationResultId"),
     );
     return successResponse(response);
   }
@@ -221,8 +222,8 @@ export class InterpretationController {
     const payload = answerInterpretationQuestionSchema.parse(request.body);
     const response = await this.interpretationService.answerQuestion(
       auth.userId,
-      params.interpretationResultId!,
-      params.questionId!,
+      requireParam(params, "interpretationResultId"),
+      requireParam(params, "questionId"),
       payload.answeredValue,
     );
     return successResponse(response);
@@ -235,7 +236,7 @@ export class InterpretationController {
     const payload = answerInterpretationQuestionsSchema.parse(request.body);
     const response = await this.interpretationService.answerQuestions(
       auth.userId,
-      params.interpretationResultId!,
+      requireParam(params, "interpretationResultId"),
       payload.answers,
     );
     return successResponse(response);
@@ -247,7 +248,7 @@ export class InterpretationController {
     const params = idParamSchema.parse(request.params);
     const response = await this.interpretationService.acknowledgeReview(
       auth.userId,
-      params.activityId!,
+      requireParam(params, "activityId"),
     );
     return successResponse(response);
   }

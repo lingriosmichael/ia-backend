@@ -9,6 +9,7 @@ import {
   updateProjectSchema,
 } from "../../schemas/httpSchemas.js";
 import { ProjectService } from "./projectService.js";
+import { requireParam } from "../../shared/http/requireParam.js";
 
 export class ProjectController {
   constructor(private readonly projectService: ProjectService) {}
@@ -19,7 +20,7 @@ export class ProjectController {
     const params = idParamSchema.parse(request.params);
     const projects = await this.projectService.listForOrganization(
       auth.userId,
-      params.organizationId!,
+      requireParam(params, "organizationId"),
     );
     return successResponse(projects);
   }
@@ -31,7 +32,7 @@ export class ProjectController {
     const payload = createProjectSchema.parse(request.body);
     const project = await this.projectService.create(
       auth.userId,
-      params.organizationId!,
+      requireParam(params, "organizationId"),
       payload,
     );
     return successResponse(project);
@@ -43,7 +44,7 @@ export class ProjectController {
     const params = idParamSchema.parse(request.params);
     const project = await this.projectService.getById(
       auth.userId,
-      params.projectId!,
+      requireParam(params, "projectId"),
     );
     return successResponse(project);
   }
@@ -54,7 +55,7 @@ export class ProjectController {
     const params = idParamSchema.parse(request.params);
     const overview = await this.projectService.getOverview(
       auth.userId,
-      params.projectId!,
+      requireParam(params, "projectId"),
     );
     return successResponse(overview);
   }
@@ -66,7 +67,7 @@ export class ProjectController {
     const payload = updateProjectSchema.parse(request.body);
     const project = await this.projectService.update(
       auth.userId,
-      params.projectId!,
+      requireParam(params, "projectId"),
       payload,
     );
     return successResponse(project);
@@ -79,7 +80,7 @@ export class ProjectController {
     const payload = transferProjectOwnershipSchema.parse(request.body);
     const project = await this.projectService.transferOwnership(
       auth.userId,
-      params.projectId!,
+      requireParam(params, "projectId"),
       payload.newOwnerId,
     );
     return successResponse(project);
@@ -92,7 +93,7 @@ export class ProjectController {
     const payload = deleteProjectSchema.parse(request.body);
     const deletedProject = await this.projectService.delete(
       auth.userId,
-      params.projectId!,
+      requireParam(params, "projectId"),
       payload,
     );
 

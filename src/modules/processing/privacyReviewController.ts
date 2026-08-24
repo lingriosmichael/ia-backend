@@ -6,6 +6,7 @@ import {
   idParamSchema,
 } from "../../schemas/httpSchemas.js";
 import { PrivacyReviewService } from "./privacyReviewService.js";
+import { requireParam } from "../../shared/http/requireParam.js";
 
 export class PrivacyReviewController {
   constructor(private readonly privacyReviewService: PrivacyReviewService) {}
@@ -16,7 +17,7 @@ export class PrivacyReviewController {
     const params = idParamSchema.parse(request.params);
     const review = await this.privacyReviewService.getByProcessingJobId(
       auth.userId,
-      params.processingJobId!,
+      requireParam(params, "processingJobId"),
     );
     return successResponse(review);
   }
@@ -28,7 +29,7 @@ export class PrivacyReviewController {
     const payload = approvePrivacyReviewSchema.parse(request.body);
     const response = await this.privacyReviewService.approve(
       auth.userId,
-      params.processingJobId!,
+      requireParam(params, "processingJobId"),
       payload.decisions,
     );
     return successResponse(response);

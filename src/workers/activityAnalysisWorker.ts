@@ -8,6 +8,7 @@ import {
   disconnectMongoDatabase,
 } from "../shared/database/mongoose.js";
 import type { ProcessingJobRecord } from "../shared/contracts.js";
+import { readLanguageFromPayload } from "../modules/ai/execution/processingJobService.js";
 
 const idlePollIntervalMs = 5_000;
 const heartbeatIntervalMs = 30_000;
@@ -21,12 +22,6 @@ function sleep(milliseconds: number) {
   return new Promise<void>((resolve) => {
     setTimeout(resolve, milliseconds);
   });
-}
-
-function readLanguageFromPayload(
-  payload: Record<string, unknown> | null,
-): "de" | "en" {
-  return payload?.language === "en" ? "en" : "de";
 }
 
 async function runClaimedJob(
@@ -91,6 +86,7 @@ async function runClaimedJob(
         job.triggeredById,
         job.uploadMetadataId,
         language,
+        job.id,
       );
     } else if (job.jobType === "project_impact_story") {
       // buildProjectAnalytics re-validates readiness itself before doing any
@@ -226,6 +222,10 @@ async function start() {
 }
 
 void start().catch((error) => {
+  // console.error rather than app.log.error here is intentional: start()
+  // can fail before Fastify's logger is constructed (e.g. loadConfig or
+  // connectMongoDatabase throwing), so there may be no app.log to write to
+  // yet at this specific failure point.
   console.error(error);
   process.exit(1);
 });

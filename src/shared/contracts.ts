@@ -555,6 +555,15 @@ export const interpretationQuestionCodeValues = [
   "cohort_tag",
   "pairing_group_key",
   "pairing_group_role",
+  "declared_scale_bounds",
+  // Stage-9 filter-value grounding: the V2 planner asks which of a
+  // column's real observedValues represent the condition a goal needs,
+  // when nothing else grounds the filter value. See
+  // CLARIFICATION_QUESTION_WORDING_PLAN.md Phase 5 — Python supplies the
+  // real observedValues as questionData; clarificationQuestionCopy.ts
+  // renders the sentence and maps them 1:1 to options, never inventing a
+  // value.
+  "filter_value_grounding",
 ] as const;
 export type InterpretationQuestionCode =
   (typeof interpretationQuestionCodeValues)[number];
@@ -829,23 +838,63 @@ export interface InterpretationQualitativeFinding {
   status: InterpretationIndicatorStatus;
 }
 
+// Identifies one column targeted by a grouped instrument (e.g. the baseline
+// and endline columns behind one validated survey scale) — see
+// InterpretationQuestion.preparationGroupColumns.
+export interface InterpretationQuestionTargetColumnRef {
+  tableName: string;
+  columnName: string;
+}
+
+// A single answer choice as it should appear to the end user. `value` is
+// what gets submitted back as answeredValue; `label` is what renders. Kept
+// as separate fields (rather than reusing options: string[] for both) so a
+// future renderer can localize/format a label without changing the
+// submitted value's meaning to the backend.
+export interface ClarificationQuestionOption {
+  value: string;
+  label: string;
+}
+
 export interface InterpretationQuestion {
   id: string;
   goalId?: string | null;
-  prompt: string;
   kind: InterpretationQuestionKind;
   questionDomain: InterpretationQuestionDomain;
-  options: string[] | null;
+  // The only fields the frontend renders. Always populated by
+  // clarificationQuestionCopy.ts's renderClarificationQuestion — either
+  // from the closed-enum template for a non-null questionCode, or via the
+  // one documented open-ended exception (sanitized pass-through of
+  // ia_python_service's raw draft prompt/options) when questionCode is
+  // null. See CLARIFICATION_QUESTION_WORDING_PLAN.md — this used to also
+  // carry raw/debug prompt/options fields mirroring these two; removed in
+  // Phase 6 once every reader migrated to the fields below.
+  userFacingPrompt: string;
+  userFacingOptions: ClarificationQuestionOption[] | null;
   recommendedOption: string | null;
   recommendedConfidence: number | null;
   isBlocking: boolean;
   questionCode: InterpretationQuestionCode | null;
   targetTableName: string | null;
   targetColumnName: string | null;
+  // Per-code structured substitution data a renderer needs beyond
+  // targetTableName/targetColumnName (e.g. positive_status_values' observed
+  // status values, normalization_merge's validated variant groups,
+  // filter_value_grounding's observedValues). Shape is code-specific;
+  // codes that only need table/column name leave this null. Never prose —
+  // see CLARIFICATION_QUESTION_WORDING_PLAN.md Phase 2.
+  questionData: Record<string, unknown> | null;
   status: InterpretationQuestionStatus;
   answeredValue: string | null;
   answeredById: string | null;
   answeredAt: string | null;
+  // Set only for validated_scale_confirmation/declared_scale_bounds questions
+  // where the deterministic pipeline detected this column is one half of a
+  // baseline/endline pair of the same instrument (see
+  // interpretation_pipeline.py's column-group matching). Null for every
+  // other question — grouping is additive, never assumed.
+  preparationGroupId: string | null;
+  preparationGroupColumns: InterpretationQuestionTargetColumnRef[] | null;
 }
 
 export interface InterpretationWarning {
@@ -965,6 +1014,11 @@ export interface DatasetPreparationDecisionSelection {
   tableName: string | null;
   columnName: string | null;
   value: string;
+  // Mirrors InterpretationQuestion.preparationGroupId/preparationGroupColumns
+  // for the question this selection answers — null when the question was
+  // never part of a detected instrument group.
+  groupId: string | null;
+  groupColumns: InterpretationQuestionTargetColumnRef[] | null;
 }
 
 export interface DatasetPreparationDecisionSummary {
@@ -976,6 +1030,10 @@ export interface DatasetPreparationDecisionSummary {
   primaryDateFields: DatasetPreparationDecisionSelection[];
   epistemicRoleClarifications: DatasetPreparationDecisionSelection[];
   validatedScaleConfirmations: DatasetPreparationDecisionSelection[];
+  cohortTags: DatasetPreparationDecisionSelection[];
+  pairingGroupKeys: DatasetPreparationDecisionSelection[];
+  pairingGroupRoles: DatasetPreparationDecisionSelection[];
+  declaredScaleBounds: DatasetPreparationDecisionSelection[];
 }
 
 export const preparedDatasetColumnRoleValues = [
@@ -999,6 +1057,26 @@ export const preparedDatasetIdentifierHandlingValues = [
 export type PreparedDatasetIdentifierHandling =
   (typeof preparedDatasetIdentifierHandlingValues)[number];
 
+export const preparedDatasetMetricKindValues = [
+  "count",
+  "ratio",
+  "amount",
+  "duration",
+  "score",
+  "flag",
+] as const;
+export type PreparedDatasetMetricKind =
+  (typeof preparedDatasetMetricKindValues)[number];
+
+export const preparedDatasetValueScopeValues = [
+  "row",
+  "entity",
+  "table_aggregate",
+  "goal_support",
+] as const;
+export type PreparedDatasetValueScope =
+  (typeof preparedDatasetValueScopeValues)[number];
+
 export interface PreparedDatasetColumn {
   name: string;
   inferredType: DatasetProfileColumnType | null;
@@ -1018,6 +1096,17 @@ export interface PreparedDatasetColumn {
   // existing PreparedDatasetColumn construction site is unaffected.
   minValue?: number | null;
   maxValue?: number | null;
+  // Declared instrument bounds, answered via declared_scale_bounds — the
+  // scale's real possible range (e.g. 1..5) regardless of what values
+  // actually appear in the data. This, not minValue/maxValue, is the
+  // authoritative bound for pairing compatibility: two observed ranges can
+  // differ just because nobody happened to answer the extremes (see
+  // outcomeEvidencePairingCandidateMatcher.ts's hasCompatibleScaleBounds).
+  // Only ever set when epistemicRole resolves to "validated_scale".
+  // Optional so every other existing PreparedDatasetColumn construction
+  // site is unaffected.
+  scaleMin?: number | null;
+  scaleMax?: number | null;
   // Human-declared, answered via pairing_group_key/pairing_group_role —
   // only ever set when epistemicRole resolves to "validated_scale". Two
   // columns (in the same or different tables) with the same normalized
@@ -1027,6 +1116,8 @@ export interface PreparedDatasetColumn {
   // existing PreparedDatasetColumn construction site is unaffected.
   pairingGroupKey?: string | null;
   pairingGroupRole?: "before" | "after" | null;
+  metricKind?: PreparedDatasetMetricKind | null;
+  valueScope?: PreparedDatasetValueScope | null;
 }
 
 export interface PreparedDatasetTable {
@@ -1447,6 +1538,7 @@ export type OutcomeEvidencePairingDiagnosticReasonCode =
   | "no_categorical_columns"
   | "duplicate_identifier_values"
   | "scale_bounds_mismatch"
+  | "scale_bounds_not_declared"
   | "no_declared_pairing_groups";
 
 export interface OutcomeEvidencePairingDiagnosticReason {
@@ -1757,6 +1849,11 @@ export type ActivityAnalysisV2ToolCallStatus = "succeeded" | "failed";
 
 export interface ActivityAnalysisV2ToolCallRecord {
   toolCallId: string;
+  // The planned tool request's own goalId, carried directly on the trace
+  // record rather than re-derived by array position against
+  // plannedToolRequests — see buildActivityAssessmentV2's goal/calculation
+  // attribution, which correlates by this field instead of index.
+  goalId: string | null;
   toolName: ActivityAnalysisV2ToolName;
   arguments: Record<string, unknown>;
   calculationIds: string[];
@@ -1873,6 +1970,7 @@ export interface ActivityAnalysisV2GoalAssessmentRecord {
   evidenceTensionFlag: boolean;
   measuredValue: number | null;
   targetValue: number | null;
+  valueFormat?: "number" | "percent" | null;
   comparison: "at_least" | "at_most" | "equal" | null;
   achieved: boolean | null;
 }
@@ -2126,6 +2224,24 @@ export interface ProjectImpactStoryHeadlineKpi {
   statusCallout?: string;
 }
 
+// Every goal_assessment catalog entry with a resolved measuredValue/
+// targetValue, expressed as one ranked-progress entry — computed
+// deterministically and always shown (never subject to LLM chart-plan
+// selection), since "% of target reached, per goal" is the single most
+// requested view of this data and the LLM's selection has proven
+// unreliable at guaranteeing any specific chart appears. See
+// projectImpactStoryGoalProgress.ts.
+export interface ProjectImpactStoryGoalProgressEntry {
+  entryId: string;
+  label: string;
+  activityName: string;
+  // Rounded percentage of target reached, already direction-corrected for
+  // at_most (ceiling) goals — 100 means "on target", not "half of a raw
+  // ratio". Can exceed 100.
+  progressPercent: number;
+  status: ProjectImpactStoryGoalStatus;
+}
+
 export type ProjectImpactStoryChartType =
   "bar" | "pie" | "line" | "comparison" | "distribution";
 
@@ -2176,6 +2292,11 @@ export interface ProjectImpactStoryRecord {
   activityCards: ActivityImpactStoryCard[];
   headlineKpis: ProjectImpactStoryHeadlineKpi[];
   chartPlan: ProjectImpactStoryChartSpec[];
+  // Deterministic, no-LLM charts for every ready catalog entry the chart
+  // plan didn't select this run — the analytics tab's backlog panel lets a
+  // viewer add any of these to the dashboard instantly. See
+  // projectImpactStoryChartBacklog.ts.
+  backlogChartPlan: ProjectImpactStoryChartSpec[];
   // Deterministic fallback descriptive charts. In the primary path, the LLM
   // may already select descriptive distributions into chartPlan; this lane
   // is only for the backup case where no selected charts were produced.
@@ -2185,6 +2306,7 @@ export interface ProjectImpactStoryRecord {
   // projectImpactStoryImpactCatalog.ts and
   // IMPACT_STORY_OUTCOME_EXTENSION_PLAN.md §4.5/§4.6.
   impactCatalog: ImpactCatalogItem[];
+  goalProgressEntries: ProjectImpactStoryGoalProgressEntry[];
   narrativeSummary: string | null;
   narrativeStatus: ProjectImpactStoryNarrativeStatus | null;
   diagnostics: ProjectImpactStoryDiagnostics;

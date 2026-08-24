@@ -1,38 +1,34 @@
 import mongoose from "mongoose";
-import { loadConfig } from "../shared/config/env.js";
-import {
-  connectMongoDatabase,
-  disconnectMongoDatabase,
-} from "../shared/database/mongoose.js";
+import { runMigrationScript } from "./shared/migrationScriptRunner.js";
 
-async function run() {
-  const config = loadConfig();
-  await connectMongoDatabase(config);
-
+function getCollection() {
   const database = mongoose.connection.db;
   if (!database) {
     throw new Error("Mongo database connection is not available.");
   }
+  return database.collection("activities");
+}
 
-  await database.collection("activities").updateMany(
-    {
-      additionalContext: { $exists: true },
-    },
-    {
+const additionalContextFilter = { additionalContext: { $exists: true } };
+
+runMigrationScript({
+  scriptLabel: "Activity additionalContext removal",
+  preview: async () => {
+    const affectedCount = await getCollection().countDocuments(
+      additionalContextFilter,
+    );
+    console.log(
+      `${affectedCount} activity document(s) currently carry additionalContext.`,
+    );
+  },
+  apply: async () => {
+    const result = await getCollection().updateMany(additionalContextFilter, {
       $unset: {
         additionalContext: "",
       },
-    },
-  );
-}
-
-run()
-  .then(async () => {
-    await disconnectMongoDatabase();
-    console.log("Activity additionalContext removal completed.");
-  })
-  .catch(async (error) => {
-    console.error(error);
-    await disconnectMongoDatabase();
-    process.exit(1);
-  });
+    });
+    console.log(
+      `Unset additionalContext on ${result.modifiedCount} activity document(s).`,
+    );
+  },
+});

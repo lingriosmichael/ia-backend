@@ -7,6 +7,7 @@ import {
   idParamSchema,
 } from "../../schemas/httpSchemas.js";
 import { InvitationService } from "./invitationService.js";
+import { requireParam } from "../../shared/http/requireParam.js";
 
 export class InvitationController {
   constructor(private readonly invitationService: InvitationService) {}
@@ -17,7 +18,7 @@ export class InvitationController {
     const params = idParamSchema.parse(request.params);
     const invitations = await this.invitationService.listForOrganization(
       auth.userId,
-      params.organizationId!,
+      requireParam(params, "organizationId"),
     );
     return successResponse(invitations);
   }
@@ -29,7 +30,7 @@ export class InvitationController {
     const payload = createInvitationSchema.parse(request.body);
     const invitation = await this.invitationService.create(
       auth.userId,
-      params.organizationId!,
+      requireParam(params, "organizationId"),
       payload,
     );
     return successResponse(invitation);
@@ -37,7 +38,9 @@ export class InvitationController {
 
   async getByToken(request: FastifyRequest) {
     const params = idParamSchema.parse(request.params);
-    const invitation = await this.invitationService.getByToken(params.token!);
+    const invitation = await this.invitationService.getByToken(
+      requireParam(params, "token"),
+    );
     return successResponse(invitation);
   }
 
@@ -47,8 +50,8 @@ export class InvitationController {
     const params = idParamSchema.parse(request.params);
     const invitation = await this.invitationService.resend(
       auth.userId,
-      params.organizationId!,
-      params.invitationId!,
+      requireParam(params, "organizationId"),
+      requireParam(params, "invitationId"),
     );
     return successResponse(invitation);
   }
@@ -56,11 +59,14 @@ export class InvitationController {
   async accept(request: FastifyRequest) {
     const params = idParamSchema.parse(request.params);
     const payload = acceptInvitationSchema.parse(request.body);
-    const accepted = await this.invitationService.accept(params.token!, {
-      ...payload,
-      authenticatedUserId: request.auth?.userId,
-      authenticatedUserEmail: request.auth?.email,
-    });
+    const accepted = await this.invitationService.accept(
+      requireParam(params, "token"),
+      {
+        ...payload,
+        authenticatedUserId: request.auth?.userId,
+        authenticatedUserEmail: request.auth?.email,
+      },
+    );
     return successResponse(accepted);
   }
 
@@ -70,8 +76,8 @@ export class InvitationController {
     const params = idParamSchema.parse(request.params);
     const invitation = await this.invitationService.revoke(
       auth.userId,
-      params.organizationId!,
-      params.invitationId!,
+      requireParam(params, "organizationId"),
+      requireParam(params, "invitationId"),
     );
     return successResponse(invitation);
   }

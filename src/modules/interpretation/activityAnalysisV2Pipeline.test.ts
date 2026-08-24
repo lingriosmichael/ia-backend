@@ -176,6 +176,7 @@ function createFixture(options: {
     datasetPreparationRepository as unknown as DatasetPreparationService;
   const qualitativeCodingReviewRepository = {
     findByUploadMetadataId: async () => null,
+    findByUploadMetadataIds: async () => [],
   } as unknown as QualitativeCodingReviewRepository;
 
   const currentActivityEvidenceLoader = new CurrentActivityEvidenceLoader(
@@ -509,6 +510,8 @@ test("previewActivityAnalysis includes date coverage and explicit goal-support h
                 inferredType: "boolean",
                 role: "other",
                 epistemicRole: "flag",
+                metricKind: "flag",
+                valueScope: "goal_support",
               },
             ],
             notes: [],
@@ -560,6 +563,8 @@ test("previewActivityAnalysis includes date coverage and explicit goal-support h
           goalType: string | null;
           inferredType: string | null;
           epistemicRole: string | null;
+          metricKind?: string | null;
+          valueScope?: string | null;
         }>;
       };
     }>;
@@ -585,6 +590,8 @@ test("previewActivityAnalysis includes date coverage and explicit goal-support h
         goalType: "output",
         inferredType: "boolean",
         epistemicRole: "flag",
+        metricKind: "flag",
+        valueScope: "goal_support",
       },
     ],
   );

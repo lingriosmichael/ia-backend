@@ -8,6 +8,7 @@ import {
 } from "../../schemas/httpSchemas.js";
 import { ProcessingJobService } from "../ai/execution/processingJobService.js";
 import { QualitativeCodingReviewService } from "./qualitativeCodingReviewService.js";
+import { requireParam } from "../../shared/http/requireParam.js";
 
 export class QualitativeCodingReviewController {
   constructor(
@@ -21,7 +22,7 @@ export class QualitativeCodingReviewController {
     const review =
       await this.qualitativeCodingReviewService.getByUploadMetadataId(
         auth.userId,
-        params.uploadMetadataId!,
+        requireParam(params, "uploadMetadataId"),
       );
     return successResponse(review);
   }
@@ -38,13 +39,13 @@ export class QualitativeCodingReviewController {
     const { upload } =
       await this.qualitativeCodingReviewService.assertReadyToGenerate(
         auth.userId,
-        params.uploadMetadataId!,
+        requireParam(params, "uploadMetadataId"),
       );
     const job = await this.processingJobService.create(
       auth.userId,
       upload.projectId,
       {
-        uploadMetadataId: params.uploadMetadataId!,
+        uploadMetadataId: requireParam(params, "uploadMetadataId"),
         jobType: "qualitative_coding_review",
         payload: { language },
       },
@@ -58,7 +59,7 @@ export class QualitativeCodingReviewController {
     const payload = approveQualitativeCodingReviewSchema.parse(request.body);
     const response = await this.qualitativeCodingReviewService.approve(
       auth.userId,
-      params.uploadMetadataId!,
+      requireParam(params, "uploadMetadataId"),
       payload.decisions,
     );
     return successResponse(response);

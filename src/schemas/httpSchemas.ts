@@ -209,7 +209,11 @@ export const deleteProjectSchema = z.object({
 });
 
 export const transferProjectOwnershipSchema = z.object({
-  newOwnerId: z.string().min(1),
+  // User ids are always createDocumentId() UUIDs (see documentId.ts) —
+  // unlike idParamSchema, which is shared across routes with non-UUID id
+  // shapes (e.g. invitation tokens) and so can't validate format this
+  // strictly, this schema is for one specific field with one known shape.
+  newOwnerId: z.string().uuid(),
 });
 
 export const createActivitySchema = z.object({
@@ -376,7 +380,7 @@ export const processingJobCallbackSchema = z.object({
   ]),
   updatedAt: z.string().min(1),
   failureCode: z.string().trim().min(1).max(120).nullable().optional(),
-  errorMessage: z.string().nullable().optional(),
+  errorMessage: z.string().max(2000).nullable().optional(),
   details: jsonPayloadSchema.nullable().optional(),
 });
 

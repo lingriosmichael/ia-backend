@@ -118,22 +118,31 @@ function describeCalculationForUsers(
     case "count_rows":
       return language === "de"
         ? {
-            label: `Einträge in ${source}`,
+            label: `${source}: Einträge`,
             description: "Gesamtzahl der gezählten Datensätze.",
           }
         : {
-            label: `Entries in ${source}`,
+            label: `${source}: entries`,
             description: "Total number of records counted.",
           };
 
+    // Labels below put the distinguishing detail (column/source) first and
+    // the generic descriptor last, deliberately — chart bar labels get
+    // truncated to a fixed character cap (see truncateChartLabel on the
+    // frontend), and a label built as "<generic phrase> for X" loses
+    // exactly the part that told two different bars apart the moment it's
+    // cut off. Putting the specific part first means truncation only ever
+    // eats the (redundant, already-implied-by-chart-context) generic
+    // suffix, never the fact that made this bar different from its
+    // neighbor.
     case "count_distinct":
       return language === "de"
         ? {
-            label: `Eindeutige Werte für ${column ?? source} in ${source}`,
+            label: `${column ?? source}: eindeutige Werte`,
             description: `Wie viele unterschiedliche Angaben für ${column ?? "dieses Merkmal"} vorkommen.`,
           }
         : {
-            label: `Unique ${column ?? "value"}s in ${source}`,
+            label: `${column ?? "Value"}: unique values`,
             description: `How many different values for ${column ?? "this"} appear.`,
           };
 
@@ -141,12 +150,12 @@ function describeCalculationForUsers(
       const columns = calculation.sourceColumns.join(", ");
       return language === "de"
         ? {
-            label: `Eindeutige Kombinationen (${columns}) in ${source}`,
+            label: `${columns}: eindeutige Kombinationen`,
             description:
               "Zählt eindeutige Kombinationen dieser Angaben zusammen.",
           }
         : {
-            label: `Unique combinations (${columns}) in ${source}`,
+            label: `${columns}: unique combinations`,
             description: "Counts unique combinations of these together.",
           };
     }
@@ -154,12 +163,12 @@ function describeCalculationForUsers(
     case "profile_column":
       return language === "de"
         ? {
-            label: `Übersicht zu ${column ?? source} in ${source}`,
+            label: `${column ?? source}: Übersicht`,
             description:
               "Zeigt, wie vollständig und vielfältig die Angaben sind.",
           }
         : {
-            label: `Overview of ${column ?? source} in ${source}`,
+            label: `${column ?? source}: overview`,
             description: "Shows how complete and varied the values are.",
           };
 
@@ -174,8 +183,8 @@ function describeCalculationForUsers(
       > = {
         sum: {
           label: {
-            de: `Summe von ${column ?? source} in ${source}`,
-            en: `Total ${column ?? source} in ${source}`,
+            de: `${column ?? source}: Summe`,
+            en: `${column ?? source}: total`,
           },
           description: {
             de: "Addiert die Werte über alle passenden Datensätze.",
@@ -184,8 +193,8 @@ function describeCalculationForUsers(
         },
         avg: {
           label: {
-            de: `Durchschnitt von ${column ?? source} in ${source}`,
-            en: `Average ${column ?? source} in ${source}`,
+            de: `${column ?? source}: Durchschnitt`,
+            en: `${column ?? source}: average`,
           },
           description: {
             de: "Der typische Wert über alle passenden Datensätze.",
@@ -194,8 +203,8 @@ function describeCalculationForUsers(
         },
         min: {
           label: {
-            de: `Niedrigster Wert von ${column ?? source} in ${source}`,
-            en: `Lowest ${column ?? source} in ${source}`,
+            de: `${column ?? source}: niedrigster Wert`,
+            en: `${column ?? source}: lowest`,
           },
           description: {
             de: "Der kleinste erfasste Wert.",
@@ -204,8 +213,8 @@ function describeCalculationForUsers(
         },
         max: {
           label: {
-            de: `Höchster Wert von ${column ?? source} in ${source}`,
-            en: `Highest ${column ?? source} in ${source}`,
+            de: `${column ?? source}: höchster Wert`,
+            en: `${column ?? source}: highest`,
           },
           description: {
             de: "Der größte erfasste Wert.",
@@ -306,11 +315,11 @@ function describeCalculationForUsers(
     case "group_count":
       return language === "de"
         ? {
-            label: `Verteilung von ${column ?? source} in ${source}`,
+            label: `${column ?? source}: Verteilung`,
             description: "Wie sich die Einträge auf die Kategorien verteilen.",
           }
         : {
-            label: `Breakdown of ${column ?? source} in ${source}`,
+            label: `${column ?? source}: breakdown`,
             description: "How entries are distributed across categories.",
           };
 

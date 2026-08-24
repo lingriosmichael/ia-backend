@@ -1,13 +1,15 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { Readable } from "node:stream";
 import type { FastifyReply, FastifyRequest } from "fastify";
 import { UploadMetadataController } from "./uploadMetadataController.js";
 
 test("getFile returns an RFC-compliant UTF-8 content-disposition header for Unicode filenames", async () => {
+  const fileStream = Readable.from([Buffer.from("file")]);
   const controller = new UploadMetadataController(
     {
       getFile: async () => ({
-        buffer: Buffer.from("file"),
+        stream: fileStream,
         contentType: "application/pdf",
         originalFileName: "Förderbericht März 2026.pdf",
       }),
@@ -47,7 +49,7 @@ test("getFile returns an RFC-compliant UTF-8 content-disposition header for Unic
   );
 
   assert.equal(replyType, "application/pdf");
-  assert.equal(Buffer.isBuffer(sentBody), true);
+  assert.equal(sentBody, fileStream);
   assert.equal(
     headers.get("content-disposition"),
     `inline; filename="Foerderbericht Maerz 2026.pdf"; filename*=UTF-8''F%C3%B6rderbericht%20M%C3%A4rz%202026.pdf`,

@@ -313,29 +313,34 @@ export function matchesFilter(
         : typeof rowValue === "number" || typeof rowValue === "boolean"
           ? rowValue
           : categoryValue;
+  // normalizeFilterValue coerces string values like "1"/"yes"/"ja" to real
+  // booleans, which is correct for flag-shaped columns but wrong for a
+  // genuinely numeric row value: the row side (a raw JS number) never goes
+  // through that same coercion, so `numericColumn equals "1"` used to
+  // compare `Set{true}.has(1)` and silently match nothing. When the row
+  // value is a real number, compare both sides numerically instead of
+  // letting either side collapse to a boolean.
+  const compareAsNumber = typeof normalizedRowValue === "number";
   const normalizedFilterValues = new Set(
-    filterValues.map((value) => normalizeFilterValue(value)),
+    filterValues.map((value) =>
+      compareAsNumber ? toNumericValue(value) : normalizeFilterValue(value),
+    ),
   );
+  const normalizedComparisonRowValue = compareAsNumber
+    ? normalizedRowValue
+    : normalizeFilterValue(normalizedRowValue as ActivityAnalysisV2FilterValue);
 
   if (filter.operator === "equals") {
-    return normalizedFilterValues.has(
-      normalizeFilterValue(normalizedRowValue as ActivityAnalysisV2FilterValue),
-    );
+    return normalizedFilterValues.has(normalizedComparisonRowValue);
   }
   if (filter.operator === "not_equals") {
-    return !normalizedFilterValues.has(
-      normalizeFilterValue(normalizedRowValue as ActivityAnalysisV2FilterValue),
-    );
+    return !normalizedFilterValues.has(normalizedComparisonRowValue);
   }
   if (filter.operator === "in") {
-    return normalizedFilterValues.has(
-      normalizeFilterValue(normalizedRowValue as ActivityAnalysisV2FilterValue),
-    );
+    return normalizedFilterValues.has(normalizedComparisonRowValue);
   }
   if (filter.operator === "not_in") {
-    return !normalizedFilterValues.has(
-      normalizeFilterValue(normalizedRowValue as ActivityAnalysisV2FilterValue),
-    );
+    return !normalizedFilterValues.has(normalizedComparisonRowValue);
   }
   return false;
 }

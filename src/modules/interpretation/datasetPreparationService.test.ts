@@ -103,56 +103,72 @@ test("syncs quantitative preparation answers into a persisted preparation artifa
       questions: [
         {
           id: "question-1",
-          prompt: "What does one row in the table 'attendance' represent?",
           kind: "free_text",
           questionDomain: "preparation",
-          options: null,
+          userFacingPrompt:
+            "What does one row in the table 'attendance' represent?",
+          userFacingOptions: null,
           recommendedOption: null,
           recommendedConfidence: null,
           isBlocking: true,
           questionCode: "row_grain",
           targetTableName: "attendance",
           targetColumnName: null,
+          questionData: null,
           status: "answered",
           answeredValue: "One row is one session attendance record.",
           answeredById: "user-1",
           answeredAt: NOW,
+          preparationGroupId: null,
+          preparationGroupColumns: null,
         },
         {
           id: "question-2",
-          prompt:
-            "Which values in the field 'status' should be treated as positive?",
           kind: "free_text",
           questionDomain: "preparation",
-          options: null,
+          userFacingPrompt:
+            "Which values in the field 'status' should be treated as positive?",
+          userFacingOptions: null,
           recommendedOption: null,
           recommendedConfidence: null,
           isBlocking: true,
           questionCode: "positive_status_values",
           targetTableName: "attendance",
           targetColumnName: "status",
+          questionData: null,
           status: "answered",
           answeredValue: "completed",
           answeredById: "user-1",
           answeredAt: NOW,
+          preparationGroupId: null,
+          preparationGroupColumns: null,
         },
         {
           id: "question-3",
-          prompt:
-            "In the field 'status', do these values all mean the same thing: 'completed', 'complete'?",
           kind: "merge_confirmation",
           questionDomain: "preparation",
-          options: ["Yes, treat as one", "No, keep them separate"],
+          userFacingPrompt:
+            "In the field 'status', do these values all mean the same thing: 'completed', 'complete'?",
+          userFacingOptions: [
+            { value: "Yes, treat as one", label: "Yes, treat as one" },
+            {
+              value: "No, keep them separate",
+              label: "No, keep them separate",
+            },
+          ],
           recommendedOption: null,
           recommendedConfidence: null,
           isBlocking: true,
           questionCode: "normalization_merge",
           targetTableName: "attendance",
           targetColumnName: "status",
+          questionData: null,
           status: "pending",
           answeredValue: null,
           answeredById: null,
           answeredAt: null,
+          preparationGroupId: null,
+          preparationGroupColumns: null,
         },
       ],
       datasetProfile: {
@@ -308,14 +324,17 @@ test("keeps the top-ranked identifier column even when a duplicate_identifier_re
       questions: [
         {
           id: "question-1",
-          prompt:
-            "The likely identifier field 'vorname' contains duplicate values. Should rows with the same value be treated as multiple events, or as duplicates that count once?",
           kind: "single_choice",
           questionDomain: "preparation",
-          options: [
-            "Multiple events",
-            "Duplicates / count once",
-            "Needs manual review",
+          userFacingPrompt:
+            "The likely identifier field 'vorname' contains duplicate values. Should rows with the same value be treated as multiple events, or as duplicates that count once?",
+          userFacingOptions: [
+            { value: "Multiple events", label: "Multiple events" },
+            {
+              value: "Duplicates / count once",
+              label: "Duplicates / count once",
+            },
+            { value: "Needs manual review", label: "Needs manual review" },
           ],
           recommendedOption: null,
           recommendedConfidence: null,
@@ -323,10 +342,13 @@ test("keeps the top-ranked identifier column even when a duplicate_identifier_re
           questionCode: "duplicate_identifier_resolution",
           targetTableName: "mentor_bewerbungen_export_maerz_2026",
           targetColumnName: "vorname",
+          questionData: null,
           status: "answered",
           answeredValue: "Duplicates / count once",
           answeredById: "user-1",
           answeredAt: NOW,
+          preparationGroupId: null,
+          preparationGroupColumns: null,
         },
       ],
       datasetProfile: {
@@ -455,32 +477,38 @@ test("resolves plain-language epistemic_role_clarification answers to categorica
       questions: [
         {
           id: "question-1",
-          prompt:
-            "What does one row in the table 'mentor_bewerbungen_export_maerz_2026' represent?",
           kind: "free_text",
           questionDomain: "preparation",
-          options: null,
+          userFacingPrompt:
+            "What does one row in the table 'mentor_bewerbungen_export_maerz_2026' represent?",
+          userFacingOptions: null,
           recommendedOption: null,
           recommendedConfidence: null,
           isBlocking: true,
           questionCode: "row_grain",
           targetTableName: "mentor_bewerbungen_export_maerz_2026",
           targetColumnName: null,
+          questionData: null,
           status: "answered",
           answeredValue: "One row is one applicant.",
           answeredById: "user-1",
           answeredAt: NOW,
+          preparationGroupId: null,
+          preparationGroupColumns: null,
         },
         {
           id: "question-2",
-          prompt: "Was steht in der Spalte 'bezirk'?",
           kind: "single_choice",
           questionDomain: "preparation",
-          options: [
-            "Feste Auswahlwerte",
-            "Freie Texte",
-            "Einschätzung durch eine Person",
-            "Etwas anderes",
+          userFacingPrompt: "Was steht in der Spalte 'bezirk'?",
+          userFacingOptions: [
+            { value: "Feste Auswahlwerte", label: "Feste Auswahlwerte" },
+            { value: "Freie Texte", label: "Freie Texte" },
+            {
+              value: "Einschätzung durch eine Person",
+              label: "Einschätzung durch eine Person",
+            },
+            { value: "Etwas anderes", label: "Etwas anderes" },
           ],
           recommendedOption: null,
           recommendedConfidence: null,
@@ -488,10 +516,13 @@ test("resolves plain-language epistemic_role_clarification answers to categorica
           questionCode: "epistemic_role_clarification",
           targetTableName: "mentor_bewerbungen_export_maerz_2026",
           targetColumnName: "bezirk",
+          questionData: null,
           status: "answered",
           answeredValue: "Etwas anderes",
           answeredById: "user-1",
           answeredAt: NOW,
+          preparationGroupId: null,
+          preparationGroupColumns: null,
         },
       ],
       datasetProfile: {
@@ -623,14 +654,17 @@ test("a stale epistemic_role_clarification question on a structural identifier c
       questions: [
         {
           id: "question-1",
-          prompt: "Was steht in der Spalte 'vorname'?",
           kind: "single_choice",
           questionDomain: "preparation",
-          options: [
-            "Feste Auswahlwerte",
-            "Freie Texte",
-            "Einschätzung durch eine Person",
-            "Etwas anderes",
+          userFacingPrompt: "Was steht in der Spalte 'vorname'?",
+          userFacingOptions: [
+            { value: "Feste Auswahlwerte", label: "Feste Auswahlwerte" },
+            { value: "Freie Texte", label: "Freie Texte" },
+            {
+              value: "Einschätzung durch eine Person",
+              label: "Einschätzung durch eine Person",
+            },
+            { value: "Etwas anderes", label: "Etwas anderes" },
           ],
           recommendedOption: null,
           recommendedConfidence: null,
@@ -638,10 +672,13 @@ test("a stale epistemic_role_clarification question on a structural identifier c
           questionCode: "epistemic_role_clarification",
           targetTableName: "anmeldungen_jugendliche",
           targetColumnName: "vorname",
+          questionData: null,
           status: "pending",
           answeredValue: null,
           answeredById: null,
           answeredAt: null,
+          preparationGroupId: null,
+          preparationGroupColumns: null,
         },
       ],
       datasetProfile: {
@@ -770,14 +807,17 @@ test("a stale epistemic_role_clarification question on a constant column does no
       questions: [
         {
           id: "question-1",
-          prompt: "Was steht in der Spalte 'befragung_typ'?",
           kind: "single_choice",
           questionDomain: "preparation",
-          options: [
-            "Feste Auswahlwerte",
-            "Freie Texte",
-            "Einschätzung durch eine Person",
-            "Etwas anderes",
+          userFacingPrompt: "Was steht in der Spalte 'befragung_typ'?",
+          userFacingOptions: [
+            { value: "Feste Auswahlwerte", label: "Feste Auswahlwerte" },
+            { value: "Freie Texte", label: "Freie Texte" },
+            {
+              value: "Einschätzung durch eine Person",
+              label: "Einschätzung durch eine Person",
+            },
+            { value: "Etwas anderes", label: "Etwas anderes" },
           ],
           recommendedOption: null,
           recommendedConfidence: null,
@@ -785,10 +825,13 @@ test("a stale epistemic_role_clarification question on a constant column does no
           questionCode: "epistemic_role_clarification",
           targetTableName: "baseline",
           targetColumnName: "befragung_typ",
+          questionData: null,
           status: "pending",
           answeredValue: null,
           answeredById: null,
           answeredAt: null,
+          preparationGroupId: null,
+          preparationGroupColumns: null,
         },
       ],
       datasetProfile: null,
@@ -854,4 +897,610 @@ test("marks non-quantitative evidence as not applicable", async () => {
   assert.equal(narrativeInput.status, "not_applicable");
   assert.equal(narrativeInput.blockingQuestionCount, 0);
   assert.equal(narrativeInput.preparedDataset, null);
+});
+
+test("infers metricKind and valueScope for prepared numeric columns", async () => {
+  let capturedInput: DatasetPreparationUpsertInput | null = null;
+
+  const repository = {
+    upsertByInterpretationResultId: async (
+      input: DatasetPreparationUpsertInput,
+    ) => {
+      capturedInput = input;
+      return {
+        id: "prep-3",
+        ...input,
+        createdAt: NOW,
+        updatedAt: NOW,
+      };
+    },
+  } as unknown as DatasetPreparationRepository;
+
+  const privacySafeRepresentationRepository = {
+    findById: async () => ({
+      id: "psr-3",
+      organizationId: "org-1",
+      projectId: "project-1",
+      activityId: "activity-1",
+      uploadMetadataId: "upload-3",
+      processingJobId: "processing-3",
+      privacyReviewId: "review-3",
+      parsedRepresentationId: "parsed-3",
+      payload: {
+        metadata: { evidenceModality: "structured_quantitative" },
+        tables: [
+          {
+            name: "workshops",
+            rowCount: 3,
+            columns: [
+              "workshop_id",
+              "programm_gesamt_workshops_durchgefuehrt_2026",
+              "teilnahmequote",
+              "ziel_output_24_workshops_unterstuetzt",
+            ],
+          },
+        ],
+      },
+      createdAt: NOW,
+      updatedAt: NOW,
+    }),
+  } as unknown as PrivacySafeRepresentationRepository;
+
+  const service = new DatasetPreparationService(
+    repository,
+    privacySafeRepresentationRepository,
+  );
+
+  await service.syncForInterpretationResult(
+    makeResult({
+      datasetProfile: {
+        tableCount: 1,
+        paragraphCount: 0,
+        tables: [
+          {
+            name: "workshops",
+            rowCount: 3,
+            columnCount: 4,
+            likelyIdentifierColumns: ["workshop_id"],
+            likelyStatusColumns: [],
+            likelyStageColumns: [],
+            likelyDateColumns: [],
+            likelyMeasureColumns: [
+              "programm_gesamt_workshops_durchgefuehrt_2026",
+              "teilnahmequote",
+            ],
+            likelyFreeTextColumns: [],
+            likelySubgroupColumns: [],
+            columns: [
+              {
+                name: "workshop_id",
+                inferredType: "identifier",
+                roleHints: ["likely_identifier"],
+                nullPercentage: 0,
+                distinctCount: 3,
+                averageTextLength: 3,
+                topValues: [],
+                numericSummary: null,
+                dateSummary: null,
+                duplicateNonNullValueCount: 0,
+                epistemicRole: "identifier",
+                isValidatedScaleCandidate: false,
+              },
+              {
+                name: "programm_gesamt_workshops_durchgefuehrt_2026",
+                inferredType: "numeric",
+                roleHints: ["likely_measure"],
+                nullPercentage: 0,
+                distinctCount: 1,
+                averageTextLength: null,
+                topValues: [{ value: "24", count: 3 }],
+                numericSummary: { min: 24, max: 24, mean: 24 },
+                dateSummary: null,
+                duplicateNonNullValueCount: 2,
+                epistemicRole: "metric_count",
+                isValidatedScaleCandidate: false,
+              },
+              {
+                name: "teilnahmequote",
+                inferredType: "numeric",
+                roleHints: ["likely_measure"],
+                nullPercentage: 0,
+                distinctCount: 3,
+                averageTextLength: null,
+                topValues: [],
+                numericSummary: { min: 0.72, max: 0.86, mean: 0.8 },
+                dateSummary: null,
+                duplicateNonNullValueCount: 0,
+                epistemicRole: "metric_count",
+                isValidatedScaleCandidate: false,
+              },
+              {
+                name: "ziel_output_24_workshops_unterstuetzt",
+                inferredType: "boolean",
+                roleHints: [],
+                nullPercentage: 0,
+                distinctCount: 1,
+                averageTextLength: null,
+                topValues: [{ value: "true", count: 3 }],
+                numericSummary: null,
+                dateSummary: null,
+                duplicateNonNullValueCount: 2,
+                epistemicRole: "flag",
+                isValidatedScaleCandidate: false,
+              },
+            ],
+          },
+        ],
+        issues: [],
+      },
+    }),
+  );
+
+  const input = requireCapturedInput(capturedInput);
+  const columns = input.preparedDataset?.tables[0]?.columns ?? [];
+  const byName = new Map(columns.map((column) => [column.name, column]));
+
+  assert.equal(
+    byName.get("programm_gesamt_workshops_durchgefuehrt_2026")?.metricKind,
+    "count",
+  );
+  assert.equal(
+    byName.get("programm_gesamt_workshops_durchgefuehrt_2026")?.valueScope,
+    "table_aggregate",
+  );
+  assert.equal(byName.get("teilnahmequote")?.metricKind, "ratio");
+  assert.equal(byName.get("teilnahmequote")?.valueScope, "row");
+  assert.equal(
+    byName.get("ziel_output_24_workshops_unterstuetzt")?.metricKind,
+    "flag",
+  );
+  assert.equal(
+    byName.get("ziel_output_24_workshops_unterstuetzt")?.valueScope,
+    "goal_support",
+  );
+});
+
+test("merges a confirmed validated_scale column's declared_scale_bounds answer into scaleMin/scaleMax, distinct from its observed numericSummary range", async () => {
+  let capturedInput: DatasetPreparationUpsertInput | null = null;
+
+  const repository = {
+    upsertByInterpretationResultId: async (
+      input: DatasetPreparationUpsertInput,
+    ) => {
+      capturedInput = input;
+      return {
+        id: "prep-4",
+        ...input,
+        createdAt: NOW,
+        updatedAt: NOW,
+      };
+    },
+  } as unknown as DatasetPreparationRepository;
+
+  const privacySafeRepresentationRepository = {
+    findById: async () => ({
+      id: "psr-4",
+      organizationId: "org-1",
+      projectId: "project-1",
+      activityId: "activity-1",
+      uploadMetadataId: "upload-4",
+      processingJobId: "processing-4",
+      privacyReviewId: "review-4",
+      parsedRepresentationId: "parsed-4",
+      payload: {
+        metadata: { evidenceModality: "structured_quantitative" },
+        tables: [
+          {
+            name: "baseline_jugendliche_export",
+            rowCount: 3,
+            columns: ["participant_id", "selbstwirksamkeit_baseline_1_5"],
+          },
+        ],
+      },
+      createdAt: NOW,
+      updatedAt: NOW,
+    }),
+  } as unknown as PrivacySafeRepresentationRepository;
+
+  const service = new DatasetPreparationService(
+    repository,
+    privacySafeRepresentationRepository,
+  );
+
+  await service.syncForInterpretationResult(
+    makeResult({
+      questions: [
+        {
+          id: "question-scale-confirm",
+          kind: "single_choice",
+          questionDomain: "preparation",
+          userFacingPrompt: "Ist das eine Selbsteinschaetzung?",
+          userFacingOptions: [
+            {
+              value: "Ja, das ist eine Selbsteinschaetzung",
+              label: "Ja, das ist eine Selbsteinschaetzung",
+            },
+            {
+              value: "Nein, das ist etwas anderes",
+              label: "Nein, das ist etwas anderes",
+            },
+          ],
+          recommendedOption: null,
+          recommendedConfidence: null,
+          isBlocking: true,
+          questionCode: "validated_scale_confirmation",
+          targetTableName: "baseline_jugendliche_export",
+          targetColumnName: "selbstwirksamkeit_baseline_1_5",
+          questionData: null,
+          status: "answered",
+          answeredValue: "Ja, das ist eine Selbsteinschaetzung",
+          answeredById: "user-1",
+          answeredAt: NOW,
+          preparationGroupId: null,
+          preparationGroupColumns: null,
+        },
+        {
+          id: "question-pairing-key",
+          kind: "free_text",
+          questionDomain: "preparation",
+          userFacingPrompt: "Gemeinsamer Name fuer das Instrument?",
+          userFacingOptions: null,
+          recommendedOption: "Selbstwirksamkeit",
+          recommendedConfidence: 0.86,
+          isBlocking: true,
+          questionCode: "pairing_group_key",
+          targetTableName: "baseline_jugendliche_export",
+          targetColumnName: "selbstwirksamkeit_baseline_1_5",
+          questionData: null,
+          status: "answered",
+          answeredValue: "Selbstwirksamkeit",
+          answeredById: "user-1",
+          answeredAt: NOW,
+          preparationGroupId: null,
+          preparationGroupColumns: null,
+        },
+        {
+          id: "question-pairing-role",
+          kind: "single_choice",
+          questionDomain: "preparation",
+          userFacingPrompt: "Ist das Anfang oder Ende?",
+          userFacingOptions: [
+            {
+              value: "Am Anfang / vor dem Programm",
+              label: "Am Anfang / vor dem Programm",
+            },
+            {
+              value: "Am Ende / nach dem Programm",
+              label: "Am Ende / nach dem Programm",
+            },
+            { value: "Nicht zutreffend", label: "Nicht zutreffend" },
+          ],
+          recommendedOption: "Am Anfang / vor dem Programm",
+          recommendedConfidence: 0.84,
+          isBlocking: true,
+          questionCode: "pairing_group_role",
+          targetTableName: "baseline_jugendliche_export",
+          targetColumnName: "selbstwirksamkeit_baseline_1_5",
+          questionData: null,
+          status: "answered",
+          answeredValue: "Am Anfang / vor dem Programm",
+          answeredById: "user-1",
+          answeredAt: NOW,
+          preparationGroupId: null,
+          preparationGroupColumns: null,
+        },
+        {
+          id: "question-scale-bounds",
+          kind: "free_text",
+          questionDomain: "preparation",
+          userFacingPrompt:
+            "Was ist der volle moegliche Wertebereich der Skala?",
+          userFacingOptions: null,
+          recommendedOption: null,
+          recommendedConfidence: null,
+          isBlocking: true,
+          questionCode: "declared_scale_bounds",
+          targetTableName: "baseline_jugendliche_export",
+          targetColumnName: "selbstwirksamkeit_baseline_1_5",
+          questionData: null,
+          status: "answered",
+          answeredValue: "1 bis 5",
+          answeredById: "user-1",
+          answeredAt: NOW,
+          preparationGroupId: null,
+          preparationGroupColumns: null,
+        },
+      ],
+      datasetProfile: {
+        tableCount: 1,
+        paragraphCount: 0,
+        tables: [
+          {
+            name: "baseline_jugendliche_export",
+            rowCount: 3,
+            columnCount: 2,
+            likelyIdentifierColumns: ["participant_id"],
+            likelyStatusColumns: [],
+            likelyStageColumns: [],
+            likelyDateColumns: [],
+            likelyMeasureColumns: ["selbstwirksamkeit_baseline_1_5"],
+            likelyFreeTextColumns: [],
+            likelySubgroupColumns: [],
+            columns: [
+              {
+                name: "participant_id",
+                inferredType: "identifier",
+                roleHints: ["likely_identifier"],
+                nullPercentage: 0,
+                distinctCount: 3,
+                averageTextLength: 3,
+                topValues: [],
+                numericSummary: null,
+                dateSummary: null,
+                duplicateNonNullValueCount: 0,
+                epistemicRole: "identifier",
+                isValidatedScaleCandidate: false,
+              },
+              {
+                // Nobody answered the scale's extremes (real scale is
+                // 1-5), so the observed numericSummary range is 2-4 — this
+                // must not leak into scaleMin/scaleMax, which come only
+                // from the declared_scale_bounds answer above.
+                name: "selbstwirksamkeit_baseline_1_5",
+                inferredType: "numeric",
+                roleHints: ["likely_measure"],
+                nullPercentage: 0,
+                distinctCount: 3,
+                averageTextLength: null,
+                topValues: [],
+                numericSummary: { min: 2, max: 4, mean: 3 },
+                dateSummary: null,
+                duplicateNonNullValueCount: 0,
+                epistemicRole: "metric_count",
+                isValidatedScaleCandidate: true,
+              },
+            ],
+          },
+        ],
+        issues: [],
+      },
+    }),
+  );
+
+  const input = requireCapturedInput(capturedInput);
+  const column = input.preparedDataset?.tables[0]?.columns.find(
+    (candidate) => candidate.name === "selbstwirksamkeit_baseline_1_5",
+  );
+
+  assert.equal(column?.epistemicRole, "validated_scale");
+  assert.equal(column?.pairingGroupKey, "Selbstwirksamkeit");
+  assert.equal(column?.pairingGroupRole, "before");
+  assert.equal(column?.scaleMin, 1);
+  assert.equal(column?.scaleMax, 5);
+  assert.equal(column?.minValue, 2);
+  assert.equal(column?.maxValue, 4);
+});
+
+test("a grouped declared_scale_bounds answer fanned out to a baseline/endline pair populates both columns' scaleMin/scaleMax, and an observed-vs-declared bounds mismatch still blocks readiness even though the group was confirmed", async () => {
+  let capturedInput: DatasetPreparationUpsertInput | null = null;
+
+  const repository = {
+    upsertByInterpretationResultId: async (
+      input: DatasetPreparationUpsertInput,
+    ) => {
+      capturedInput = input;
+      return {
+        id: "prep-5",
+        ...input,
+        createdAt: NOW,
+        updatedAt: NOW,
+      };
+    },
+  } as unknown as DatasetPreparationRepository;
+
+  const privacySafeRepresentationRepository = {
+    findById: async () => ({
+      id: "psr-5",
+      organizationId: "org-1",
+      projectId: "project-1",
+      activityId: "activity-1",
+      uploadMetadataId: "upload-5",
+      processingJobId: "processing-5",
+      privacyReviewId: "review-5",
+      parsedRepresentationId: "parsed-5",
+      payload: {
+        metadata: { evidenceModality: "structured_quantitative" },
+        tables: [
+          {
+            name: "baseline_jugendliche_export",
+            rowCount: 3,
+            columns: [
+              "participant_id",
+              "selbstwirksamkeit_baseline_1_5",
+              "selbstwirksamkeit_abschluss_1_5",
+            ],
+          },
+        ],
+      },
+      createdAt: NOW,
+      updatedAt: NOW,
+    }),
+  } as unknown as PrivacySafeRepresentationRepository;
+
+  const service = new DatasetPreparationService(
+    repository,
+    privacySafeRepresentationRepository,
+  );
+
+  const groupId = "baseline_jugendliche_export::selbstwirksamkeit";
+  const groupColumns = [
+    {
+      tableName: "baseline_jugendliche_export",
+      columnName: "selbstwirksamkeit_baseline_1_5",
+    },
+    {
+      tableName: "baseline_jugendliche_export",
+      columnName: "selbstwirksamkeit_abschluss_1_5",
+    },
+  ];
+
+  // Simulates the frontend fanning out one instrument-group answer into the
+  // real per-column questions (see interpretationGroupQuestionCard.tsx) —
+  // both columns get the identical declared value "1 bis 5".
+  const groupedQuestionsFor = (columnName: string) => [
+    {
+      id: `question-scale-confirm-${columnName}`,
+      kind: "single_choice" as const,
+      questionDomain: "preparation" as const,
+      userFacingPrompt: "Ist das eine Selbsteinschaetzung?",
+      userFacingOptions: [
+        {
+          value: "Ja, das ist eine Selbsteinschaetzung",
+          label: "Ja, das ist eine Selbsteinschaetzung",
+        },
+        {
+          value: "Nein, das ist etwas anderes",
+          label: "Nein, das ist etwas anderes",
+        },
+      ],
+      recommendedOption: null,
+      recommendedConfidence: null,
+      isBlocking: true,
+      questionCode: "validated_scale_confirmation" as const,
+      targetTableName: "baseline_jugendliche_export",
+      targetColumnName: columnName,
+      questionData: null,
+      status: "answered" as const,
+      answeredValue: "Ja, das ist eine Selbsteinschaetzung",
+      answeredById: "user-1",
+      answeredAt: NOW,
+      preparationGroupId: groupId,
+      preparationGroupColumns: groupColumns,
+    },
+    {
+      id: `question-scale-bounds-${columnName}`,
+      kind: "free_text" as const,
+      questionDomain: "preparation" as const,
+      userFacingPrompt: "Was ist der volle moegliche Wertebereich der Skala?",
+      userFacingOptions: null,
+      recommendedOption: null,
+      recommendedConfidence: null,
+      isBlocking: true,
+      questionCode: "declared_scale_bounds" as const,
+      targetTableName: "baseline_jugendliche_export",
+      targetColumnName: columnName,
+      questionData: null,
+      status: "answered" as const,
+      answeredValue: "1 bis 5",
+      answeredById: "user-1",
+      answeredAt: NOW,
+      preparationGroupId: groupId,
+      preparationGroupColumns: groupColumns,
+    },
+  ];
+
+  await service.syncForInterpretationResult(
+    makeResult({
+      questions: [
+        ...groupedQuestionsFor("selbstwirksamkeit_baseline_1_5"),
+        ...groupedQuestionsFor("selbstwirksamkeit_abschluss_1_5"),
+      ],
+      datasetProfile: {
+        tableCount: 1,
+        paragraphCount: 0,
+        tables: [
+          {
+            name: "baseline_jugendliche_export",
+            rowCount: 3,
+            columnCount: 3,
+            likelyIdentifierColumns: ["participant_id"],
+            likelyStatusColumns: [],
+            likelyStageColumns: [],
+            likelyDateColumns: [],
+            likelyMeasureColumns: [
+              "selbstwirksamkeit_baseline_1_5",
+              "selbstwirksamkeit_abschluss_1_5",
+            ],
+            likelyFreeTextColumns: [],
+            likelySubgroupColumns: [],
+            columns: [
+              {
+                name: "participant_id",
+                inferredType: "identifier",
+                roleHints: ["likely_identifier"],
+                nullPercentage: 0,
+                distinctCount: 3,
+                averageTextLength: 3,
+                topValues: [],
+                numericSummary: null,
+                dateSummary: null,
+                duplicateNonNullValueCount: 0,
+                epistemicRole: "identifier",
+                isValidatedScaleCandidate: false,
+              },
+              {
+                name: "selbstwirksamkeit_baseline_1_5",
+                inferredType: "numeric",
+                roleHints: ["likely_measure"],
+                nullPercentage: 0,
+                distinctCount: 3,
+                averageTextLength: null,
+                topValues: [],
+                numericSummary: { min: 2, max: 4, mean: 3 },
+                dateSummary: null,
+                duplicateNonNullValueCount: 0,
+                epistemicRole: "metric_count",
+                isValidatedScaleCandidate: true,
+              },
+              {
+                // Observed max of 7 is outside the group's declared 1-5
+                // bounds — a real inconsistency (e.g. one side of the pair
+                // was actually run on a different scale) that fan-out's
+                // identical-by-construction bounds must not paper over.
+                name: "selbstwirksamkeit_abschluss_1_5",
+                inferredType: "numeric",
+                roleHints: ["likely_measure"],
+                nullPercentage: 0,
+                distinctCount: 3,
+                averageTextLength: null,
+                topValues: [],
+                numericSummary: { min: 3, max: 7, mean: 5 },
+                dateSummary: null,
+                duplicateNonNullValueCount: 0,
+                epistemicRole: "metric_count",
+                isValidatedScaleCandidate: true,
+              },
+            ],
+          },
+        ],
+        issues: [],
+      },
+    }),
+  );
+
+  const input = requireCapturedInput(capturedInput);
+  const baselineColumn = input.preparedDataset?.tables[0]?.columns.find(
+    (candidate) => candidate.name === "selbstwirksamkeit_baseline_1_5",
+  );
+  const endlineColumn = input.preparedDataset?.tables[0]?.columns.find(
+    (candidate) => candidate.name === "selbstwirksamkeit_abschluss_1_5",
+  );
+
+  assert.equal(baselineColumn?.scaleMin, 1);
+  assert.equal(baselineColumn?.scaleMax, 5);
+  assert.equal(endlineColumn?.scaleMin, 1);
+  assert.equal(endlineColumn?.scaleMax, 5);
+
+  const boundsSelection = input.decisionSummary.declaredScaleBounds.find(
+    (selection) => selection.columnName === "selbstwirksamkeit_baseline_1_5",
+  );
+  assert.equal(boundsSelection?.groupId, groupId);
+  assert.deepEqual(boundsSelection?.groupColumns, groupColumns);
+
+  assert.equal(input.preparedDataset?.isReadyForDeterministicAnalysis, false);
+  assert.ok(
+    input.preparedDataset?.unresolvedRequirements.some((message) =>
+      message.includes("selbstwirksamkeit_abschluss_1_5"),
+    ),
+  );
 });

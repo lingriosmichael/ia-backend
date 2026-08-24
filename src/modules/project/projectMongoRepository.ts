@@ -4,6 +4,7 @@ import {
   applyMongoSession,
   getMongoSessionOptions,
 } from "../../shared/database/mongoSession.js";
+import { UNPAGINATED_LIST_QUERY_MAX_RESULTS } from "../../shared/database/queryLimits.js";
 import { AppError } from "../../shared/errors/appError.js";
 import {
   ProjectMongoModel,
@@ -206,7 +207,9 @@ export class MongoProjectRepository implements ProjectRepository {
     session: DatabaseSession,
   ): Promise<ProjectPersistenceRecord[]> {
     const documents = await applyMongoSession(
-      ProjectMongoModel.find({ organizationId }).sort({ createdAt: -1 }),
+      ProjectMongoModel.find({ organizationId })
+        .sort({ createdAt: -1 })
+        .limit(UNPAGINATED_LIST_QUERY_MAX_RESULTS),
       session,
     ).exec();
 
@@ -223,9 +226,9 @@ export class MongoProjectRepository implements ProjectRepository {
     session: DatabaseSession,
   ): Promise<ProjectPersistenceRecord[]> {
     const documents = await applyMongoSession(
-      ProjectMongoModel.find({ organizationId, ownerId }).sort({
-        createdAt: -1,
-      }),
+      ProjectMongoModel.find({ organizationId, ownerId })
+        .sort({ createdAt: -1 })
+        .limit(UNPAGINATED_LIST_QUERY_MAX_RESULTS),
       session,
     ).exec();
 

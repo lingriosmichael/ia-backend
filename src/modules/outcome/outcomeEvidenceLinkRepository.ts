@@ -9,6 +9,10 @@ export interface OutcomeEvidenceLinkRepository {
     input: OutcomeEvidenceLinkCreateInput,
     session: DatabaseSession,
   ): Promise<OutcomeEvidenceLinkPersistenceRecord>;
+  deleteByOutcomeIds(
+    outcomeIds: string[],
+    session: DatabaseSession,
+  ): Promise<number>;
   deleteByProjectId(
     projectId: string,
     session: DatabaseSession,

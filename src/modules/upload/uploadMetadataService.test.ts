@@ -143,6 +143,148 @@ test("upload create clears acknowledgment and invalidates project derived state 
   ]);
 });
 
+test("upload replacement clears processing and Wirkungsaussage state for the superseded upload", async () => {
+  const calls: string[] = [];
+
+  const uploadMetadataRepository = {
+    findById: async (uploadMetadataId: string) => {
+      if (uploadMetadataId === "upload-1") {
+        return {
+          id: "upload-1",
+          organizationId: "org-1",
+          projectId: "project-1",
+          activityId: "activity-1",
+          logicalEvidenceId: "logical-1",
+          versionNumber: 1,
+          replacesUploadMetadataId: null,
+          supersededAt: null,
+          originalFileName: "old.csv",
+          contentType: "text/csv",
+          sizeBytes: 10,
+          storageKey: "uploads/old.csv",
+          originalFileDeletedAt: null,
+          status: "uploaded",
+          uploadedById: "user-1",
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        };
+      }
+      return null;
+    },
+    create: async () => {
+      calls.push("createUpload");
+      return {
+        id: "upload-2",
+        organizationId: "org-1",
+        projectId: "project-1",
+        activityId: "activity-1",
+        logicalEvidenceId: "logical-1",
+        versionNumber: 2,
+        replacesUploadMetadataId: "upload-1",
+        supersededAt: null,
+        originalFileName: "new.csv",
+        contentType: "text/csv",
+        sizeBytes: 11,
+        storageKey: "uploads/new.csv",
+        originalFileDeletedAt: null,
+        status: "uploaded",
+        uploadedById: "user-1",
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      };
+    },
+    update: async (uploadMetadataId: string) => {
+      calls.push(`archive:${uploadMetadataId}`);
+      return null;
+    },
+  } as unknown as UploadMetadataRepository;
+
+  const authorizationService = {
+    canUploadToActivity: async () => ({
+      project: {
+        id: "project-1",
+        organizationId: "org-1",
+      },
+      activity: {
+        id: "activity-1",
+        projectId: "project-1",
+        name: "Activity One",
+        description: null,
+        startDate: null,
+        endDate: null,
+        objectives: null,
+        output: null,
+        targetAudience: null,
+        status: "active",
+        interpretationAcknowledgedAt: null,
+        interpretationAcknowledgedById: null,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      },
+    }),
+  } as unknown as AuthorizationService;
+
+  const processingJobRepository = {
+    findActiveByUploadMetadataId: async () => null,
+    deleteByUploadMetadataId: async (uploadMetadataId: string) => {
+      calls.push(`deleteJobs:${uploadMetadataId}`);
+    },
+  } as unknown as ProcessingJobRepository;
+
+  const processingResourceCleanupService = {
+    deleteActivityAggregateStateByActivityId: async (activityId: string) => {
+      calls.push(`clearActivityAggregate:${activityId}`);
+    },
+    deleteByUploadMetadataId: async (uploadMetadataId: string) => {
+      calls.push(`cleanupSuperseded:${uploadMetadataId}`);
+    },
+  } as unknown as ProcessingResourceCleanupService;
+
+  const service = new UploadMetadataService(
+    uploadMetadataRepository,
+    {} as ActivityService,
+    authorizationService,
+    {} as never,
+    {
+      findById: async () => ({ id: "user-1", fullName: "User One" }),
+      findByIds: async () => [{ id: "user-1", fullName: "User One" }],
+    } as unknown as UserRepository,
+    {} as TransactionManager,
+    {
+      findById: async () => ({
+        id: "activity-1",
+        projectId: "project-1",
+        interpretationAcknowledgedAt: null,
+        interpretationAcknowledgedById: null,
+      }),
+      update: async () => ({ id: "activity-1", projectId: "project-1" }),
+    } as unknown as ActivityRepository,
+    processingJobRepository,
+    processingResourceCleanupService,
+    {
+      invalidateProject: async (projectId: string) => {
+        calls.push(`invalidate:${projectId}`);
+      },
+    } as unknown as ProjectDerivedStateInvalidationService,
+    { error: () => undefined } as never,
+  );
+
+  await service.create("user-1", "project-1", {
+    activityId: "activity-1",
+    originalFileName: "new.csv",
+    replacesUploadMetadataId: "upload-1",
+  });
+
+  assert.deepEqual(calls, [
+    "createUpload",
+    "archive:upload-1",
+    "cleanupSuperseded:upload-1",
+    "deleteJobs:upload-1",
+    "invalidate:project-1",
+    "clearActivityAggregate:activity-1",
+  ]);
+});
+
 test("upload delete clears acknowledgment and invalidates project derived state when deleting acknowledged evidence", async () => {
   const calls: string[] = [];
 

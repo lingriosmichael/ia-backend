@@ -6,6 +6,7 @@
 // rationale and dependency order).
 import type { ActivityAnalysisV2CalculationRecord } from "../../shared/contracts.js";
 import {
+  computeQuantile,
   toCategoryValue,
   toNumericValue,
 } from "./deterministicAnalysisService.js";
@@ -260,11 +261,7 @@ export function calculateMedian(values: number[]): number | null {
     return null;
   }
   const sorted = [...values].sort((left, right) => left - right);
-  const midpoint = Math.floor(sorted.length / 2);
-  if (sorted.length % 2 === 0) {
-    return (sorted[midpoint - 1]! + sorted[midpoint]!) / 2;
-  }
-  return sorted[midpoint] ?? null;
+  return computeQuantile(sorted, 0.5);
 }
 
 export function computeGroupAggregateMetric(

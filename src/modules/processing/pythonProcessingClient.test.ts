@@ -295,6 +295,79 @@ test("planActivityAnalysisV2 posts to the dedicated planner endpoint and uses it
   assert.equal(result.validation.status, "passed");
 });
 
+// Regression test: a real narrative generation was observed timing out at
+// the generic 120s llmTimeoutMs despite running inside the
+// project_impact_story background job (see
+// projectImpactStoryController.ts/activityAnalysisWorker.ts), which has no
+// live user-facing connection to keep short. Confirms the dedicated
+// projectImpactStoryLlmTimeoutMs budget is actually wired to this call.
+test("generateProjectImpactStoryNarrative uses its own dedicated background-job timeout budget", async (t) => {
+  let capturedTimeoutMs: number | null = null;
+  t.mock.method(AbortSignal, "timeout", (delay: number) => {
+    capturedTimeoutMs = delay;
+    return new AbortController().signal;
+  });
+  t.mock.method(globalThis, "fetch", async () =>
+    jsonResponse({
+      narrativeSummary: "Text.",
+      groundingStatus: "PASSED",
+      groundingRetryCount: 0,
+      fellBackToDeterministicSummary: false,
+    }),
+  );
+
+  const client = new PythonProcessingClient(
+    "https://python.example",
+    "secret",
+    30_000,
+    120_000,
+  );
+
+  await client.generateProjectImpactStoryNarrative({
+    projectId: "project-1",
+    projectName: "Mentoring Program",
+    language: "de",
+    outputFacts: [],
+    catalog: [],
+  });
+
+  assert.equal(capturedTimeoutMs, 300_000);
+});
+
+test("planProjectImpactStoryChart uses its own dedicated background-job timeout budget", async (t) => {
+  let capturedTimeoutMs: number | null = null;
+  t.mock.method(AbortSignal, "timeout", (delay: number) => {
+    capturedTimeoutMs = delay;
+    return new AbortController().signal;
+  });
+  t.mock.method(globalThis, "fetch", async () =>
+    jsonResponse({
+      headlineKpis: [],
+      chartPlan: [],
+      groundingStatus: "PASSED",
+      fellBackToDeterministicSelection: false,
+    }),
+  );
+
+  const client = new PythonProcessingClient(
+    "https://python.example",
+    "secret",
+    30_000,
+    120_000,
+  );
+
+  await client.planProjectImpactStoryChart({
+    projectId: "project-1",
+    projectName: "Mentoring Program",
+    language: "de",
+    catalog: [],
+    allowedChartTypes: ["bar", "pie", "line", "comparison", "distribution"],
+    headlineKpiCount: 4,
+  });
+
+  assert.equal(capturedTimeoutMs, 300_000);
+});
+
 test("planActivityAnalysisV2 accepts clarificationQuestions using the epistemicRole question codes", async (t) => {
   // Regression test: the planner's InterpretationQuestionDraft schema
   // (Python) and contracts.ts's interpretationQuestionCodeValues both

@@ -22,6 +22,7 @@ import type { UploadMetadataPersistenceRecord } from "../upload/uploadMetadataPe
 import type {
   PythonProcessingClient,
   ProjectImpactStoryNarrativeCatalogEntryRequest,
+  ProjectImpactStoryNarrativeOutputFactRequest,
 } from "../processing/pythonProcessingClient.js";
 import type { ProjectLlmTokenLedgerService } from "../project/projectLlmTokenLedgerService.js";
 import type { OutcomeEvidenceLinkRepository } from "../outcome/outcomeEvidenceLinkRepository.js";
@@ -40,6 +41,8 @@ import {
 } from "./projectImpactStoryCatalog.js";
 import { buildProjectImpactStoryContextCatalog } from "./projectImpactStoryContextCatalog.js";
 import { buildProjectImpactStoryImpactCatalog } from "./projectImpactStoryImpactCatalog.js";
+import { buildProjectImpactStoryGoalProgressEntries } from "./projectImpactStoryGoalProgress.js";
+import { buildProjectImpactStoryChartBacklog } from "./projectImpactStoryChartBacklog.js";
 import { buildProjectImpactStoryPairedStoryDeltaCatalog } from "./projectImpactStoryPairedStoryDeltaCatalog.js";
 import {
   executeProjectImpactStoryChartPlan,
@@ -77,7 +80,9 @@ function composeProjectImpactStoryRecord(
     activityCards: snapshot.activityCards,
     headlineKpis: snapshot.headlineKpis,
     chartPlan: snapshot.chartPlan,
+    backlogChartPlan: snapshot.backlogChartPlan,
     contextCharts: snapshot.contextCharts,
+    goalProgressEntries: snapshot.goalProgressEntries,
     impactCatalog: overlay?.impactCatalog ?? [],
     narrativeSummary: overlay?.narrativeSummary ?? null,
     narrativeStatus: overlay?.narrativeStatus ?? null,
@@ -213,6 +218,22 @@ function toProjectImpactStoryNarrativeCatalogEntryRequests(
       outcomeStatement: entry.outcomeStatement,
     };
   });
+}
+
+// "output-" prefixed so an output fact's entryId can never collide with an
+// impactCatalog entryId in the same narrative request — the two lists come
+// from independent id generators, and a collision would make a grounding
+// violation impossible to trace back to the right source.
+function toProjectImpactStoryNarrativeOutputFactRequests(
+  headlineKpis: ProjectImpactStoryHeadlineKpi[],
+): ProjectImpactStoryNarrativeOutputFactRequest[] {
+  return headlineKpis.map((kpi) => ({
+    entryId: `output-${kpi.kpiId}`,
+    label: kpi.label,
+    value: kpi.value,
+    formatAs: kpi.formatAs,
+    narrativeReason: kpi.narrativeReason,
+  }));
 }
 
 function formatNarrativeMonth(value: string | null): string | null {
@@ -402,6 +423,38 @@ export class ProjectImpactStoryService {
         project.id,
         databaseSession,
       );
+
+    // Both assembly's activitiesWithNoGroundedIndicators and
+    // buildProjectChartOpportunityAudit's "no current analysis run" entries
+    // below only track each activity's own ActivityAnalystV2 goal
+    // indicators — neither has any idea a zero-goal activity (e.g.
+    // Baseline/Wirkungsmessung, whose only role is supplying the
+    // before/after columns a paired_delta OutcomeEvidenceLink measures)
+    // can still be squarely in use via this completely different data
+    // source, loaded here. Without this, an activity directly powering the
+    // narrative one card up still showed up as "not yet analyzed" in both
+    // the narrative banner's footnote and the Diagnose panel.
+    const activityIdsWithConfirmedOutcomeEvidence = new Set(
+      confirmedLinks.flatMap((link) =>
+        link.shape === "paired_delta"
+          ? [link.activityIdBefore, link.activityIdAfter]
+          : [link.activityId],
+      ),
+    );
+    const activityIdByName = new Map(
+      normalizedActivities.map((activity) => [activity.name, activity.id]),
+    );
+    assembly.diagnostics.activitiesWithNoGroundedIndicators =
+      assembly.diagnostics.activitiesWithNoGroundedIndicators.filter(
+        (activityName) => {
+          const activityId = activityIdByName.get(activityName);
+          return (
+            activityId === undefined ||
+            !activityIdsWithConfirmedOutcomeEvidence.has(activityId)
+          );
+        },
+      );
+
     const impactCatalog = await buildProjectImpactStoryImpactCatalog(
       {
         currentActivityEvidenceLoader: this.currentActivityEvidenceLoader,
@@ -438,6 +491,11 @@ export class ProjectImpactStoryService {
       );
     const fullCatalog = [...catalog, ...pairedStoryDeltaCatalog];
 
+    // Deterministic — always computed, never subject to chart-plan
+    // selection. See projectImpactStoryGoalProgress.ts.
+    const goalProgressEntries =
+      buildProjectImpactStoryGoalProgressEntries(fullCatalog);
+
     // Deterministic (no LLM) audit of every chart-worthy fact this run
     // could support — computed here, from the exact same catalog data
     // just assembled above, so its entryIds line up 1:1 with `fullCatalog`
@@ -449,6 +507,7 @@ export class ProjectImpactStoryService {
         normalizedActivities,
         activityAnalysisRuns,
         normalizedUploads,
+        activityIdsWithConfirmedOutcomeEvidence,
       ),
       ...pairedStoryDeltaCatalog.map(
         (entry): ProjectChartOpportunityAuditEntry => ({
@@ -473,6 +532,7 @@ export class ProjectImpactStoryService {
       catalog: fullCatalog,
       contextCharts: fallbackContextCharts,
       impactCatalog,
+      goalProgressEntries,
       chartOpportunityAudit,
     };
   }
@@ -480,6 +540,7 @@ export class ProjectImpactStoryService {
   private async generateNarrative(
     project: ProjectImpactStoryProjectContext,
     impactCatalog: ImpactCatalogItem[],
+    headlineKpis: ProjectImpactStoryHeadlineKpi[],
     language: "de" | "en",
   ): Promise<{
     narrativeSummary: string;
@@ -500,6 +561,8 @@ export class ProjectImpactStoryService {
           project.targetGroups.find((group) => group.trim().length > 0) ??
           null,
         region: project.areaOfOperation,
+        outputFacts:
+          toProjectImpactStoryNarrativeOutputFactRequests(headlineKpis),
         catalog:
           toProjectImpactStoryNarrativeCatalogEntryRequests(impactCatalog),
       });
@@ -511,12 +574,38 @@ export class ProjectImpactStoryService {
       databaseSession,
     );
 
+    const narrativeStatus: ProjectImpactStoryNarrativeStatus =
+      response.groundingStatus === "PASSED"
+        ? "generated"
+        : "deterministic_fallback";
+
+    // The one place a grounding-exhaustion fallback becomes visible at
+    // all: Python's HTTP call succeeds (200) either way, so nothing here
+    // throws and the catch block in buildProjectImpactStory never sees
+    // this case — without this log, "the narrative silently fell back to
+    // the template" was previously undiagnosable from ia_backend's side.
+    const logFields = {
+      projectId: project.id,
+      impactCatalogCount: impactCatalog.length,
+      outputFactCount: headlineKpis.length,
+      groundingStatus: response.groundingStatus,
+      groundingRetryCount: response.groundingRetryCount,
+      narrativeLength: response.narrativeSummary.length,
+      llmTotalTokens: llmUsage?.totalTokens ?? 0,
+      llmTotalCalls: llmUsage?.totalCalls ?? 0,
+    };
+    if (narrativeStatus === "generated") {
+      this.logger.info(logFields, "project impact story narrative generated");
+    } else {
+      this.logger.warn(
+        logFields,
+        "project impact story narrative fell back to deterministic template: grounding never passed",
+      );
+    }
+
     return {
       narrativeSummary: response.narrativeSummary,
-      narrativeStatus:
-        response.groundingStatus === "PASSED"
-          ? "generated"
-          : "deterministic_fallback",
+      narrativeStatus,
       llmUsage,
     };
   }
@@ -530,6 +619,7 @@ export class ProjectImpactStoryService {
     project: ProjectImpactStoryProjectContext,
     catalog: ProjectImpactStoryCatalogEntry[],
     language: "de" | "en",
+    hasGoalProgressChart: boolean,
   ): Promise<{
     headlineKpis: ProjectImpactStoryHeadlineKpi[];
     chartPlan: ProjectImpactStoryChartSpec[];
@@ -537,6 +627,10 @@ export class ProjectImpactStoryService {
     llmUsage: LlmUsageSummary | null;
   }> {
     if (catalog.length === 0) {
+      this.logger.info(
+        { projectId: project.id },
+        "project impact story chart plan skipped: no catalog candidates",
+      );
       return {
         headlineKpis: [],
         chartPlan: [],
@@ -560,6 +654,7 @@ export class ProjectImpactStoryService {
         catalog,
         response,
         language,
+        hasGoalProgressChart,
       );
       const llmUsage = response.llmUsage ?? null;
       await this.projectLlmTokenLedgerService.recordUsage(
@@ -567,6 +662,37 @@ export class ProjectImpactStoryService {
         llmUsage,
         databaseSession,
       );
+
+      // fellBackToDeterministicSelection was previously parsed off the
+      // Python response and then discarded everywhere — the same class of
+      // silent-fallback gap generateNarrative had, just without a status
+      // field on the record to hide behind. Logged here since there's no
+      // persisted field for it to surface through instead.
+      const logFields = {
+        projectId: project.id,
+        catalogCandidateCount: catalog.length,
+        groundingStatus: response.groundingStatus,
+        fellBackToDeterministicSelection:
+          response.fellBackToDeterministicSelection,
+        headlineKpiCount: executed.headlineKpis.length,
+        chartCount: executed.chartPlan.length,
+        droppedKpiCount: executed.droppedKpiCount,
+        droppedChartCount: executed.droppedChartCount,
+        selectedEntryCount: executed.selectedEntryIds.length,
+        llmTotalTokens: llmUsage?.totalTokens ?? 0,
+        llmTotalCalls: llmUsage?.totalCalls ?? 0,
+      };
+      if (response.fellBackToDeterministicSelection) {
+        this.logger.warn(
+          logFields,
+          "project impact story chart plan fell back to deterministic selection: grounding never passed",
+        );
+      } else {
+        this.logger.info(
+          logFields,
+          "project impact story chart plan generated",
+        );
+      }
 
       return {
         headlineKpis: executed.headlineKpis,
@@ -576,7 +702,11 @@ export class ProjectImpactStoryService {
       };
     } catch (error) {
       this.logger.error(
-        { err: error, projectId: project.id },
+        {
+          err: error,
+          projectId: project.id,
+          catalogCandidateCount: catalog.length,
+        },
         "project impact story chart plan failed; using deterministic fallback KPIs",
       );
 
@@ -595,23 +725,88 @@ export class ProjectImpactStoryService {
     projectId: string,
     language: "de" | "en",
   ): Promise<ProjectImpactStoryRecord> {
+    const startedAt = Date.now();
+    this.logger.info(
+      { projectId, language },
+      "project impact story generation started",
+    );
+
     const {
       project,
       assembly,
       catalog,
       contextCharts,
       impactCatalog,
+      goalProgressEntries,
       chartOpportunityAudit,
     } = await this.assertReadyForImpactStoryRun(userId, projectId, language);
+
+    const impactCatalogByShape = impactCatalog.reduce<Record<string, number>>(
+      (counts, entry) => {
+        counts[entry.shape] = (counts[entry.shape] ?? 0) + 1;
+        return counts;
+      },
+      {},
+    );
+    const chartOpportunityByStatus = chartOpportunityAudit.reduce<
+      Record<string, number>
+    >((counts, entry) => {
+      counts[entry.status] = (counts[entry.status] ?? 0) + 1;
+      return counts;
+    }, {});
+    this.logger.info(
+      {
+        projectId,
+        activityCount: assembly.activityCards.length,
+        chartPlanCatalogCandidateCount: catalog.length,
+        contextChartCandidateCount: contextCharts.length,
+        impactCatalogCount: impactCatalog.length,
+        impactCatalogByShape,
+        goalProgressEntryCount: goalProgressEntries.length,
+        chartOpportunityByStatus,
+      },
+      "project impact story catalog assembled",
+    );
+
+    // Every exit point below composes and persists a record with a
+    // different shape (no impact catalog at all; narrative generated;
+    // narrative fell back after an exception) — logged once here rather
+    // than duplicated at each return so "what did this run actually
+    // produce" always gets logged regardless of which path it took.
+    const logCompletion = (record: ProjectImpactStoryRecord) => {
+      this.logger.info(
+        {
+          projectId,
+          durationMs: Date.now() - startedAt,
+          chartCount: record.chartPlan.length,
+          backlogChartCount: record.backlogChartPlan.length,
+          headlineKpiCount: record.headlineKpis.length,
+          contextChartCount: record.contextCharts.length,
+          impactCatalogCount: record.impactCatalog.length,
+          goalProgressEntryCount: record.goalProgressEntries.length,
+          narrativeStatus: record.narrativeStatus,
+          llmTotalTokens: record.llmUsage?.totalTokens ?? 0,
+        },
+        "project impact story generation completed",
+      );
+      return record;
+    };
 
     const chartPlanResult = await this.planChartsAndKpis(
       project,
       catalog,
       language,
+      goalProgressEntries.length > 0,
     );
 
     const fallbackContextCharts =
       chartPlanResult.chartPlan.length === 0 ? contextCharts : [];
+
+    const backlogChartPlan = buildProjectImpactStoryChartBacklog(
+      catalog,
+      new Set(chartPlanResult.selectedEntryIds),
+      language,
+    );
 
     // Computed from this exact generation's own opportunity audit and
     // selectedEntryIds — never a later recomputation against
@@ -631,7 +826,9 @@ export class ProjectImpactStoryService {
         activityCards: assembly.activityCards,
         headlineKpis: chartPlanResult.headlineKpis,
         chartPlan: chartPlanResult.chartPlan,
+        backlogChartPlan,
         contextCharts: fallbackContextCharts,
+        goalProgressEntries,
         diagnostics: {
           ...assembly.diagnostics,
           chartOpportunityAudit,
@@ -651,13 +848,14 @@ export class ProjectImpactStoryService {
     };
 
     if (impactCatalog.length === 0) {
-      return composeProjectImpactStoryRecord(snapshot, null);
+      return logCompletion(composeProjectImpactStoryRecord(snapshot, null));
     }
 
     try {
       const narrative = await this.generateNarrative(
         project,
         impactCatalog,
+        chartPlanResult.headlineKpis,
         language,
       );
 
@@ -672,7 +870,7 @@ export class ProjectImpactStoryService {
         },
         databaseSession,
       );
-      return composeProjectImpactStoryRecord(snapshot, story);
+      return logCompletion(composeProjectImpactStoryRecord(snapshot, story));
     } catch (error) {
       this.logger.error(
         { err: error, projectId: project.id },
@@ -694,7 +892,7 @@ export class ProjectImpactStoryService {
         },
         databaseSession,
       );
-      return composeProjectImpactStoryRecord(snapshot, story);
+      return logCompletion(composeProjectImpactStoryRecord(snapshot, story));
     }
   }
 

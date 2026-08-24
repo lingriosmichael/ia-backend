@@ -75,6 +75,17 @@ export function buildProjectChartOpportunityAudit(
   activities: ProjectChartOpportunityAuditInputActivity[],
   activityAnalysisRuns: ActivityAnalysisRunV2PersistenceRecord[],
   uploads: ProjectChartOpportunityAuditInputUpload[],
+  // An activity with no completed ActivityAnalystV2 run (e.g.
+  // Baseline/Wirkungsmessung, whose only role is supplying the before/after
+  // columns a confirmed paired_delta OutcomeEvidenceLink measures) isn't
+  // actually blocked from this audit's point of view once it's in use that
+  // way — its data already reached the story through impactCatalog, a
+  // completely different mechanism than the per-activity run this audit
+  // otherwise checks for. Telling the reader "run analysis again to enable
+  // chart candidates" for such an activity would be actionable-sounding
+  // advice that fixes nothing. Defaults to empty so every existing caller
+  // (and this file's own tests) keeps working unchanged.
+  activityIdsWithConfirmedOutcomeEvidence: Set<string> = new Set(),
 ): ProjectChartOpportunityAuditEntry[] {
   const { latestRunsByActivityId, activitiesExcludedIds } =
     selectCurrentV2RunsByActivity(activities, activityAnalysisRuns, uploads);
@@ -86,6 +97,9 @@ export function buildProjectChartOpportunityAudit(
   const entries: ProjectChartOpportunityAuditEntry[] = [];
 
   for (const activityId of activitiesExcludedIdSet) {
+    if (activityIdsWithConfirmedOutcomeEvidence.has(activityId)) {
+      continue;
+    }
     const activity = activityById.get(activityId);
     if (!activity) {
       continue;

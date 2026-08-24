@@ -179,6 +179,10 @@ export function createFakeRepositories(options: {
       };
       return projectKnowledgeModel;
     },
+    markStale: async () => {
+      projectKnowledgeModel = { ...projectKnowledgeModel, status: "stale" };
+      return projectKnowledgeModel;
+    },
   } as unknown as ProjectKnowledgeModelRepository;
 
   const knowledgeEntityRepository = {
@@ -420,6 +424,9 @@ export function createFakeRepositories(options: {
     knowledgeEntities,
     get knowledgeIndicators() {
       return knowledgeIndicators;
+    },
+    get projectKnowledgeModelStatus() {
+      return projectKnowledgeModel.status;
     },
   };
 }

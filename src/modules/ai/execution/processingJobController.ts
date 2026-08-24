@@ -9,6 +9,7 @@ import {
   workerHeartbeatSchema,
 } from "../../../schemas/httpSchemas.js";
 import { ProcessingJobService } from "./processingJobService.js";
+import { requireParam } from "../../../shared/http/requireParam.js";
 
 export class ProcessingJobController {
   constructor(private readonly processingJobService: ProcessingJobService) {}
@@ -19,7 +20,7 @@ export class ProcessingJobController {
     const params = idParamSchema.parse(request.params);
     const jobs = await this.processingJobService.listByActivity(
       auth.userId,
-      params.activityId!,
+      requireParam(params, "activityId"),
     );
     return successResponse(jobs);
   }
@@ -30,7 +31,7 @@ export class ProcessingJobController {
     const params = idParamSchema.parse(request.params);
     const job = await this.processingJobService.getById(
       auth.userId,
-      params.processingJobId!,
+      requireParam(params, "processingJobId"),
     );
     return successResponse(job);
   }
@@ -41,7 +42,7 @@ export class ProcessingJobController {
     const params = idParamSchema.parse(request.params);
     const job = await this.processingJobService.sync(
       auth.userId,
-      params.processingJobId!,
+      requireParam(params, "processingJobId"),
     );
     return successResponse(job);
   }
@@ -52,7 +53,7 @@ export class ProcessingJobController {
     const params = idParamSchema.parse(request.params);
     const job = await this.processingJobService.cancel(
       auth.userId,
-      params.processingJobId!,
+      requireParam(params, "processingJobId"),
     );
     return successResponse(job);
   }
@@ -73,7 +74,7 @@ export class ProcessingJobController {
     const params = idParamSchema.parse(request.params);
     const payload = workerHeartbeatSchema.parse(request.body);
     const job = await this.processingJobService.renewLease(
-      params.processingJobId!,
+      requireParam(params, "processingJobId"),
       payload.workerId,
     );
     return successResponse(job);
@@ -82,7 +83,7 @@ export class ProcessingJobController {
   async getSourceFileInternally(request: FastifyRequest, reply: FastifyReply) {
     const params = idParamSchema.parse(request.params);
     const file = await this.processingJobService.getSourceFileForWorker(
-      params.processingJobId!,
+      requireParam(params, "processingJobId"),
     );
 
     return reply
@@ -98,7 +99,7 @@ export class ProcessingJobController {
     const params = idParamSchema.parse(request.params);
     const payload = processingJobCallbackSchema.parse(request.body);
     const job = await this.processingJobService.applyExternalCompletion(
-      params.processingJobId!,
+      requireParam(params, "processingJobId"),
       payload,
     );
     return successResponse(job);
@@ -110,7 +111,7 @@ export class ProcessingJobController {
     const file = await request.file();
     const response =
       await this.processingJobService.createDerivedWorkbookSheetUpload(
-        params.processingJobId!,
+        requireParam(params, "processingJobId"),
         file,
         {
           sheetName: query.sheetName,
@@ -125,7 +126,7 @@ export class ProcessingJobController {
     const params = idParamSchema.parse(request.params);
     const response =
       await this.processingJobService.rollbackDerivedWorkbookSheetUploads(
-        params.processingJobId!,
+        requireParam(params, "processingJobId"),
       );
 
     return successResponse(response);

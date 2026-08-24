@@ -97,6 +97,12 @@ const ISO_DATE_TIME_WITHOUT_ZONE_PATTERN =
 // "10.07.2026" as October 7th instead of July 10th.
 const DAY_FIRST_DATE_PATTERN = /^(\d{1,2})[./](\d{1,2})[./](\d{4})$/;
 
+// Days in `month` (1-based) for `year`, accounting for leap years. Passing
+// day 0 of the following month yields the last day of `month` itself.
+function daysInMonth(year: number, month: number): number {
+  return new Date(Date.UTC(year, month, 0)).getUTCDate();
+}
+
 export function toDateValue(value: unknown): Date | null {
   if (
     typeof value !== "string" &&
@@ -112,7 +118,17 @@ export function toDateValue(value: unknown): Date | null {
       const day = Number(dayFirstMatch[1]);
       const month = Number(dayFirstMatch[2]);
       const year = Number(dayFirstMatch[3]);
-      if (month < 1 || month > 12 || day < 1 || day > 31) {
+      // day > 31 alone doesn't catch every invalid date (e.g. "30.02.2026"
+      // has day=30 <= 31 and month=2 <= 12, but February never has 30
+      // days) — Date.UTC would silently roll an invalid day like that into
+      // the next month instead of rejecting it. Validate against the
+      // actual day count for this month/year.
+      if (
+        month < 1 ||
+        month > 12 ||
+        day < 1 ||
+        day > daysInMonth(year, month)
+      ) {
         return null;
       }
       const date = new Date(Date.UTC(year, month - 1, day));
@@ -227,6 +243,18 @@ export function resolveObservedValuesForColumn(
     .map(([value]) => value);
 }
 
+// Matches a decimal-comma number with no thousands grouping, e.g. "12,5" —
+// the German-locale convention used throughout this codebase's NGO
+// spreadsheet uploads (see DAY_FIRST_DATE_PATTERN above for the date
+// equivalent).
+const DECIMAL_COMMA_PATTERN = /^-?\d+,\d{1,2}$/;
+
+// Matches a comma-grouped thousands number, optionally with a decimal point,
+// e.g. "1,234" or "1,234,567.89". Distinguishing this from
+// DECIMAL_COMMA_PATTERN above is what stops toNumericValue from corrupting a
+// thousands-separated value into a fraction (see toNumericValue).
+const THOUSANDS_GROUPED_PATTERN = /^-?\d{1,3}(,\d{3})+(\.\d+)?$/;
+
 export function toNumericValue(value: unknown): number | null {
   if (typeof value === "number" && Number.isFinite(value)) {
     return value;
@@ -236,12 +264,24 @@ export function toNumericValue(value: unknown): number | null {
     return null;
   }
 
-  const trimmed = value.trim().replace(",", ".");
+  const trimmed = value.trim();
   if (!trimmed) {
     return null;
   }
 
-  const parsed = Number(trimmed);
+  // A blind `replace(",", ".")` here used to corrupt thousands-grouped
+  // numbers like "1,234" into "1.234" (parsed as 1.234, not 1234). Only
+  // treat a comma as a decimal separator when the string unambiguously
+  // matches that shape; only strip commas when the string unambiguously
+  // matches thousands grouping. Anything else is parsed as written.
+  let normalized = trimmed;
+  if (DECIMAL_COMMA_PATTERN.test(trimmed)) {
+    normalized = trimmed.replace(",", ".");
+  } else if (THOUSANDS_GROUPED_PATTERN.test(trimmed)) {
+    normalized = trimmed.replace(/,/g, "");
+  }
+
+  const parsed = Number(normalized);
   return Number.isFinite(parsed) ? parsed : null;
 }
 
@@ -434,6 +474,20 @@ function withCandidateIndicatorMetadata(
   };
 }
 
+// NOTE: as of the primary_status_field/positive_status_values questions
+// being deferred to ActivityAnalysisV2's activity-scoped clarification
+// mechanism (see DEFERRED_TO_ACTIVITY_ANALYSIS_V2_QUESTION_CODES in
+// interpretationArtifactService.ts) and stripped before persistence here,
+// `positiveStatusValues` on every prepared column is structurally always
+// `[]` — decisionSummary.positiveStatusDefinitions never gets populated
+// through this Stage 6 path. That means every caller below (buildTrend's
+// positiveRatio, buildSubgroupBreakdowns' positiveRatio,
+// buildPrimaryStatusMetricsAndCandidates) always short-circuits to null,
+// silently producing no positive-status output for any table. This is a
+// known, currently-inert code path, not a bug in this function itself —
+// flagged here as a pointer for whoever next decides whether to wire it
+// to the V2 activity-scoped answers or remove it, rather than leaving the
+// gap to be silently rediscovered.
 function countPositiveRows(
   rows: Record<string, unknown>[],
   statusColumnName: string | null,
@@ -473,7 +527,10 @@ function roundNumber(value: number): number {
   return Math.round(value * 10000) / 10000;
 }
 
-function computeQuantile(
+// Exported so activityAnalysisV2AggregationAndSetTools.ts's calculateMedian
+// can share this implementation (quantile 0.5) instead of maintaining an
+// independent median calculation that could silently diverge from this one.
+export function computeQuantile(
   sortedValues: number[],
   quantile: number,
 ): number | null {

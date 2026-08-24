@@ -11,6 +11,7 @@ import { databaseSession } from "../../shared/database/databaseClient.js";
 import { AppError } from "../../shared/errors/appError.js";
 import { mapQualitativeCodingReview } from "../../shared/utils/mappers.js";
 import type { ActivityLlmTokenLedgerService } from "../activity/activityLlmTokenLedgerService.js";
+import type { ProcessingJobRepository } from "../ai/execution/processingJobRepository.js";
 import type { InterpretationResultRepository } from "../interpretation/interpretationResultRepository.js";
 import type { ProjectLlmTokenLedgerService } from "../project/projectLlmTokenLedgerService.js";
 import type { UploadMetadataRepository } from "../upload/uploadMetadataRepository.js";
@@ -177,6 +178,7 @@ export class QualitativeCodingReviewService {
     private readonly privacySafeRepresentationRepository: PrivacySafeRepresentationRepository,
     private readonly interpretationResultRepository: InterpretationResultRepository,
     private readonly qualitativeCodingReviewRepository: QualitativeCodingReviewRepository,
+    private readonly processingJobRepository: ProcessingJobRepository,
     private readonly pythonProcessingClient: PythonProcessingClient,
     private readonly projectLlmTokenLedgerService: ProjectLlmTokenLedgerService,
     private readonly activityLlmTokenLedgerService: ActivityLlmTokenLedgerService,
@@ -225,7 +227,18 @@ export class QualitativeCodingReviewService {
    * this gate: it's only knowable after the Python call returns, so it
    * stays a job-body-only failure mode.
    */
-  async assertReadyToGenerate(userId: string, uploadMetadataId: string) {
+  async assertReadyToGenerate(
+    userId: string,
+    uploadMetadataId: string,
+    // Set when this is the defensive re-check inside generate() itself
+    // (see the doc comment above): by that point the calling job has
+    // already claimed status "processing" and so is itself "active" for
+    // this upload — it must be excluded from the check below, or every
+    // legitimate generation would reject itself. Left undefined for the
+    // synchronous pre-flight call from the controller, where no job exists
+    // yet and the check should apply unconditionally.
+    excludeJobId?: string,
+  ) {
     const upload = await this.uploadMetadataRepository.findById(
       uploadMetadataId,
       databaseSession,
@@ -256,6 +269,27 @@ export class QualitativeCodingReviewService {
         "A qualitative coding review already exists for this evidence file.",
         409,
         "qualitative_coding_review_already_exists",
+      );
+    }
+
+    // The existingReview check above only catches a *second* generate()
+    // call once the first one has already finished — but generate() itself
+    // only creates a job here; the review row this checks for isn't
+    // written until the job later runs to completion. Two calls close
+    // together (e.g. the frontend's auto-trigger firing twice while the
+    // dialog is opened and reopened) can both pass the check above and
+    // both create a job, doubling LLM cost and racing to persist the
+    // review. Guard against that window explicitly.
+    const activeJob =
+      await this.processingJobRepository.findActiveByUploadMetadataId(
+        uploadMetadataId,
+        databaseSession,
+      );
+    if (activeJob && activeJob.id !== excludeJobId) {
+      throw new AppError(
+        "A qualitative coding review is already being generated for this evidence file.",
+        409,
+        "qualitative_coding_review_generation_in_progress",
       );
     }
 
@@ -294,9 +328,15 @@ export class QualitativeCodingReviewService {
     userId: string,
     uploadMetadataId: string,
     language: "de" | "en",
+    // The id of the qualitative_coding_review job currently executing this
+    // call (activityAnalysisWorker.ts passes its own job.id) — excluded
+    // from the active-job check inside assertReadyToGenerate, since this
+    // job is itself "active" by the time it reaches this defensive
+    // re-check. Left undefined only by tests that call generate() directly.
+    currentJobId?: string,
   ): Promise<GenerateQualitativeCodingReviewResponse["review"]> {
     const { upload, privacySafeRepresentation, interpretationResult } =
-      await this.assertReadyToGenerate(userId, uploadMetadataId);
+      await this.assertReadyToGenerate(userId, uploadMetadataId, currentJobId);
 
     let sourceCodebook: SourceCodebook | null = null;
     if (upload.activityId) {

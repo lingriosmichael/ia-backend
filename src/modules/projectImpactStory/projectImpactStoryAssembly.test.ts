@@ -293,7 +293,7 @@ test("narrativeInput only includes kpi tiles, stripped of ids", () => {
       activityName: "Workshop A",
       tiles: [
         {
-          label: "Entries in the uploaded data",
+          label: "the uploaded data: entries",
           description: "Total number of records counted.",
           value: 30,
           formatAs: "number",

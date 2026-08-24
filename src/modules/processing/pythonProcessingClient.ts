@@ -3,9 +3,12 @@ import { AppError } from "../../shared/errors/appError.js";
 import { interpretationQuestionCodeValues } from "../../shared/contracts.js";
 import type {
   EpistemicRole,
+  ImpactIndicatorTileFormat,
   InterpretationQuestionCode,
   LlmUsageSummary,
   PrivacyReviewDecisions,
+  PreparedDatasetMetricKind,
+  PreparedDatasetValueScope,
 } from "../../shared/contracts.js";
 
 interface PythonProcessingJobStatusResponse {
@@ -168,6 +171,8 @@ export interface ActivityAnalysisV2EvidenceColumnInput {
     | "unknown"
     | null;
   epistemicRole?: EpistemicRole | null;
+  metricKind?: PreparedDatasetMetricKind | null;
+  valueScope?: PreparedDatasetValueScope | null;
   // Grounds the planner's filter values in what the column actually
   // contains, instead of it inventing a value (e.g. emitting `equals true`
   // against a column that has never held a boolean, only literal strings
@@ -222,6 +227,8 @@ export interface ActivityAnalysisV2EvidenceTableInput {
         | "unknown"
         | null;
       epistemicRole?: EpistemicRole | null;
+      metricKind?: PreparedDatasetMetricKind | null;
+      valueScope?: PreparedDatasetValueScope | null;
     }>;
   };
 }
@@ -296,6 +303,7 @@ export interface ActivityAnalysisV2ClarificationAnswerInput {
     | "primary_status_field"
     | "positive_status_values"
     | "primary_date_field"
+    | "filter_value_grounding"
     | null;
   targetTableName?: string | null;
   targetColumnName?: string | null;
@@ -303,6 +311,12 @@ export interface ActivityAnalysisV2ClarificationAnswerInput {
 
 export interface ActivityAnalysisV2ClarificationQuestionDraft {
   goalId?: string | null;
+  // For the six closed questionCodes below, analyst.py no longer authors
+  // this — clarificationQuestionCopy.ts renders userFacingPrompt from
+  // questionCode + questionData instead (see
+  // CLARIFICATION_QUESTION_WORDING_PLAN.md Phase 2). Defaults to "" via the
+  // Zod schema below when the planner omits it. Still the real, LLM-authored
+  // prompt text for the one documented exception: questionCode === null.
   prompt: string;
   kind: "single_choice" | "free_text" | "merge_confirmation";
   questionDomain: "preparation" | "interpretation";
@@ -317,6 +331,10 @@ export interface ActivityAnalysisV2ClarificationQuestionDraft {
   questionCode: InterpretationQuestionCode | null;
   targetTableName: string | null;
   targetColumnName: string | null;
+  // Structured substitution data clarificationQuestionCopy.ts's renderer
+  // needs for codes like positive_status_values/normalization_merge (see
+  // CLARIFICATION_QUESTION_WORDING_PLAN.md).
+  questionData?: Record<string, unknown> | null;
 }
 
 export interface ActivityAnalysisV2PlanValidation {
@@ -427,6 +445,22 @@ export type ProjectImpactStoryNarrativeCatalogEntryRequest =
   | ProjectImpactStoryNarrativeCatalogSingleDistributionRequest
   | ProjectImpactStoryNarrativeCatalogUnmeasuredRequest;
 
+// Process/reach facts — the same already-computed, already-grounded numbers
+// shown as the page's headline KPI tiles (ProjectImpactStoryHeadlineKpi),
+// resent here so the narrative can describe what the project *did* (its
+// activities and outputs), not only what confirmed outcome evidence shows
+// changed. Deliberately carries no `status`/`statusCallout` — the narrative
+// prompt bans target-completion framing ("Ziel erreicht"), and omitting
+// those fields here removes the temptation entirely rather than relying on
+// the prompt alone.
+export interface ProjectImpactStoryNarrativeOutputFactRequest {
+  entryId: string;
+  label: string;
+  value: number;
+  formatAs: ImpactIndicatorTileFormat;
+  narrativeReason: string;
+}
+
 export interface ProjectImpactStoryNarrativeRequest {
   projectId: string;
   projectName: string;
@@ -434,6 +468,7 @@ export interface ProjectImpactStoryNarrativeRequest {
   projectPeriod?: string | null;
   targetGroup?: string | null;
   region?: string | null;
+  outputFacts: ProjectImpactStoryNarrativeOutputFactRequest[];
   catalog: ProjectImpactStoryNarrativeCatalogEntryRequest[];
 }
 
@@ -614,7 +649,7 @@ const activityAnalysisV2PlanToolRequestSchema = z.object({
 
 const activityAnalysisV2ClarificationQuestionDraftSchema = z.object({
   goalId: z.string().nullable().optional(),
-  prompt: z.string(),
+  prompt: z.string().optional().default(""),
   kind: z.enum(["single_choice", "free_text", "merge_confirmation"]),
   questionDomain: z.enum(["preparation", "interpretation"]),
   options: z.array(z.string()).nullable(),
@@ -632,6 +667,7 @@ const activityAnalysisV2ClarificationQuestionDraftSchema = z.object({
   questionCode: z.enum(interpretationQuestionCodeValues).nullable(),
   targetTableName: z.string().nullable(),
   targetColumnName: z.string().nullable(),
+  questionData: z.record(z.unknown()).nullable().optional(),
 });
 
 const activityAnalysisV2PlanContextCandidateSchema = z.object({
@@ -744,6 +780,8 @@ interface QuantitativePreparedDatasetColumn {
   positiveStatusValues: string[];
   positiveStatusDefinitionText: string | null;
   normalizationAccepted: boolean | null;
+  metricKind?: PreparedDatasetMetricKind | null;
+  valueScope?: PreparedDatasetValueScope | null;
 }
 
 interface QuantitativePreparedDatasetTable {
@@ -1088,6 +1126,21 @@ export class PythonProcessingClient {
   // see MAX_BACKEND_AUTO_CLARIFICATION_REPLANS).
   readonly activityAnalysisV2PlanTimeoutMs = 300_000;
 
+  // Same reasoning as activityAnalysisV2PlanTimeoutMs above: both the
+  // project-impact-story narrative and chart-plan calls run inside a
+  // background "project_impact_story" job (see
+  // activityAnalysisWorker.ts/projectImpactStoryController.ts — the
+  // controller enqueues a job rather than calling buildProjectImpactStory
+  // synchronously on the request, and the frontend polls for completion
+  // rather than holding a live connection open), and each one runs its own
+  // grounding-retry loop of up to 3 full LLM calls
+  // (run_with_grounding_retries, _MAX_GROUNDING_RETRIES = 2 in both
+  // narrative.py and chart_plan.py). The generic 120s llmTimeoutMs budget
+  // was observed timing out a real narrative generation mid-retry-loop
+  // despite the underlying work eventually succeeding — the same failure
+  // mode noted for activityAnalysisV2PlanTimeoutMs above.
+  readonly projectImpactStoryLlmTimeoutMs = 300_000;
+
   private authHeaders(): Record<string, string> {
     return { "x-internal-service-token": this.sharedSecret };
   }
@@ -1427,7 +1480,7 @@ export class PythonProcessingClient {
       "python_processing_project_impact_story_narrative_unavailable",
       "The Python processing service timed out while generating the project impact story narrative.",
       "python_processing_project_impact_story_narrative_timeout",
-      this.llmTimeoutMs,
+      this.projectImpactStoryLlmTimeoutMs,
     );
 
     const payload = await response.json();
@@ -1461,7 +1514,7 @@ export class PythonProcessingClient {
       "python_processing_project_impact_story_chart_plan_unavailable",
       "The Python processing service timed out while planning the project impact story chart layout.",
       "python_processing_project_impact_story_chart_plan_timeout",
-      this.llmTimeoutMs,
+      this.projectImpactStoryLlmTimeoutMs,
     );
 
     const payload = await response.json();

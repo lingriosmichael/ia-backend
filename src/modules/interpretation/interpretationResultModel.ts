@@ -133,7 +133,6 @@ const interpretationQualitativeFindingSchema = new Schema({
 
 const interpretationQuestionSchema = new Schema({
   _id: { type: String, default: createDocumentId },
-  prompt: { type: String, required: true },
   kind: {
     type: String,
     enum: [...interpretationQuestionKindValues],
@@ -144,7 +143,15 @@ const interpretationQuestionSchema = new Schema({
     enum: [...interpretationQuestionDomainValues],
     default: "interpretation",
   },
-  options: { type: [String], default: null },
+  // Backend-rendered wording — see clarificationQuestionCopy.ts and
+  // CLARIFICATION_QUESTION_WORDING_PLAN.md. The only source of a
+  // question's user-facing text since Phase 6 removed the raw
+  // prompt/options fields this used to mirror.
+  userFacingPrompt: { type: String, default: "" },
+  // { value, label }[] — Mixed rather than a nested Schema, same
+  // rationale as preparationGroupColumns below: small, fixed shape, set
+  // once by the renderer and never queried on independently.
+  userFacingOptions: { type: Schema.Types.Mixed, default: null },
   recommendedOption: { type: String, default: null },
   recommendedConfidence: { type: Number, default: null },
   isBlocking: { type: Boolean, default: false },
@@ -155,6 +162,10 @@ const interpretationQuestionSchema = new Schema({
   },
   targetTableName: { type: String, default: null },
   targetColumnName: { type: String, default: null },
+  // Per-code structured substitution data the renderer needs beyond
+  // targetTableName/targetColumnName — see clarificationQuestionCopy.ts.
+  // Mixed: shape is code-specific, same rationale as userFacingOptions.
+  questionData: { type: Schema.Types.Mixed, default: null },
   status: {
     type: String,
     enum: [...interpretationQuestionStatusValues],
@@ -163,6 +174,11 @@ const interpretationQuestionSchema = new Schema({
   answeredValue: { type: String, default: null },
   answeredById: { type: String, default: null },
   answeredAt: { type: Date, default: null },
+  preparationGroupId: { type: String, default: null },
+  // Mixed rather than a nested Schema: shape is a small, fixed
+  // { tableName, columnName }[] set once by the Python profiling stage and
+  // never queried on independently — same rationale as datasetProfile above.
+  preparationGroupColumns: { type: Schema.Types.Mixed, default: null },
 });
 
 const interpretationWarningSchema = new Schema({

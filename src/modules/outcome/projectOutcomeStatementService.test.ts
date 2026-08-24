@@ -2,11 +2,28 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { AppError } from "../../shared/errors/appError.js";
 import type { AuthorizationService } from "../../shared/auth/authorizationService.js";
-import { ProjectOutcomeStatementService } from "./projectOutcomeStatementService.js";
+import {
+  ProjectOutcomeStatementService,
+  ensureOutcomeStatementsForIntendedChanges,
+  normalizeOutcomeStatementValue,
+  syncOutcomeStatementsForIntendedChanges,
+} from "./projectOutcomeStatementService.js";
 import type { ProjectOutcomeStatementRepository } from "./projectOutcomeStatementRepository.js";
 import type { ProjectOutcomeStatementPersistenceRecord } from "./projectOutcomeStatementPersistence.js";
+import type { ProcessingResourceCleanupService } from "../processing/processingResourceCleanupService.js";
+import type { ProjectDerivedStateInvalidationService } from "../project/projectDerivedStateInvalidationService.js";
 
 const NOW = new Date("2026-08-18T10:00:00.000Z");
+
+type CleanupServiceStub = Pick<
+  ProcessingResourceCleanupService,
+  "resetOutcomeEvidencePairingByProjectId" | "deleteByOutcomeStatementIds"
+>;
+
+type InvalidationServiceStub = Pick<
+  ProjectDerivedStateInvalidationService,
+  "invalidateProject"
+>;
 
 function createRepository() {
   const records = new Map<string, ProjectOutcomeStatementPersistenceRecord>();
@@ -48,6 +65,16 @@ function createRepository() {
     async deleteById(outcomeStatementId) {
       return records.delete(outcomeStatementId);
     },
+    async deleteByProjectId(projectId) {
+      let deletedCount = 0;
+      for (const [id, record] of records) {
+        if (record.projectId === projectId) {
+          records.delete(id);
+          deletedCount += 1;
+        }
+      }
+      return deletedCount;
+    },
   };
 
   return repository;
@@ -57,6 +84,8 @@ function createFixture(options?: {
   canEdit?: boolean;
   repository?: ProjectOutcomeStatementRepository;
   intendedChanges?: string[];
+  cleanupService?: CleanupServiceStub;
+  invalidationService?: InvalidationServiceStub;
 }) {
   const authorizationService = {
     canViewProject: async (_userId: string, projectId: string) => ({
@@ -107,6 +136,12 @@ function createFixture(options?: {
     service: new ProjectOutcomeStatementService(
       authorizationService,
       options?.repository ?? createRepository(),
+      options?.cleanupService as
+        | ProcessingResourceCleanupService
+        | undefined,
+      options?.invalidationService as
+        | ProjectDerivedStateInvalidationService
+        | undefined,
     ),
   };
 }
@@ -236,6 +271,38 @@ test("delete removes the statement and returns its last known value", async () =
   assert.deepEqual(remaining, []);
 });
 
+test("delete removes linked Wirkungsaussage state and invalidates project-derived state", async () => {
+  const calls: string[] = [];
+  const { service } = createFixture({
+    cleanupService: {
+      resetOutcomeEvidencePairingByProjectId: async () => undefined,
+      deleteByOutcomeStatementIds: async (
+        projectId: string,
+        outcomeStatementIds: string[],
+      ) => {
+        calls.push(`cleanup:${projectId}:${outcomeStatementIds.join(",")}`);
+      },
+    },
+    invalidationService: {
+      invalidateProject: async (projectId: string) => {
+        calls.push(`invalidate:${projectId}`);
+      },
+    },
+  });
+  const created = await service.create("user-1", "project-1", {
+    term: "short",
+    statement: "Wird geloescht.",
+  });
+  calls.length = 0;
+
+  await service.delete("user-1", "project-1", created.id);
+
+  assert.deepEqual(calls, [
+    `cleanup:project-1:${created.id}`,
+    "invalidate:project-1",
+  ]);
+});
+
 test("create fails when the caller cannot edit the project", async () => {
   const { service } = createFixture({ canEdit: false });
 
@@ -251,4 +318,92 @@ test("create fails when the caller cannot edit the project", async () => {
       return true;
     },
   );
+});
+
+test("normalizeOutcomeStatementValue folds case using locale rules, not a plain toLowerCase", () => {
+  // Regression test: ProjectService and ProjectOutcomeStatementService used
+  // to have two independent implementations of "is this the same outcome
+  // statement" with different case-folding (toLocaleLowerCase vs
+  // toLowerCase) — which of the two ran first could determine what counted
+  // as a duplicate. Both now share this one function.
+  assert.equal(
+    normalizeOutcomeStatementValue("  Jugendliche gewinnen Klarheit.  "),
+    "jugendliche gewinnen klarheit.",
+  );
+});
+
+test("ensureOutcomeStatementsForIntendedChanges (shared by both call sites) does not duplicate an existing statement", async () => {
+  const repository = createRepository();
+  await repository.create(
+    {
+      projectId: "project-1",
+      organizationId: "org-1",
+      term: "long",
+      statement: "Jugendliche gewinnen mehr berufliche Klarheit.",
+    },
+    null,
+  );
+
+  const records = await ensureOutcomeStatementsForIntendedChanges(
+    repository,
+    {
+      projectId: "project-1",
+      organizationId: "org-1",
+      intendedChanges: [
+        "Jugendliche gewinnen mehr berufliche Klarheit.",
+        "Jugendliche setzen konkrete Karriereschritte um.",
+      ],
+    },
+    null,
+  );
+
+  assert.equal(records.length, 2);
+  assert.equal(
+    records.filter(
+      (record) =>
+        record.statement === "Jugendliche gewinnen mehr berufliche Klarheit.",
+    ).length,
+    1,
+  );
+});
+
+test("syncOutcomeStatementsForIntendedChanges removes statements for removed intended changes while preserving unrelated statements", async () => {
+  const repository = createRepository();
+  const removed = await repository.create(
+    {
+      projectId: "project-1",
+      organizationId: "org-1",
+      term: "long",
+      statement: "Jugendliche gewinnen mehr berufliche Klarheit.",
+    },
+    null,
+  );
+  await repository.create(
+    {
+      projectId: "project-1",
+      organizationId: "org-1",
+      term: "short",
+      statement: "Manuell gepflegte Zusatzwirkung.",
+    },
+    null,
+  );
+
+  const result = await syncOutcomeStatementsForIntendedChanges(
+    repository,
+    {
+      projectId: "project-1",
+      organizationId: "org-1",
+      previousIntendedChanges: [
+        "Jugendliche gewinnen mehr berufliche Klarheit.",
+      ],
+      intendedChanges: ["Jugendliche setzen konkrete Karriereschritte um."],
+    },
+    null,
+  );
+
+  assert.deepEqual(result.deletedOutcomeStatementIds, [removed.id]);
+  assert.deepEqual(result.records.map((record) => record.statement).sort(), [
+    "Jugendliche setzen konkrete Karriereschritte um.",
+    "Manuell gepflegte Zusatzwirkung.",
+  ]);
 });

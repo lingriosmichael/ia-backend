@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { AppError } from "../../shared/errors/appError.js";
 import type { AuthorizationService } from "../../shared/auth/authorizationService.js";
+import { NoopTransactionManager } from "../../shared/database/transactionManager.js";
+import type { TransactionManager } from "../../shared/database/transactionManager.js";
 import type { ProcessingJobRepository } from "../ai/execution/processingJobRepository.js";
 import type { ProcessingJobPersistenceRecord } from "../ai/persistence/aiPersistenceTypes.js";
 import type { ProcessingJobUpdateInput } from "../ai/persistence/aiPersistenceTypes.js";
@@ -44,6 +46,7 @@ function createService(overrides?: {
   authorizationService?: Partial<AuthorizationService>;
   privacyReviewRepository?: Partial<PrivacyReviewRepository>;
   parsedRepresentationRepository?: Partial<ParsedRepresentationRepository>;
+  transactionManager?: TransactionManager;
 }) {
   const processingJobRepository = {
     findById: async () => buildJob(),
@@ -134,6 +137,7 @@ function createService(overrides?: {
     authorizationService,
     privacyReviewRepository,
     parsedRepresentationRepository,
+    overrides?.transactionManager ?? new NoopTransactionManager(),
   );
 }
 
@@ -372,4 +376,83 @@ test("privacy review approval accepts keep when the acknowledgement is checked",
 
   assert.equal(approvedDecision?.decision, "keep");
   assert.equal(approvedDecision?.keepUnchangedAcknowledged, true);
+});
+
+test("privacy review approval runs the review-approval write and the job-requeue write inside one transaction", async () => {
+  // Regression test: both writes used to run against the shared, non-
+  // transactional databaseSession independently. A failure on the second
+  // write (requeuing the job) after the first write (approving the review)
+  // already succeeded left the review permanently "approved" with the job
+  // stuck at awaiting_privacy_review — no recovery path, every retry hit a
+  // 409. Wrapping both in transactionManager.runInTransaction means a
+  // failure on either write rolls back the transaction instead of leaving
+  // that split-brain state; this test asserts both writes are actually
+  // issued inside the same transaction session and that a failure on the
+  // second write surfaces as a rejection rather than being swallowed.
+  let runInTransactionCallCount = 0;
+  const transactionSession = { marker: "privacy-review-approval-tx" };
+  const fakeTransactionManager: TransactionManager = {
+    runInTransaction: async (operation) => {
+      runInTransactionCallCount += 1;
+      return operation(transactionSession as never);
+    },
+  };
+
+  const sessionsSeenByApproveIfPending: unknown[] = [];
+  const sessionsSeenByJobUpdate: unknown[] = [];
+
+  const service = createService({
+    transactionManager: fakeTransactionManager,
+    privacyReviewRepository: {
+      findByProcessingJobId: async () => ({
+        id: "review-1",
+        organizationId: "org-1",
+        projectId: "project-1",
+        activityId: "activity-1",
+        uploadMetadataId: "upload-1",
+        processingJobId: "job-1",
+        status: "pending",
+        findings: { summary: [] },
+        decisions: null,
+        approvedById: null,
+        approvedAt: null,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      }),
+      approveIfPending: async (_processingJobId, input, session) => {
+        sessionsSeenByApproveIfPending.push(session);
+        return {
+          id: "review-1",
+          organizationId: "org-1",
+          projectId: "project-1",
+          activityId: "activity-1",
+          uploadMetadataId: "upload-1",
+          processingJobId: "job-1",
+          status: "approved",
+          findings: { summary: [] },
+          decisions: input.decisions,
+          approvedById: input.approvedById,
+          approvedAt: input.approvedAt,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        };
+      },
+    },
+    processingJobRepository: {
+      findById: async () => buildJob(),
+      update: async (_processingJobId, _input, session) => {
+        sessionsSeenByJobUpdate.push(session);
+        throw new Error("Simulated transient failure requeuing the job");
+      },
+    },
+  });
+
+  await assert.rejects(
+    service.approve("user-1", "job-1", { fieldDecisions: [] }),
+    /Simulated transient failure requeuing the job/,
+  );
+
+  assert.equal(runInTransactionCallCount, 1);
+  assert.equal(sessionsSeenByApproveIfPending[0], transactionSession);
+  assert.equal(sessionsSeenByJobUpdate[0], transactionSession);
 });

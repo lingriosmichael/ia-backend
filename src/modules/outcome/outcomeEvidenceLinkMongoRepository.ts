@@ -14,11 +14,33 @@ import type {
   OutcomeEvidenceLinkPersistenceRecord,
 } from "./outcomeEvidenceLinkPersistence.js";
 
+// Every shape-specific field is nullable at the Mongoose schema level (see
+// outcomeEvidenceLinkModel.ts) since which ones apply depends on `shape`,
+// a distinction Mongoose itself doesn't enforce. Blindly casting each one
+// `as string` would let a malformed partial write (e.g. a paired_delta
+// document missing activityIdBefore) silently produce `undefined`
+// masquerading as `string` instead of failing loudly. This throws instead.
+function requireStringField(
+  value: string | null | undefined,
+  fieldName: string,
+  documentId: string,
+): string {
+  if (value === null || value === undefined) {
+    throw new Error(
+      `OutcomeEvidenceLink document ${documentId} is missing required field '${fieldName}' for its declared shape.`,
+    );
+  }
+  return value;
+}
+
 function toOutcomeEvidenceLinkRecord(
   document: OutcomeEvidenceLinkMongoHydratedDocument,
 ): OutcomeEvidenceLinkPersistenceRecord {
+  const documentId = document._id.toString();
+  const field = (value: string | null | undefined, fieldName: string) =>
+    requireStringField(value, fieldName, documentId);
   const base = {
-    linkId: document._id.toString(),
+    linkId: documentId,
     organizationId: document.organizationId,
     projectId: document.projectId,
     outcomeId: document.outcomeId,
@@ -32,30 +54,56 @@ function toOutcomeEvidenceLinkRecord(
     return {
       ...base,
       shape: "paired_delta",
-      activityIdBefore: document.activityIdBefore as string,
-      activityIdAfter: document.activityIdAfter as string,
-      beforeUploadMetadataId: document.beforeUploadMetadataId as string,
-      beforeTableName: document.beforeTableName as string,
-      beforeColumnName: document.beforeColumnName as string,
-      afterUploadMetadataId: document.afterUploadMetadataId as string,
-      afterTableName: document.afterTableName as string,
-      afterColumnName: document.afterColumnName as string,
-      matchKey: document.matchKey as string,
-      pairingGroupKey: document.pairingGroupKey as string,
+      activityIdBefore: field(document.activityIdBefore, "activityIdBefore"),
+      activityIdAfter: field(document.activityIdAfter, "activityIdAfter"),
+      beforeUploadMetadataId: field(
+        document.beforeUploadMetadataId,
+        "beforeUploadMetadataId",
+      ),
+      beforeTableName: field(document.beforeTableName, "beforeTableName"),
+      beforeColumnName: field(document.beforeColumnName, "beforeColumnName"),
+      afterUploadMetadataId: field(
+        document.afterUploadMetadataId,
+        "afterUploadMetadataId",
+      ),
+      afterTableName: field(document.afterTableName, "afterTableName"),
+      afterColumnName: field(document.afterColumnName, "afterColumnName"),
+      matchKey: field(document.matchKey, "matchKey"),
+      pairingGroupKey: field(document.pairingGroupKey, "pairingGroupKey"),
     };
   }
 
   return {
     ...base,
     shape: "single_distribution",
-    activityId: document.activityId as string,
-    uploadMetadataId: document.uploadMetadataId as string,
-    tableName: document.tableName as string,
-    categoryColumnName: document.categoryColumnName as string,
+    activityId: field(document.activityId, "activityId"),
+    uploadMetadataId: field(document.uploadMetadataId, "uploadMetadataId"),
+    tableName: field(document.tableName, "tableName"),
+    categoryColumnName: field(
+      document.categoryColumnName,
+      "categoryColumnName",
+    ),
   };
 }
 
 export class MongoOutcomeEvidenceLinkRepository implements OutcomeEvidenceLinkRepository {
+  async deleteByOutcomeIds(
+    outcomeIds: string[],
+    session: DatabaseSession,
+  ): Promise<number> {
+    if (outcomeIds.length === 0) {
+      return 0;
+    }
+
+    const result = await applyMongoSession(
+      OutcomeEvidenceLinkMongoModel.deleteMany({
+        outcomeId: { $in: outcomeIds },
+      }),
+      session,
+    ).exec();
+    return result.deletedCount ?? 0;
+  }
+
   async deleteByProjectId(
     projectId: string,
     session: DatabaseSession,

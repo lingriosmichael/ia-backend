@@ -63,6 +63,23 @@ export class CurrentActivityEvidenceLoader {
       ]),
     );
 
+    // Batched rather than looked up per-upload inside the loop below — this
+    // gate runs twice per POST/PATCH by design (see
+    // ActivityAnalysisV2Service.assertReadyForV2Run's defensive re-check),
+    // so an N-upload activity used to cost up to ~3N redundant Mongo round
+    // trips from this lookup alone.
+    const qualitativeCodingReviews =
+      await this.qualitativeCodingReviewRepository.findByUploadMetadataIds(
+        uploads.map((upload) => upload.id),
+        databaseSession,
+      );
+    const qualitativeCodingReviewByUploadId = new Map(
+      qualitativeCodingReviews.map((review) => [
+        review.uploadMetadataId,
+        review,
+      ]),
+    );
+
     const evidence: CurrentActivityEvidenceItem[] = [];
     const missingPrivacySafeUploads: CurrentActivityEvidenceSnapshot["missingPrivacySafeUploads"] =
       [];
@@ -80,10 +97,7 @@ export class CurrentActivityEvidenceLoader {
       }
 
       const qualitativeCodingReview =
-        await this.qualitativeCodingReviewRepository.findByUploadMetadataId(
-          upload.id,
-          databaseSession,
-        );
+        qualitativeCodingReviewByUploadId.get(upload.id) ?? null;
       const augmentedPayload =
         augmentPrivacySafePayloadWithApprovedQualitativeCodingReview(
           representation.payload,

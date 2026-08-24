@@ -33,6 +33,7 @@ export async function registerOrganizationRoutes(
   );
   app.get(
     "/organizations/:organizationId/logo",
+    { preHandler: authenticate },
     controller.getLogo.bind(controller),
   );
   app.get(

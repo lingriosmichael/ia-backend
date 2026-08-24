@@ -111,4 +111,15 @@ export class MongoProjectOutcomeStatementRepository implements ProjectOutcomeSta
     ).exec();
     return result.deletedCount === 1;
   }
+
+  async deleteByProjectId(
+    projectId: string,
+    session: DatabaseSession,
+  ): Promise<number> {
+    const result = await applyMongoSession(
+      ProjectOutcomeStatementMongoModel.deleteMany({ projectId }),
+      session,
+    ).exec();
+    return result.deletedCount ?? 0;
+  }
 }

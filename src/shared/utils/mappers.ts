@@ -4,6 +4,7 @@ import type {
   ActivityStatus,
   ActivityPermissions,
   AuthResponse,
+  ClarificationQuestionOption,
   DatasetPreparationRecord,
   DeterministicAnalysisRecord,
   InterpretationQuestionCode,
@@ -19,6 +20,7 @@ import type {
   InterpretationIndicator,
   InterpretationQuestionKind,
   InterpretationQuestionStatus,
+  InterpretationQuestionTargetColumnRef,
   InterpretationQualitativeFinding,
   InterpretationRelationship,
   InterpretationResultRecord,
@@ -694,20 +696,23 @@ export function mapInterpretationResult(record: {
   supportingQuotes: InterpretationSupportingQuote[];
   questions: Array<{
     id: string;
-    prompt: string;
     kind: InterpretationQuestionKind;
     questionDomain: InterpretationQuestionDomain;
-    options: string[] | null;
+    userFacingPrompt: string;
+    userFacingOptions: ClarificationQuestionOption[] | null;
     recommendedOption: string | null;
     recommendedConfidence: number | null;
     isBlocking: boolean;
     questionCode: InterpretationQuestionCode | null;
     targetTableName: string | null;
     targetColumnName: string | null;
+    questionData: Record<string, unknown> | null;
     status: InterpretationQuestionStatus;
     answeredValue: string | null;
     answeredById: string | null;
     answeredAt: Date | null;
+    preparationGroupId: string | null;
+    preparationGroupColumns: InterpretationQuestionTargetColumnRef[] | null;
   }>;
   warnings: InterpretationWarning[];
   goalAlignment: InterpretationGoalCoverage[];
@@ -796,20 +801,23 @@ export function mapInterpretationResult(record: {
       )
       .map((question) => ({
         id: question.id,
-        prompt: question.prompt,
         kind: question.kind,
         questionDomain: question.questionDomain,
-        options: question.options,
+        userFacingPrompt: question.userFacingPrompt,
+        userFacingOptions: question.userFacingOptions,
         recommendedOption: question.recommendedOption,
         recommendedConfidence: question.recommendedConfidence,
         isBlocking: question.isBlocking,
         questionCode: question.questionCode,
         targetTableName: question.targetTableName,
         targetColumnName: question.targetColumnName,
+        questionData: question.questionData,
         status: question.status,
         answeredValue: question.answeredValue,
         answeredById: question.answeredById,
         answeredAt: question.answeredAt ? toIso(question.answeredAt) : null,
+        preparationGroupId: question.preparationGroupId,
+        preparationGroupColumns: question.preparationGroupColumns,
       })),
     warnings: record.warnings,
     goalAlignment: record.goalAlignment,

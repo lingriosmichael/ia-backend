@@ -395,13 +395,45 @@ export class InvitationService {
       userId,
       organizationId,
     );
+
+    const existingInvitation = await this.invitationRepository.findById(
+      invitationId,
+      databaseSession,
+    );
+
+    if (
+      !existingInvitation ||
+      existingInvitation.organizationId !== organizationId
+    ) {
+      throw new AppError("Invitation not found.", 404, "invitation_not_found");
+    }
+
+    // Mirrors resend()'s guard: an invitation that's already accepted (or
+    // already revoked) must not be revocable — revoking an accepted
+    // invitation used to flip it to "revoked" while the membership it
+    // created stayed fully active, leaving a misleading record with no
+    // guard and no test. The repository call below is additionally atomic
+    // (status: "pending" in its own filter) to close the race between this
+    // check and the write, the same pattern markAccepted already uses.
+    if (existingInvitation.status !== "pending") {
+      throw new AppError(
+        "This invitation is no longer available.",
+        409,
+        "invitation_unavailable",
+      );
+    }
+
     const invitation = await this.invitationRepository.revoke(
       invitationId,
       databaseSession,
     );
 
-    if (!invitation || invitation.organizationId !== organizationId) {
-      throw new AppError("Invitation not found.", 404, "invitation_not_found");
+    if (!invitation) {
+      throw new AppError(
+        "This invitation is no longer available.",
+        409,
+        "invitation_unavailable",
+      );
     }
 
     const organization = await this.organizationRepository.findById(

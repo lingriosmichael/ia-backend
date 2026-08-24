@@ -163,11 +163,28 @@ export async function computePairedDeltaMeasurement(
   )?.result;
 
   return {
-    beforeValue: Number(pairedChangeResult?.meanPre ?? 0),
-    afterValue: Number(pairedChangeResult?.meanPost ?? 0),
+    // meanPre/meanPost are a raw division (sum of Likert-scale responses /
+    // pairedCount) and routinely land on a long repeating decimal (e.g.
+    // 105 respondents -> 2.8095238095238093) that no UI ever wants to show
+    // verbatim. Charts already round for display via
+    // formatImpactStoryValue's Intl.NumberFormat, but the narrative LLM is
+    // deliberately required to cite a paired_delta's before/after value
+    // "exactly as given, never rounded" (see
+    // ia_python_service/app/project_impact_story/narrative.py) — grounding
+    // would otherwise have no way to tell a legitimate rounding from a
+    // fabricated number. So the value must already be display-clean by the
+    // time it becomes "the real value" here, one decimal place matching
+    // both the chart's own display precision and the deterministic
+    // fallback narrative's formatFallbackDecimal.
+    beforeValue: roundToOneDecimal(Number(pairedChangeResult?.meanPre ?? 0)),
+    afterValue: roundToOneDecimal(Number(pairedChangeResult?.meanPost ?? 0)),
     nMatched: Number(pairedChangeResult?.pairedCount ?? 0),
     nBaseline,
   };
+}
+
+function roundToOneDecimal(value: number): number {
+  return Math.round(value * 10) / 10;
 }
 
 async function buildPairedDeltaEntry(

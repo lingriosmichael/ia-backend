@@ -140,9 +140,12 @@ export class MongoInvitationRepository implements InvitationRepository {
     invitationId: string,
     session: DatabaseSession,
   ): Promise<InvitationPersistenceRecord | null> {
+    // Atomic conditional update, same pattern as markAccepted above: only a
+    // still-"pending" invitation can be revoked, so a revoke racing an
+    // accept (or a second revoke) can't silently overwrite that outcome.
     const document = await applyMongoSession(
-      InvitationMongoModel.findByIdAndUpdate(
-        invitationId,
+      InvitationMongoModel.findOneAndUpdate(
+        { _id: invitationId, status: "pending" },
         {
           $set: {
             status: "revoked",

@@ -428,6 +428,43 @@ test("builds distribution chart data by grouping goal_assessment entries by stat
   );
 });
 
+test("drops a goal-assessment status chart as a duplicate when the deterministic goal-progress chart already covers it", () => {
+  const catalog: ProjectImpactStoryCatalogEntry[] = [
+    goalAssessmentEntry({
+      entryId: "g1",
+      activityId: "activity-1",
+      assessmentStatus: "achieved",
+    }),
+    goalAssessmentEntry({
+      entryId: "g2",
+      activityId: "activity-2",
+      assessmentStatus: "not_achieved",
+    }),
+  ];
+
+  const result = executeProjectImpactStoryChartPlan(
+    catalog,
+    {
+      headlineKpis: [],
+      chartPlan: [
+        {
+          chartId: "c1",
+          chartType: "distribution",
+          title: "Goal outcomes",
+          subtitle: null,
+          entryIds: ["g1", "g2"],
+          narrativeReason: "",
+        },
+      ],
+    },
+    "de",
+    true,
+  );
+
+  assert.equal(result.chartPlan.length, 0);
+  assert.equal(result.droppedChartCount, 1);
+});
+
 test("drops a chart whose chartType is not in the allowed set", () => {
   const catalog: ProjectImpactStoryCatalogEntry[] = [
     calculationEntry({ entryId: "e1", activityId: "activity-1" }),
@@ -850,4 +887,97 @@ test("marks a cross-activity ratio comparison as valueFormat percentage", () => 
 
   assert.equal(result.chartPlan[0]?.dataKind, "activity");
   assert.equal(result.chartPlan[0]?.valueFormat, "percentage");
+});
+
+test("a context distribution with few, clearly-different-sized segments is forced to pie regardless of the LLM's chosen type", () => {
+  const catalog: ProjectImpactStoryCatalogEntry[] = [
+    contextDistributionEntry({
+      entryId: "ctx-1",
+      activityId: "activity-1",
+      shares: [
+        { labelDe: "ok", count: 39 },
+        { labelDe: "ausstehend", count: 11 },
+        { labelDe: "Rueckfrage noetig", count: 10 },
+      ],
+      n: 60,
+    }),
+  ];
+
+  const result = executeProjectImpactStoryChartPlan(catalog, {
+    headlineKpis: [],
+    chartPlan: [
+      {
+        chartId: "chart-1",
+        chartType: "distribution",
+        title: "Safeguarding-Check",
+        subtitle: null,
+        entryIds: ["ctx-1"],
+        narrativeReason: "Shows review status.",
+      },
+    ],
+  });
+
+  assert.equal(result.chartPlan[0]?.chartType, "pie");
+});
+
+test("a context distribution with too many segments keeps the LLM's chosen chart type, not pie", () => {
+  const catalog: ProjectImpactStoryCatalogEntry[] = [
+    contextDistributionEntry({
+      entryId: "ctx-1",
+      activityId: "activity-1",
+      shares: Array.from({ length: 8 }, (_, index) => ({
+        labelDe: `District ${index}`,
+        count: 20 - index * 2,
+      })),
+      n: 92,
+    }),
+  ];
+
+  const result = executeProjectImpactStoryChartPlan(catalog, {
+    headlineKpis: [],
+    chartPlan: [
+      {
+        chartId: "chart-1",
+        chartType: "distribution",
+        title: "Applications by district",
+        subtitle: null,
+        entryIds: ["ctx-1"],
+        narrativeReason: "Shows reach by district.",
+      },
+    ],
+  });
+
+  assert.equal(result.chartPlan[0]?.chartType, "distribution");
+});
+
+test("a context distribution with near-equal segments is downgraded from the LLM's chosen 'pie' to 'distribution'", () => {
+  const catalog: ProjectImpactStoryCatalogEntry[] = [
+    contextDistributionEntry({
+      entryId: "ctx-1",
+      activityId: "activity-1",
+      shares: [
+        { labelDe: "A", count: 11 },
+        { labelDe: "B", count: 9 },
+        { labelDe: "C", count: 9 },
+      ],
+      n: 29,
+    }),
+  ];
+
+  const result = executeProjectImpactStoryChartPlan(catalog, {
+    headlineKpis: [],
+    chartPlan: [
+      {
+        chartId: "chart-1",
+        chartType: "pie",
+        title: "Comments",
+        subtitle: null,
+        entryIds: ["ctx-1"],
+        narrativeReason: "Shows comment mix.",
+      },
+    ],
+  });
+
+  assert.equal(result.chartPlan.length, 1);
+  assert.equal(result.chartPlan[0]?.chartType, "distribution");
 });

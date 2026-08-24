@@ -20,6 +20,11 @@ export interface ActivityEvidenceLinkageResultPersistenceRecord {
   groups: ActivityEvidenceLinkageGroup[];
   proposals: ActivityEvidenceLinkageProposalRecord[];
   proposalDecisions: ActivityEvidenceLinkageProposalDecisionPersistenceRecord[];
+  // The concernTaggingInstruction that produced the concern-tagging fields
+  // currently baked into `groups`, or null if concern tagging was never
+  // configured/applied for this run. See
+  // EvidenceLinkageReconciliationService.applyConcernTaggingIfConfigured.
+  concernTaggingInstruction: string | null;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -32,4 +37,5 @@ export interface ActivityEvidenceLinkageResultUpsertInput {
   groups: ActivityEvidenceLinkageGroup[];
   proposals: ActivityEvidenceLinkageProposalRecord[];
   proposalDecisions: ActivityEvidenceLinkageProposalDecisionPersistenceRecord[];
+  concernTaggingInstruction: string | null;
 }

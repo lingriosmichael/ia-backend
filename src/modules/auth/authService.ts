@@ -1,6 +1,7 @@
 import type { FastifyBaseLogger } from "fastify";
 import type { BackendConfig } from "../../shared/config/env.js";
 import { databaseSession } from "../../shared/database/databaseClient.js";
+import { isMongoDuplicateKeyError } from "../../shared/database/mongoErrors.js";
 import type { TransactionManager } from "../../shared/database/transactionManager.js";
 import { AppError } from "../../shared/errors/appError.js";
 import {
@@ -60,14 +61,35 @@ export class AuthService {
     }
 
     const passwordHash = await hashPassword(input.password);
-    const user = await this.userRepository.create(
-      {
-        email,
-        fullName: input.fullName.trim(),
-        passwordHash,
-      },
-      databaseSession,
-    );
+
+    let user: UserPersistenceRecord;
+    try {
+      user = await this.userRepository.create(
+        {
+          email,
+          fullName: input.fullName.trim(),
+          passwordHash,
+        },
+        databaseSession,
+      );
+    } catch (error) {
+      // The existence check above isn't atomic with this create — two
+      // concurrent registrations for the same email (a common double-submit
+      // scenario) can both pass it. The unique index on User.email is the
+      // real guard; without this catch, the second request's raw Mongo
+      // duplicate-key error surfaced as an opaque 500 instead of the same
+      // clean 409 the first request would have gotten from the check above.
+      if (isMongoDuplicateKeyError(error)) {
+        throw new AppError(
+          "An account already exists for this email address.",
+          409,
+          "email_already_exists",
+        );
+      }
+
+      throw error;
+    }
+
     return this.createAuthResult(user, []);
   }
 
@@ -96,7 +118,7 @@ export class AuthService {
       user.id,
       databaseSession,
     );
-    this.logger.info({ email, userId: user.id }, "Login succeeded.");
+    this.logger.info({ userId: user.id }, "Login succeeded.");
     return this.createAuthResult(user, memberships);
   }
 

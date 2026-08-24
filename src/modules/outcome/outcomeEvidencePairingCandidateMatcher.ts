@@ -50,25 +50,29 @@ export function canSafelyPairEvidenceTables(
 // Two validated_scale columns that share a name/stem can still be genuinely
 // different instruments (e.g. a 1-5 baseline scale replaced by a 0-10
 // endline one between waves) — pairing them would silently produce a
-// numerically meaningless delta. Require both sides' observed bounds to be
+// numerically meaningless delta. Require both sides' declared instrument
+// bounds (scaleMin/scaleMax, from the declared_scale_bounds question) to be
 // known and equal; unknown bounds on either side is not treated as a match
-// (a project that never had this data cannot benefit from a check it never
-// had, but a bounds *mismatch* must always block the pair).
+// (a project that hasn't answered that question yet cannot benefit from a
+// check it has no data for, but a bounds *mismatch* must always block the
+// pair). Deliberately compares declared bounds, not each side's observed
+// response spread (minValue/maxValue) — nobody answering the extreme ends
+// of a real 1-5 scale would otherwise look like an incompatible scale.
 export function hasCompatibleScaleBounds(
-  before: { minValue?: number | null; maxValue?: number | null },
-  after: { minValue?: number | null; maxValue?: number | null },
+  before: { scaleMin?: number | null; scaleMax?: number | null },
+  after: { scaleMin?: number | null; scaleMax?: number | null },
 ): boolean {
   return (
-    before.minValue !== null &&
-    before.minValue !== undefined &&
-    before.maxValue !== null &&
-    before.maxValue !== undefined &&
-    after.minValue !== null &&
-    after.minValue !== undefined &&
-    after.maxValue !== null &&
-    after.maxValue !== undefined &&
-    before.minValue === after.minValue &&
-    before.maxValue === after.maxValue
+    before.scaleMin !== null &&
+    before.scaleMin !== undefined &&
+    before.scaleMax !== null &&
+    before.scaleMax !== undefined &&
+    after.scaleMin !== null &&
+    after.scaleMin !== undefined &&
+    after.scaleMax !== null &&
+    after.scaleMax !== undefined &&
+    before.scaleMin === after.scaleMin &&
+    before.scaleMax === after.scaleMax
   );
 }
 

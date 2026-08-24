@@ -7,6 +7,7 @@ import {
   outcomeEvidencePairingProposalDecisionSchema,
 } from "../../schemas/httpSchemas.js";
 import { OutcomeEvidencePairingService } from "./outcomeEvidencePairingService.js";
+import { requireParam } from "../../shared/http/requireParam.js";
 
 export class OutcomeEvidencePairingController {
   constructor(
@@ -19,7 +20,7 @@ export class OutcomeEvidencePairingController {
     const language = resolveRequestLanguage(request.headers["accept-language"]);
     const result = await this.outcomeEvidencePairingService.proposeForProject(
       auth.userId,
-      params.projectId!,
+      requireParam(params, "projectId"),
       language,
     );
     return successResponse(result);
@@ -31,7 +32,7 @@ export class OutcomeEvidencePairingController {
     const language = resolveRequestLanguage(request.headers["accept-language"]);
     const result = await this.outcomeEvidencePairingService.refreshForProject(
       auth.userId,
-      params.projectId!,
+      requireParam(params, "projectId"),
       language,
     );
     return successResponse(result);
@@ -46,7 +47,7 @@ export class OutcomeEvidencePairingController {
     );
     const result = await this.outcomeEvidencePairingService.decideProposal(
       auth.userId,
-      params.projectId!,
+      requireParam(params, "projectId"),
       payload.proposalId,
       payload.decision,
       payload.outcomeId ?? null,
@@ -61,8 +62,8 @@ export class OutcomeEvidencePairingController {
     const language = resolveRequestLanguage(request.headers["accept-language"]);
     const result = await this.outcomeEvidencePairingService.removeConfirmedLink(
       auth.userId,
-      params.projectId!,
-      params.linkId!,
+      requireParam(params, "projectId"),
+      requireParam(params, "linkId"),
       language,
     );
     return successResponse(result);

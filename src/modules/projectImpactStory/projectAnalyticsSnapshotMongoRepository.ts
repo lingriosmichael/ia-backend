@@ -31,8 +31,12 @@ function toProjectAnalyticsSnapshotRecord(
       []) as ProjectAnalyticsSnapshotPersistenceRecord["headlineKpis"],
     chartPlan: (document.chartPlan ??
       []) as ProjectAnalyticsSnapshotPersistenceRecord["chartPlan"],
+    backlogChartPlan: (document.backlogChartPlan ??
+      []) as ProjectAnalyticsSnapshotPersistenceRecord["backlogChartPlan"],
     contextCharts: (document.contextCharts ??
       []) as ProjectAnalyticsSnapshotPersistenceRecord["contextCharts"],
+    goalProgressEntries: (document.goalProgressEntries ??
+      []) as ProjectAnalyticsSnapshotPersistenceRecord["goalProgressEntries"],
     diagnostics:
       document.diagnostics as ProjectAnalyticsSnapshotPersistenceRecord["diagnostics"],
     llmUsage:

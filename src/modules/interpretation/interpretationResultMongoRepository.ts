@@ -108,10 +108,10 @@ function toInterpretationResultRecord(
     })),
     questions: document.questions.map((question) => ({
       id: question._id.toString(),
-      prompt: question.prompt,
       kind: question.kind,
       questionDomain: question.questionDomain ?? "interpretation",
-      options: question.options ?? null,
+      userFacingPrompt: question.userFacingPrompt ?? "",
+      userFacingOptions: question.userFacingOptions ?? null,
       recommendedOption: question.recommendedOption ?? null,
       recommendedConfidence:
         typeof question.recommendedConfidence === "number"
@@ -121,10 +121,13 @@ function toInterpretationResultRecord(
       questionCode: question.questionCode ?? null,
       targetTableName: question.targetTableName ?? null,
       targetColumnName: question.targetColumnName ?? null,
+      questionData: question.questionData ?? null,
       status: question.status,
       answeredValue: question.answeredValue ?? null,
       answeredById: question.answeredById ?? null,
       answeredAt: question.answeredAt ?? null,
+      preparationGroupId: question.preparationGroupId ?? null,
+      preparationGroupColumns: question.preparationGroupColumns ?? null,
     })),
     warnings: document.warnings.map((warning) => ({
       id: warning._id.toString(),

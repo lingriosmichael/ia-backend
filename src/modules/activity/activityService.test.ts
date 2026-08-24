@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { AppError } from "../../shared/errors/appError.js";
 import type { ProcessingJobRepository } from "../ai/execution/processingJobRepository.js";
 import type { AuthorizationService } from "../../shared/auth/authorizationService.js";
 import type { TransactionManager } from "../../shared/database/transactionManager.js";
@@ -203,23 +204,26 @@ test("activity update invalidates AI knowledge state when output actually change
   const calls: string[] = [];
   const captured: { input: Record<string, unknown> | null } = { input: null };
 
+  const activityBeforeUpdate = {
+    id: "activity-1",
+    projectId: "project-1",
+    systemType: null,
+    name: "Activity One",
+    description: null,
+    startDate: null,
+    endDate: null,
+    targetAudience: null,
+    objectives: null,
+    output: "old output",
+    status: "active",
+    interpretationAcknowledgedAt: new Date("2026-01-03T00:00:00.000Z"),
+    interpretationAcknowledgedById: "user-1",
+    createdAt: new Date("2026-01-01T00:00:00.000Z"),
+    updatedAt: new Date("2026-01-02T00:00:00.000Z"),
+  };
+
   const activityRepository = {
-    findById: async () => ({
-      id: "activity-1",
-      projectId: "project-1",
-      name: "Activity One",
-      description: null,
-      startDate: null,
-      endDate: null,
-      targetAudience: null,
-      objectives: null,
-      output: "old output",
-      status: "active",
-      interpretationAcknowledgedAt: new Date("2026-01-03T00:00:00.000Z"),
-      interpretationAcknowledgedById: "user-1",
-      createdAt: new Date("2026-01-01T00:00:00.000Z"),
-      updatedAt: new Date("2026-01-02T00:00:00.000Z"),
-    }),
+    findById: async () => activityBeforeUpdate,
     update: async (_activityId: string, input: Record<string, unknown>) => {
       captured.input = input;
       return {
@@ -244,6 +248,7 @@ test("activity update invalidates AI knowledge state when output actually change
   const authorizationService = {
     canEditActivity: async () => ({
       project: { id: "project-1", ownerId: "user-1" },
+      activity: activityBeforeUpdate,
     }),
   } as unknown as AuthorizationService;
 
@@ -281,24 +286,27 @@ test("activity update invalidates AI knowledge state when concernTaggingInstruct
   const calls: string[] = [];
   const captured: { input: Record<string, unknown> | null } = { input: null };
 
+  const activityBeforeUpdate = {
+    id: "activity-1",
+    projectId: "project-1",
+    systemType: null,
+    name: "Activity One",
+    description: null,
+    startDate: null,
+    endDate: null,
+    targetAudience: null,
+    objectives: null,
+    output: null,
+    concernTaggingInstruction: null,
+    status: "active",
+    interpretationAcknowledgedAt: new Date("2026-01-03T00:00:00.000Z"),
+    interpretationAcknowledgedById: "user-1",
+    createdAt: new Date("2026-01-01T00:00:00.000Z"),
+    updatedAt: new Date("2026-01-02T00:00:00.000Z"),
+  };
+
   const activityRepository = {
-    findById: async () => ({
-      id: "activity-1",
-      projectId: "project-1",
-      name: "Activity One",
-      description: null,
-      startDate: null,
-      endDate: null,
-      targetAudience: null,
-      objectives: null,
-      output: null,
-      concernTaggingInstruction: null,
-      status: "active",
-      interpretationAcknowledgedAt: new Date("2026-01-03T00:00:00.000Z"),
-      interpretationAcknowledgedById: "user-1",
-      createdAt: new Date("2026-01-01T00:00:00.000Z"),
-      updatedAt: new Date("2026-01-02T00:00:00.000Z"),
-    }),
+    findById: async () => activityBeforeUpdate,
     update: async (_activityId: string, input: Record<string, unknown>) => {
       captured.input = input;
       return {
@@ -324,6 +332,7 @@ test("activity update invalidates AI knowledge state when concernTaggingInstruct
   const authorizationService = {
     canEditActivity: async () => ({
       project: { id: "project-1", ownerId: "user-1" },
+      activity: activityBeforeUpdate,
     }),
   } as unknown as AuthorizationService;
 
@@ -364,23 +373,26 @@ test("activity update does not invalidate AI knowledge state when the only chang
   const calls: string[] = [];
   const captured: { input: Record<string, unknown> | null } = { input: null };
 
+  const activityBeforeUpdate = {
+    id: "activity-1",
+    projectId: "project-1",
+    systemType: null,
+    name: "Activity One",
+    description: null,
+    startDate: null,
+    endDate: null,
+    targetAudience: null,
+    objectives: null,
+    output: "Same output",
+    status: "active",
+    interpretationAcknowledgedAt: new Date("2026-01-03T00:00:00.000Z"),
+    interpretationAcknowledgedById: "user-1",
+    createdAt: new Date("2026-01-01T00:00:00.000Z"),
+    updatedAt: new Date("2026-01-02T00:00:00.000Z"),
+  };
+
   const activityRepository = {
-    findById: async () => ({
-      id: "activity-1",
-      projectId: "project-1",
-      name: "Activity One",
-      description: null,
-      startDate: null,
-      endDate: null,
-      targetAudience: null,
-      objectives: null,
-      output: "Same output",
-      status: "active",
-      interpretationAcknowledgedAt: new Date("2026-01-03T00:00:00.000Z"),
-      interpretationAcknowledgedById: "user-1",
-      createdAt: new Date("2026-01-01T00:00:00.000Z"),
-      updatedAt: new Date("2026-01-02T00:00:00.000Z"),
-    }),
+    findById: async () => activityBeforeUpdate,
     update: async (_activityId: string, input: Record<string, unknown>) => {
       captured.input = input;
       return {
@@ -405,6 +417,7 @@ test("activity update does not invalidate AI knowledge state when the only chang
   const authorizationService = {
     canEditActivity: async () => ({
       project: { id: "project-1", ownerId: "user-1" },
+      activity: activityBeforeUpdate,
     }),
   } as unknown as AuthorizationService;
 
@@ -645,4 +658,77 @@ test("activity delete still succeeds when best-effort stored file cleanup fails"
   const result = await activityService.delete("user-1", "activity-1");
 
   assert.equal(result.id, "activity-1");
+});
+
+test("activity update runs authorization before inspecting systemType, so an unauthorized caller never learns that attribute", async () => {
+  // Regression test: update() used to fetch the activity via a raw
+  // repository call and check systemType before canEditActivity ran,
+  // leaking a cross-organization activity's systemType (via the
+  // system_activity_read_only 403) to any authenticated caller who merely
+  // guessed the activityId. Authorization must run first, and systemType
+  // must be read off its returned context, not a separate unauthorized
+  // lookup.
+  let findByIdCalled = false;
+  const activityRepository = {
+    findById: async () => {
+      findByIdCalled = true;
+      return {
+        id: "activity-1",
+        projectId: "project-1",
+        systemType: "baseline",
+        name: "Baseline",
+        description: null,
+        startDate: null,
+        endDate: null,
+        targetAudience: null,
+        objectives: null,
+        output: null,
+        status: "active",
+        createdAt: new Date("2026-01-01T00:00:00.000Z"),
+        updatedAt: new Date("2026-01-02T00:00:00.000Z"),
+      };
+    },
+    update: async () => {
+      throw new Error(
+        "update() must not be reached for an unauthorized caller",
+      );
+    },
+  } as unknown as ActivityRepository;
+
+  const authorizationService = {
+    canEditActivity: async () => {
+      throw new AppError(
+        "You do not have access to this activity.",
+        403,
+        "activity_access_denied",
+      );
+    },
+  } as unknown as AuthorizationService;
+
+  const activityService = new ActivityService(
+    activityRepository,
+    authorizationService,
+    {} as UploadMetadataRepository,
+    new FileStorageService("/tmp"),
+    {
+      runInTransaction: async (operation) => operation(null),
+    } as TransactionManager,
+    {} as ProcessingJobRepository,
+    {} as ProcessingResourceCleanupService,
+    {} as ProjectDerivedStateInvalidationService,
+    { error: () => undefined } as never,
+  );
+
+  await assert.rejects(
+    activityService.update("user-1", "activity-1", { name: "Hijacked" }),
+    (error: unknown) => {
+      assert.ok(error instanceof AppError);
+      // The rejection must be the authorization failure, never
+      // system_activity_read_only — an unauthorized caller must not be
+      // able to distinguish a system activity from any other activity.
+      assert.equal(error.code, "activity_access_denied");
+      return true;
+    },
+  );
+  assert.equal(findByIdCalled, false);
 });

@@ -111,12 +111,12 @@ export class UploadMetadataService {
       ).project;
     }
 
-    if (input.activityId) {
-      const activity = await this.activityService.getById(
-        userId,
-        input.activityId,
-      );
-      if (activity.projectId !== authorizedProject.id) {
+    // Reuses the activity already fetched by canUploadToActivity above
+    // instead of a second, separately-authorized lookup for the same
+    // activity — activityWithAuthorizationContext is only null here when
+    // input.activityId itself was falsy, matching the guard below.
+    if (input.activityId && activityWithAuthorizationContext) {
+      if (activityWithAuthorizationContext.projectId !== authorizedProject.id) {
         throw new AppError(
           "The activity does not belong to the specified project.",
           400,
@@ -210,6 +210,19 @@ export class UploadMetadataService {
           supersededAt: new Date(),
           status: "archived",
         },
+        databaseSession,
+      );
+      await this.processingResourceCleanupService.deleteByUploadMetadataId(
+        replacedRecord.id,
+        databaseSession,
+        { projectId: replacedRecord.projectId },
+      );
+      await this.processingJobRepository.deleteByUploadMetadataId(
+        replacedRecord.id,
+        databaseSession,
+      );
+      await this.projectDerivedStateInvalidationService.invalidateProject(
+        authorizedProject.id,
         databaseSession,
       );
     }
@@ -455,12 +468,17 @@ export class UploadMetadataService {
 
     await this.authorizationService.canViewProject(userId, record.projectId);
 
-    const storedFile = await this.fileStorageService.readStoredFile(
+    // Streamed rather than buffered whole into memory — several concurrent
+    // downloads of files near the configured upload size ceiling could
+    // otherwise exhaust heap on a small instance. Mirrors
+    // ProcessingJobService.getSourceFileForWorker's existing use of the
+    // same stream primitive.
+    const storedFile = await this.fileStorageService.openStoredFileStream(
       record.storageKey,
     );
 
     return {
-      buffer: storedFile.buffer,
+      stream: storedFile.stream,
       contentType:
         record.contentType ??
         this.fileStorageService.getContentTypeForPath(record.storageKey),

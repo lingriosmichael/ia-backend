@@ -81,6 +81,21 @@ function createService(overrides?: {
     deleteByActivity: async () => 0,
     deleteByUploadMetadataId: async () => 0,
     cancelIfActive: async () => null,
+    completeIfLeaseOwned: async (input: {
+      processingJobId: string;
+      workerId: string;
+      status: "completed" | "failed";
+      errorMessage: string | null;
+      completedAt: Date;
+    }) =>
+      buildJob({
+        status: input.status,
+        errorMessage: input.errorMessage,
+        leaseOwner: null,
+        leaseExpiresAt: null,
+        lastHeartbeatAt: null,
+        completedAt: input.completedAt,
+      }),
     ...(overrides?.processingJobRepository ?? {}),
   } as unknown as ProcessingJobRepository;
 
@@ -203,6 +218,107 @@ test("sync surfaces persisted backend failure state as-is", async () => {
 
   assert.equal(syncedJob.status, "failed");
   assert.equal(syncedJob.errorMessage, "Worker exhausted retries.");
+});
+
+test("completeBackendExecutedJob persists the outcome when the worker still holds the job's lease", async () => {
+  let completeIfLeaseOwnedCall:
+    { processingJobId: string; workerId: string } | undefined;
+  const service = createService({
+    processingJobRepository: {
+      findById: async () =>
+        buildJob({ status: "processing", leaseOwner: "worker-a" }),
+      completeIfLeaseOwned: async (input) => {
+        completeIfLeaseOwnedCall = input;
+        return buildJob({
+          status: input.status,
+          errorMessage: input.errorMessage,
+          leaseOwner: null,
+          leaseExpiresAt: null,
+          lastHeartbeatAt: null,
+          completedAt: input.completedAt,
+        });
+      },
+    },
+  });
+
+  const result = await service.completeBackendExecutedJob("job-1", "worker-a", {
+    status: "completed",
+  });
+
+  assert.equal(result.status, "completed");
+  assert.equal(completeIfLeaseOwnedCall?.processingJobId, "job-1");
+  assert.equal(completeIfLeaseOwnedCall?.workerId, "worker-a");
+});
+
+test("completeBackendExecutedJob does not overwrite the job when its lease was reclaimed by another worker", async () => {
+  // Regression test: a stale worker (worker-a) whose lease already expired
+  // and was reclaimed by worker-b used to be able to overwrite worker-b's
+  // in-progress/completed state, since completion previously updated the
+  // job unconditionally rather than checking lease ownership.
+  const reclaimedJob = buildJob({
+    status: "processing",
+    leaseOwner: "worker-b",
+  });
+  const service = createService({
+    processingJobRepository: {
+      findById: async () => reclaimedJob,
+      // Simulates the atomic ownership-scoped update finding no matching
+      // document, because leaseOwner is now "worker-b", not "worker-a".
+      completeIfLeaseOwned: async () => null,
+    },
+  });
+
+  const result = await service.completeBackendExecutedJob("job-1", "worker-a", {
+    status: "completed",
+  });
+
+  // The stale worker's completion call must not appear to have succeeded
+  // with its own outcome — it should reflect the job's actual current
+  // state (still owned and being processed by worker-b), not "completed".
+  assert.equal(result.status, "processing");
+});
+
+test("create surfaces a clean 409 when the repository rejects a duplicate active activity_analysis_v2 job", async () => {
+  // The real repository (MongoProcessingJobRepository) relies on a
+  // database-level partial unique index on {activityId, jobType:
+  // "activity_analysis_v2", status: active} to guarantee only one such job
+  // can be active per activity at a time — this test only proves the
+  // service layer propagates that rejection cleanly rather than swallowing
+  // or corrupting it; the index itself is verified separately against a
+  // real MongoDB instance (concurrent creates: exactly one succeeds, the
+  // rest get a clean 409 processing_job_already_active).
+  const service = createService({
+    processingJobRepository: {
+      create: async () => {
+        throw new AppError(
+          "A processing job is already active for this evidence version.",
+          409,
+          "processing_job_already_active",
+        );
+      },
+    },
+    authorizationService: {
+      canEditProject: async () => ({
+        project: { id: "project-1", organizationId: "org-1" },
+      }),
+      canEditActivity: async () => ({
+        activity: { id: "activity-1", projectId: "project-1" },
+      }),
+    } as unknown as Partial<AuthorizationService>,
+  });
+
+  await assert.rejects(
+    service.create("user-1", "project-1", {
+      activityId: "activity-1",
+      jobType: "activity_analysis_v2",
+    }),
+    (error: unknown) => {
+      assert.ok(error instanceof AppError);
+      assert.equal(error.statusCode, 409);
+      assert.equal(error.code, "processing_job_already_active");
+      return true;
+    },
+  );
 });
 
 test("createDerivedWorkbookSheetUpload rejects a workbook split job that is no longer active", async () => {

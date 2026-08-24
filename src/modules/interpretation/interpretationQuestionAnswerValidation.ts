@@ -1,8 +1,9 @@
 import { AppError } from "../../shared/errors/appError.js";
+import type { ClarificationQuestionOption } from "../../shared/contracts.js";
 
 interface AnswerableQuestion {
   id: string;
-  options: string[] | null;
+  userFacingOptions: ClarificationQuestionOption[] | null;
 }
 
 // Shared by both clarification-question flows that let a user answer a
@@ -16,15 +17,20 @@ export function validateAnswerAgainstQuestionOptions(
   errorCode: string,
 ): void {
   if (
-    question.options &&
-    question.options.length > 0 &&
-    !question.options.includes(answeredValue)
+    question.userFacingOptions &&
+    question.userFacingOptions.length > 0 &&
+    !question.userFacingOptions.some((option) => option.value === answeredValue)
   ) {
     throw new AppError(
       "This answer is not one of the options offered for this clarification question.",
       422,
       errorCode,
-      { questionId: question.id, allowedOptions: question.options },
+      {
+        questionId: question.id,
+        allowedOptions: question.userFacingOptions.map(
+          (option) => option.value,
+        ),
+      },
     );
   }
 }

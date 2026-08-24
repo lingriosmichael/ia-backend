@@ -109,7 +109,12 @@ export async function loadLinkageEvidenceTablesForActivity(
     ]),
   );
 
-  const tables: LinkageEvidenceTable[] = [];
+  const readyResults: Array<{
+    result: (typeof results)[number];
+    preparation: DatasetPreparationPersistenceRecord & {
+      preparedDataset: PreparedDatasetSnapshot;
+    };
+  }> = [];
   for (const result of results) {
     const preparation = preparationByResultId.get(result.id);
     if (!isReadyForLinkage(preparation)) {
@@ -126,12 +131,27 @@ export async function loadLinkageEvidenceTablesForActivity(
       );
       continue;
     }
+    readyResults.push({ result, preparation });
+  }
 
-    const privacySafeRepresentation =
-      await deps.privacySafeRepresentationRepository.findById(
-        result.privacySafeRepresentationId,
-        databaseSession,
-      );
+  // Batched rather than one findById call per result inside the loop below.
+  const privacySafeRepresentations =
+    await deps.privacySafeRepresentationRepository.findByIds(
+      readyResults.map(({ result }) => result.privacySafeRepresentationId),
+      databaseSession,
+    );
+  const privacySafeRepresentationById = new Map(
+    privacySafeRepresentations.map((representation) => [
+      representation.id,
+      representation,
+    ]),
+  );
+
+  const tables: LinkageEvidenceTable[] = [];
+  for (const { result, preparation } of readyResults) {
+    const privacySafeRepresentation = privacySafeRepresentationById.get(
+      result.privacySafeRepresentationId,
+    );
     const payloadTablesByName = new Map(
       readTableRecords(privacySafeRepresentation?.payload ?? {}).map(
         (table) => [

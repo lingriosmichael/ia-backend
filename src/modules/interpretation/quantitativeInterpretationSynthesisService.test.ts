@@ -6,7 +6,10 @@ import type { ActivityRepository } from "../activity/activityRepository.js";
 import type { PythonProcessingClient } from "../processing/pythonProcessingClient.js";
 import type { ProjectLlmTokenLedgerService } from "../project/projectLlmTokenLedgerService.js";
 import type { ProjectRepository } from "../project/projectRepository.js";
-import { QuantitativeInterpretationSynthesisService } from "./quantitativeInterpretationSynthesisService.js";
+import {
+  QuantitativeInterpretationSynthesisService,
+  mapComputedValue,
+} from "./quantitativeInterpretationSynthesisService.js";
 import type { DeterministicAnalysisPersistenceRecord } from "./deterministicAnalysisPersistence.js";
 import type { DatasetPreparationPersistenceRecord } from "./datasetPreparationPersistence.js";
 import type {
@@ -96,6 +99,10 @@ function makePreparation(
       primaryDateFields: [],
       epistemicRoleClarifications: [],
       validatedScaleConfirmations: [],
+      cohortTags: [],
+      pairingGroupKeys: [],
+      pairingGroupRoles: [],
+      declaredScaleBounds: [],
     },
     preparedDataset: {
       evidenceModality: "structured_quantitative",
@@ -197,6 +204,44 @@ function makeAnalysis(
     ...overrides,
   };
 }
+
+function makeMetric(
+  components: Record<string, unknown>,
+): DeterministicAnalysisPersistenceRecord["metrics"][number] {
+  return {
+    metricKey: "attendance::positive_status_ratio",
+    label: "status positive ratio",
+    description: "Share of positive rows",
+    tableName: "attendance",
+    sourceColumns: ["status"],
+    kind: "ratio",
+    formula: "COUNT(status in {completed}) / COUNT(rows)",
+    value: 0,
+    unit: "ratio",
+    components,
+  };
+}
+
+test("mapComputedValue reports a genuine denominatorCount of 0 as 0, not falling through to a fallback field", () => {
+  // Regression test: the OR-chain used to conflate "this field is 0" with
+  // "this field is absent," so a metric whose denominator was legitimately
+  // 0 (e.g. no rows matched a filter) silently reported rowCount or
+  // distinctCount instead — a wrong number presented as the real one.
+  const computed = mapComputedValue(
+    makeMetric({ denominatorCount: 0, rowCount: 25 }),
+  );
+  assert.equal(computed.recordsIncluded, 0);
+});
+
+test("mapComputedValue falls through to the next component only when the earlier one is genuinely absent", () => {
+  const computed = mapComputedValue(makeMetric({ rowCount: 12 }));
+  assert.equal(computed.recordsIncluded, 12);
+});
+
+test("mapComputedValue defaults to 0 when no known component is present", () => {
+  const computed = mapComputedValue(makeMetric({}));
+  assert.equal(computed.recordsIncluded, 0);
+});
 
 test("maps quantitative synthesis output back into the interpretation result", async () => {
   let capturedUpdate: InterpretationResultSynthesisUpdateInput | null = null;

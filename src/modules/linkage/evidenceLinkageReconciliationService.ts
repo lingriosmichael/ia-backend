@@ -11,7 +11,10 @@ import type { InterpretationResultRepository } from "../interpretation/interpret
 import type { DatasetPreparationRepository } from "../interpretation/datasetPreparationRepository.js";
 import type { PrivacySafeRepresentationRepository } from "../processing/privacySafeRepresentationRepository.js";
 import type { ActivityRepository } from "../activity/activityRepository.js";
-import type { PythonProcessingClient } from "../processing/pythonProcessingClient.js";
+import type {
+  ConcernTaggingResultOutput,
+  PythonProcessingClient,
+} from "../processing/pythonProcessingClient.js";
 import { loadLinkageEvidenceTablesForActivity } from "./linkageEvidenceLoader.js";
 import {
   computeLinkageCandidates,
@@ -20,7 +23,9 @@ import {
 import { reconcileEvidenceLinkageGroups } from "./linkageEntityReconciler.js";
 import {
   buildConcernTaggingEntitiesForGroup,
+  buildConcernTagCache,
   applyConcernTaggingResults,
+  partitionEntitiesByConcernTagCache,
 } from "./linkageConcernTagging.js";
 import type { ActivityEvidenceLinkageResultRepository } from "./activityEvidenceLinkageResultRepository.js";
 import type { ActivityEvidenceLinkageResultPersistenceRecord } from "./activityEvidenceLinkageResultPersistence.js";
@@ -152,10 +157,12 @@ export class EvidenceLinkageReconciliationService {
       ...autoCandidates,
       ...acceptedWeakCandidates,
     ]);
-    const taggedGroups = await this.applyConcernTaggingIfConfigured(
-      activityId,
-      groups,
-    );
+    const { groups: taggedGroups, instructionUsed } =
+      await this.applyConcernTaggingIfConfigured(
+        activityId,
+        groups,
+        existingResult,
+      );
 
     const result =
       await this.activityEvidenceLinkageResultRepository.upsertByActivityId(
@@ -167,6 +174,7 @@ export class EvidenceLinkageReconciliationService {
           groups: taggedGroups,
           proposals: pendingProposals,
           proposalDecisions,
+          concernTaggingInstruction: instructionUsed,
         },
         databaseSession,
       );
@@ -246,12 +254,28 @@ export class EvidenceLinkageReconciliationService {
   // are still correct and valuable without the derived flag) — logged
   // loudly rather than silently, though, per this service's own logging
   // already established for the rest of reconciliation.
+  //
+  // reconcileForActivity runs on every GET of the linkage review (see the
+  // class doc comment above), not just when evidence actually changes.
+  // Without a cache, simply reloading the review page re-ran a live LLM
+  // call for every entity on every view. previousResult's persisted groups
+  // (from the last time this ran) are used as a cache, keyed by
+  // (entityKey, exact free-text content) — a hit means "this exact text
+  // was already classified under this exact instruction," so only
+  // genuinely new or changed entities ever reach the LLM. The cache is
+  // discarded entirely (not partially reused) whenever the instruction
+  // itself has changed, since the same text can classify differently
+  // under different instructions.
   private async applyConcernTaggingIfConfigured(
     activityId: string,
     groups: ActivityEvidenceLinkageGroup[],
-  ): Promise<ActivityEvidenceLinkageGroup[]> {
+    previousResult: ActivityEvidenceLinkageResultPersistenceRecord | null,
+  ): Promise<{
+    groups: ActivityEvidenceLinkageGroup[];
+    instructionUsed: string | null;
+  }> {
     if (groups.length === 0) {
-      return groups;
+      return { groups, instructionUsed: null };
     }
 
     const activity = await this.activityRepository.findById(
@@ -260,8 +284,13 @@ export class EvidenceLinkageReconciliationService {
     );
     const instruction = activity?.concernTaggingInstruction?.trim();
     if (!instruction) {
-      return groups;
+      return { groups, instructionUsed: null };
     }
+
+    const cache =
+      previousResult?.concernTaggingInstruction === instruction
+        ? buildConcernTagCache(previousResult.groups)
+        : new Map<string, ConcernTaggingResultOutput>();
 
     const taggedGroups: ActivityEvidenceLinkageGroup[] = [];
     for (const group of groups) {
@@ -271,11 +300,29 @@ export class EvidenceLinkageReconciliationService {
         continue;
       }
 
+      const { cached, uncached } = partitionEntitiesByConcernTagCache(
+        entities,
+        cache,
+      );
+
+      if (uncached.length === 0) {
+        this.logger.info(
+          {
+            activityId,
+            joinKeyLabel: group.joinKeyLabel,
+            entityCount: entities.length,
+          },
+          "evidence linkage: concern tagging fully served from cache for this group, no LLM call",
+        );
+        taggedGroups.push(applyConcernTaggingResults(group, cached));
+        continue;
+      }
+
       try {
         const { results } = await this.pythonProcessingClient.runConcernTagging(
           {
             instruction,
-            entities,
+            entities: uncached,
             // No per-activity language signal reaches reconciliation
             // (it runs as a side effect of interpretation events, not a
             // language-bearing user request) — "de" matches this
@@ -288,20 +335,28 @@ export class EvidenceLinkageReconciliationService {
             activityId,
             joinKeyLabel: group.joinKeyLabel,
             entityCount: entities.length,
+            cachedCount: cached.length,
+            calledCount: uncached.length,
             flaggedCount: results.filter((result) => result.flagged).length,
           },
           "evidence linkage: concern tagging completed for this group",
         );
-        taggedGroups.push(applyConcernTaggingResults(group, results));
+        taggedGroups.push(
+          applyConcernTaggingResults(group, [...cached, ...results]),
+        );
       } catch (error) {
         this.logger.error(
           { activityId, joinKeyLabel: group.joinKeyLabel, error },
           "evidence linkage: concern tagging failed for this group, continuing without it",
         );
-        taggedGroups.push(group);
+        // Even on failure, still apply whatever was already resolved from
+        // cache rather than discarding it along with the failed call.
+        taggedGroups.push(
+          cached.length > 0 ? applyConcernTaggingResults(group, cached) : group,
+        );
       }
     }
 
-    return taggedGroups;
+    return { groups: taggedGroups, instructionUsed: instruction };
   }
 }

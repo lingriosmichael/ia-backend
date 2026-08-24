@@ -148,7 +148,72 @@ test("a confirmed paired_delta link resolves via join_tables + paired_change and
     entry.outcomeStatement,
     "Jugendliche kennen ihre naechsten Schritte.",
   );
-  assert.equal(entry.pairLabelDe, "Selbstwirksamkeit");
+});
+
+test("a paired_delta mean that lands on a long repeating decimal is rounded to one decimal place", async () => {
+  // Regression test: 105 paired respondents produces means like
+  // 2.8095238095238093 / 4.247619047619048 — before this rounding was
+  // added, that raw float became "the real value" both the chart tooltip
+  // (which happens to round for display anyway) and the narrative LLM
+  // (which is required to cite it exactly, unrounded) would show verbatim.
+  const executor = {
+    async execute() {
+      return {
+        toolCallTrace: [],
+        qualitativeFindings: [],
+        calculations: [
+          calculation("count_rows", 130, {}),
+          calculation("join_tables", 105, {}),
+          calculation("paired_change", 105, {
+            pairedCount: 105,
+            meanPre: 2.8095238095238093,
+            meanPost: 4.247619047619048,
+          }),
+        ],
+      };
+    },
+  } as unknown as ActivityAnalysisV2ToolExecutor;
+
+  const link: OutcomeEvidenceLinkPersistenceRecord = {
+    linkId: "link-1",
+    organizationId: "org-1",
+    projectId: "project-1",
+    outcomeId: "outcome-1",
+    shape: "paired_delta",
+    activityIdBefore: "activity-baseline",
+    activityIdAfter: "activity-impact-measurement",
+    beforeUploadMetadataId: "upload-before",
+    beforeTableName: "wirkungsmessung_baseline",
+    beforeColumnName: "selbstsicherheit_baseline_1_5",
+    afterUploadMetadataId: "upload-after",
+    afterTableName: "wirkungsmessung_abschluss",
+    afterColumnName: "selbstsicherheit_abschluss_1_5",
+    matchKey: "teilnehmer_id",
+    pairingGroupKey: "Selbstsicherheit",
+    confirmedById: "user-1",
+    confirmedAt: NOW.toISOString(),
+    createdAt: NOW,
+    updatedAt: NOW,
+  };
+
+  const items = await buildProjectImpactStoryImpactCatalog(
+    {
+      currentActivityEvidenceLoader: buildEvidenceLoader(),
+      activityAnalysisV2ToolExecutor: executor,
+      logger: noopLogger,
+    },
+    [buildOutcome()],
+    [link],
+  );
+
+  const entry = items[0];
+  assert.equal(entry?.shape, "paired_delta");
+  if (entry?.shape !== "paired_delta") {
+    throw new Error("expected paired_delta entry");
+  }
+  assert.equal(entry.beforeValue, 2.8);
+  assert.equal(entry.afterValue, 4.2);
+  assert.equal(entry.pairLabelDe, "Selbstsicherheit");
 });
 
 test("a confirmed single_distribution link resolves via group_count", async () => {

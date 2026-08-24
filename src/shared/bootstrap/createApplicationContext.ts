@@ -150,6 +150,7 @@ export function createApplicationContext(
     projectImpactStoryRepository,
     outcomeEvidenceLinkRepository,
     outcomeEvidencePairingResultRepository,
+    projectOutcomeStatementRepository,
   );
   const authorizationService = new AuthorizationService(
     organizationRepository,
@@ -185,6 +186,7 @@ export function createApplicationContext(
     transactionManager,
     userRepository,
     processingResourceCleanupService,
+    projectDerivedStateInvalidationService,
     organizationRepository,
     logger,
     projectOutcomeStatementRepository,
@@ -295,6 +297,7 @@ export function createApplicationContext(
     authorizationService,
     privacyReviewRepository,
     parsedRepresentationRepository,
+    transactionManager,
   );
   const qualitativeCodingReviewService = new QualitativeCodingReviewService(
     uploadMetadataRepository,
@@ -302,6 +305,7 @@ export function createApplicationContext(
     privacySafeRepresentationRepository,
     interpretationResultRepository,
     qualitativeCodingReviewRepository,
+    processingJobRepository,
     pythonProcessingClient,
     projectLlmTokenLedgerService,
     activityLlmTokenLedgerService,
@@ -376,6 +380,8 @@ export function createApplicationContext(
   const projectOutcomeStatementService = new ProjectOutcomeStatementService(
     authorizationService,
     projectOutcomeStatementRepository,
+    processingResourceCleanupService,
+    projectDerivedStateInvalidationService,
   );
   const outcomeEvidencePairingSuggestionService =
     new OutcomeEvidencePairingSuggestionService(pythonProcessingClient, logger);

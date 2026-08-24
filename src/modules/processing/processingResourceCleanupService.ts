@@ -12,6 +12,7 @@ import type { ProjectKnowledgeModelRepository } from "../knowledge/projectKnowle
 import type { ActivityEvidenceLinkageResultRepository } from "../linkage/activityEvidenceLinkageResultRepository.js";
 import type { OutcomeEvidenceLinkRepository } from "../outcome/outcomeEvidenceLinkRepository.js";
 import type { OutcomeEvidencePairingResultRepository } from "../outcome/outcomeEvidencePairingResultRepository.js";
+import type { ProjectOutcomeStatementRepository } from "../outcome/projectOutcomeStatementRepository.js";
 import type { ParsedRepresentationRepository } from "./parsedRepresentationRepository.js";
 import type { QualitativeCodingReviewRepository } from "./qualitativeCodingReviewRepository.js";
 import type { PrivacyReviewRepository } from "./privacyReviewRepository.js";
@@ -42,6 +43,7 @@ export class ProcessingResourceCleanupService {
     private readonly projectImpactStoryRepository: ProjectImpactStoryRepository,
     private readonly outcomeEvidenceLinkRepository: OutcomeEvidenceLinkRepository,
     private readonly outcomeEvidencePairingResultRepository: OutcomeEvidencePairingResultRepository,
+    private readonly projectOutcomeStatementRepository: ProjectOutcomeStatementRepository,
   ) {}
 
   private async deleteLegacyAnalyticsDocuments(
@@ -104,6 +106,41 @@ export class ProcessingResourceCleanupService {
       ),
       this.projectImpactStoryRepository.deleteByProjectId(projectId, session),
       this.outcomeEvidenceLinkRepository.deleteByProjectId(projectId, session),
+      this.outcomeEvidencePairingResultRepository.deleteByProjectId(
+        projectId,
+        session,
+      ),
+      this.projectOutcomeStatementRepository.deleteByProjectId(
+        projectId,
+        session,
+      ),
+    ]);
+  }
+
+  async resetOutcomeEvidencePairingByProjectId(
+    projectId: string,
+    session: DatabaseSession,
+  ): Promise<void> {
+    await this.outcomeEvidencePairingResultRepository.deleteByProjectId(
+      projectId,
+      session,
+    );
+  }
+
+  async deleteByOutcomeStatementIds(
+    projectId: string,
+    outcomeStatementIds: string[],
+    session: DatabaseSession,
+  ): Promise<void> {
+    if (outcomeStatementIds.length === 0) {
+      return;
+    }
+
+    await Promise.all([
+      this.outcomeEvidenceLinkRepository.deleteByOutcomeIds(
+        outcomeStatementIds,
+        session,
+      ),
       this.outcomeEvidencePairingResultRepository.deleteByProjectId(
         projectId,
         session,

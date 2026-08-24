@@ -29,6 +29,7 @@ const NOW = new Date("2026-08-18T10:00:00.000Z");
 
 interface CreateFixtureOptions {
   outcomeStatements?: ProjectOutcomeStatementPersistenceRecord[];
+  intendedChanges?: string[];
   suggestOutcomesImpl?: (
     input: OutcomeEvidencePairingSuggestionInput,
   ) => Promise<Map<string, OutcomeEvidencePairingSuggestedOutcome>>;
@@ -171,6 +172,14 @@ function createFixture(options: CreateFixtureOptions = {}) {
       createdLinks.push(record);
       return record;
     },
+    async deleteByOutcomeIds(outcomeIds: string[]) {
+      const before = createdLinks.length;
+      const kept = createdLinks.filter(
+        (link) => !outcomeIds.includes(link.outcomeId),
+      );
+      createdLinks.splice(0, createdLinks.length, ...kept);
+      return before - kept.length;
+    },
     async findById(linkId: string) {
       return createdLinks.find((link) => link.linkId === linkId) ?? null;
     },
@@ -208,6 +217,9 @@ function createFixture(options: CreateFixtureOptions = {}) {
     updatedAt: NOW,
   };
   const outcomeStatements = options.outcomeStatements ?? [outcomeStatement];
+  const intendedChanges =
+    options.intendedChanges ??
+    outcomeStatements.map((statement) => statement.statement);
   const projectOutcomeStatementRepository = {
     async findById(outcomeStatementId: string) {
       return outcomeStatementId === outcomeStatement.id
@@ -234,10 +246,18 @@ function createFixture(options: CreateFixtureOptions = {}) {
 
   const authorizationService = {
     canViewProject: async (_userId: string, projectId: string) => ({
-      project: { id: projectId, organizationId: "org-1" },
+      project: {
+        id: projectId,
+        organizationId: "org-1",
+        intendedChanges,
+      },
     }),
     canEditProject: async (_userId: string, projectId: string) => ({
-      project: { id: projectId, organizationId: "org-1" },
+      project: {
+        id: projectId,
+        organizationId: "org-1",
+        intendedChanges,
+      },
     }),
   } as unknown as AuthorizationService;
   const interpretationService = {
@@ -465,12 +485,46 @@ test("proposeForProject does not re-invoke the suggestion collaborator for an al
 test("proposeForProject never calls the suggestion collaborator when the project has no declared outcome statements", async () => {
   const { service, getSuggestOutcomesCallCount } = createFixture({
     outcomeStatements: [],
+    intendedChanges: [],
   });
 
   const result = await service.proposeForProject("user-1", "project-1");
 
   assert.equal(getSuggestOutcomesCallCount(), 0);
   assert.equal(result.proposals[0]?.suggestedOutcome, null);
+});
+
+test("proposeForProject hides stale empty outcome statements that are no longer in intended changes", async () => {
+  const activeOutcome: ProjectOutcomeStatementPersistenceRecord = {
+    id: "outcome-active",
+    projectId: "project-1",
+    organizationId: "org-1",
+    term: "short",
+    statement: "Jugendliche setzen konkrete Karriereschritte um.",
+    createdAt: NOW,
+    updatedAt: NOW,
+  };
+  const staleOutcome: ProjectOutcomeStatementPersistenceRecord = {
+    id: "outcome-stale",
+    projectId: "project-1",
+    organizationId: "org-1",
+    term: "short",
+    statement:
+      "Jugendliche berichten berufliche Klarheit ueber ihre Moeglichkeiten.",
+    createdAt: NOW,
+    updatedAt: NOW,
+  };
+  const { service } = createFixture({
+    outcomeStatements: [activeOutcome, staleOutcome],
+    intendedChanges: [activeOutcome.statement],
+  });
+
+  const result = await service.proposeForProject("user-1", "project-1");
+
+  assert.deepEqual(
+    result.outcomeSections.map((section) => section.outcomeStatement.id),
+    ["outcome-active"],
+  );
 });
 
 test("proposeForProject still succeeds with suggestedOutcome null when the suggestion collaborator fails", async () => {
@@ -567,6 +621,8 @@ function diagnosticColumn(
   options?: {
     minValue?: number | null;
     maxValue?: number | null;
+    scaleMin?: number | null;
+    scaleMax?: number | null;
     pairingGroupKey?: string | null;
     pairingGroupRole?: "before" | "after" | null;
   },
@@ -581,6 +637,8 @@ function diagnosticColumn(
     epistemicRole,
     minValue: options?.minValue ?? null,
     maxValue: options?.maxValue ?? null,
+    scaleMin: options?.scaleMin ?? null,
+    scaleMax: options?.scaleMax ?? null,
     pairingGroupKey: options?.pairingGroupKey ?? null,
     pairingGroupRole: options?.pairingGroupRole ?? null,
   };
@@ -605,7 +663,7 @@ test("listDiagnosticReasons reports duplicate_identifier_values when a table's i
   );
 });
 
-test("listDiagnosticReasons reports scale_bounds_mismatch when a declared before/after pair disagrees on bounds", () => {
+test("listDiagnosticReasons reports scale_bounds_mismatch when a declared before/after pair disagrees on declared bounds", () => {
   const tables: OutcomeEvidencePairingEvidenceTable[] = [
     {
       activityId: "activity-baseline",
@@ -615,8 +673,8 @@ test("listDiagnosticReasons reports scale_bounds_mismatch when a declared before
       identifierColumn: "teilnehmer_id",
       columns: [
         diagnosticColumn("selbstwirksamkeit_1_5", "validated_scale", {
-          minValue: 1,
-          maxValue: 5,
+          scaleMin: 1,
+          scaleMax: 5,
           pairingGroupKey: "Selbstwirksamkeit",
           pairingGroupRole: "before",
         }),
@@ -630,8 +688,8 @@ test("listDiagnosticReasons reports scale_bounds_mismatch when a declared before
       identifierColumn: "teilnehmer_id",
       columns: [
         diagnosticColumn("selbstwirksamkeit_1_5", "validated_scale", {
-          minValue: 0,
-          maxValue: 10,
+          scaleMin: 0,
+          scaleMax: 10,
           pairingGroupKey: "Selbstwirksamkeit",
           pairingGroupRole: "after",
         }),
@@ -641,6 +699,48 @@ test("listDiagnosticReasons reports scale_bounds_mismatch when a declared before
 
   const reasons = listDiagnosticReasons("propose", 0, tables, []);
   assert.ok(reasons.some((reason) => reason.code === "scale_bounds_mismatch"));
+  assert.ok(
+    !reasons.some((reason) => reason.code === "scale_bounds_not_declared"),
+  );
+});
+
+test("listDiagnosticReasons reports scale_bounds_not_declared when a declared before/after pair hasn't answered the scale-range question yet", () => {
+  const tables: OutcomeEvidencePairingEvidenceTable[] = [
+    {
+      activityId: "activity-baseline",
+      activitySystemType: "baseline",
+      uploadMetadataId: "upload-baseline",
+      tableName: "umfrage",
+      identifierColumn: "teilnehmer_id",
+      columns: [
+        diagnosticColumn("selbstwirksamkeit_1_5", "validated_scale", {
+          pairingGroupKey: "Selbstwirksamkeit",
+          pairingGroupRole: "before",
+        }),
+      ],
+    },
+    {
+      activityId: "activity-impact-measurement",
+      activitySystemType: "impact_measurement",
+      uploadMetadataId: "upload-wirkungsmessung",
+      tableName: "umfrage",
+      identifierColumn: "teilnehmer_id",
+      columns: [
+        diagnosticColumn("selbstwirksamkeit_1_5", "validated_scale", {
+          scaleMin: 1,
+          scaleMax: 5,
+          pairingGroupKey: "Selbstwirksamkeit",
+          pairingGroupRole: "after",
+        }),
+      ],
+    },
+  ];
+
+  const reasons = listDiagnosticReasons("propose", 0, tables, []);
+  assert.ok(
+    reasons.some((reason) => reason.code === "scale_bounds_not_declared"),
+  );
+  assert.ok(!reasons.some((reason) => reason.code === "scale_bounds_mismatch"));
 });
 
 test("listDiagnosticReasons reports no_declared_pairing_groups when validated_scale columns exist but none have a declared pairing group yet", () => {

@@ -1,4 +1,5 @@
 import type {
+  ClarificationQuestionOption,
   DatasetProfile,
   EvidenceRoutingDecision,
   LlmUsageSummary,
@@ -16,6 +17,7 @@ import type {
   InterpretationQuestionDomain,
   InterpretationQuestionKind,
   InterpretationQuestionStatus,
+  InterpretationQuestionTargetColumnRef,
   InterpretationQualitativeFindingRelation,
   InterpretationQualitativeStage,
   InterpretationRelationship,
@@ -34,20 +36,23 @@ import type {
 // response, same as every other timestamp in this codebase.
 export interface InterpretationQuestionPersistence {
   id: string;
-  prompt: string;
   kind: InterpretationQuestionKind;
   questionDomain: InterpretationQuestionDomain;
-  options: string[] | null;
+  userFacingPrompt: string;
+  userFacingOptions: ClarificationQuestionOption[] | null;
   recommendedOption: string | null;
   recommendedConfidence: number | null;
   isBlocking: boolean;
   questionCode: InterpretationQuestionCode | null;
   targetTableName: string | null;
   targetColumnName: string | null;
+  questionData: Record<string, unknown> | null;
   status: InterpretationQuestionStatus;
   answeredValue: string | null;
   answeredById: string | null;
   answeredAt: Date | null;
+  preparationGroupId: string | null;
+  preparationGroupColumns: InterpretationQuestionTargetColumnRef[] | null;
 }
 
 export interface InterpretationResultPersistenceRecord {
@@ -149,16 +154,23 @@ export interface InterpretationQualitativeFindingCreateInput {
 }
 
 export interface InterpretationQuestionCreateInput {
-  prompt: string;
   kind: InterpretationQuestionKind;
   questionDomain: InterpretationQuestionDomain;
-  options: string[] | null;
+  userFacingPrompt: string;
+  userFacingOptions: ClarificationQuestionOption[] | null;
   recommendedOption: string | null;
   recommendedConfidence: number | null;
   isBlocking: boolean;
   questionCode: InterpretationQuestionCode | null;
   targetTableName: string | null;
   targetColumnName: string | null;
+  questionData?: Record<string, unknown> | null;
+  status?: InterpretationQuestionStatus;
+  answeredValue?: string | null;
+  answeredById?: string | null;
+  answeredAt?: Date | null;
+  preparationGroupId?: string | null;
+  preparationGroupColumns?: InterpretationQuestionTargetColumnRef[] | null;
 }
 
 export interface InterpretationWarningCreateInput {

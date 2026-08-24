@@ -22,6 +22,7 @@ import type {
   InterpretationIndicatorValueFilter,
   InterpretationQuestionCode,
   InterpretationQuestionKind,
+  InterpretationQuestionTargetColumnRef,
   InterpretationWarningSeverity,
   ProcessingJobStatus,
   LlmUsageCall,
@@ -35,6 +36,7 @@ import {
   indicatorComputedValueGroundingStatusValues,
   indicatorComputedValueSourceKindValues,
   indicatorRelevanceStageValues,
+  interpretationQuestionCodeValues,
 } from "../../shared/contracts.js";
 import { createDocumentId } from "../../shared/database/documentId.js";
 import type { ActivityRepository } from "../activity/activityRepository.js";
@@ -56,6 +58,7 @@ import { DeterministicAnalysisService } from "./deterministicAnalysisService.js"
 import { QuantitativeInterpretationSynthesisService } from "./quantitativeInterpretationSynthesisService.js";
 import type { ProjectLlmTokenLedgerService } from "../project/projectLlmTokenLedgerService.js";
 import type { EvidenceLinkageReconciliationService } from "../linkage/evidenceLinkageReconciliationService.js";
+import { renderClarificationQuestion } from "./clarificationQuestionCopy.js";
 
 type ProcessingStatusDetails = Record<string, unknown> | null | undefined;
 
@@ -68,19 +71,6 @@ const interpretationQuestionDomains = [
   "preparation",
   "interpretation",
 ] as const;
-const interpretationQuestionCodes: readonly InterpretationQuestionCode[] = [
-  "normalization_merge",
-  "row_grain",
-  "duplicate_identifier_resolution",
-  "primary_status_field",
-  "positive_status_values",
-  "primary_date_field",
-  "epistemic_role_clarification",
-  "validated_scale_confirmation",
-  "pairing_group_key",
-  "pairing_group_role",
-];
-
 const DEFERRED_TO_ACTIVITY_ANALYSIS_V2_QUESTION_CODES =
   new Set<InterpretationQuestionCode>([
     "primary_status_field",
@@ -90,16 +80,16 @@ const DEFERRED_TO_ACTIVITY_ANALYSIS_V2_QUESTION_CODES =
 
 const interpretationWarningSeverities: readonly InterpretationWarningSeverity[] =
   ["info", "warning"];
-const COHORT_TAG_QUESTION_TEMPLATES = {
-  de:
-    `Um wen geht es in der Tabelle '{table}'? Zum Beispiel um "Jugendliche" oder "Mentor:innen". ` +
-    `Das hilft dabei, nur passende Baseline- und Wirkungsmessungsdaten miteinander zu vergleichen. ` +
-    `Antworten Sie "nicht zutreffend", wenn dieses Projekt nur eine einzige Kohorte hat.`,
-  en:
-    `Who is the table '{table}' about? For example "young people" or "mentors". ` +
-    `This helps compare only the right baseline and endline data with each other. ` +
-    `Answer "not applicable" if this project only has a single cohort.`,
-} as const;
+const CLARIFICATION_AUTO_RESOLUTION_CONFIDENCE_THRESHOLD = 0.8;
+const AUTO_RESOLVABLE_PREPARATION_QUESTION_CODES =
+  new Set<InterpretationQuestionCode>([
+    "cohort_tag",
+    "pairing_group_key",
+    "pairing_group_role",
+  ]);
+// cohort_tag's template previously lived here (COHORT_TAG_QUESTION_TEMPLATES)
+// — relocated to clarificationQuestionCopy.ts, the single backend-owned
+// wording module, per CLARIFICATION_QUESTION_WORDING_PLAN.md.
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
@@ -129,6 +119,10 @@ function readStringArray(value: unknown): string[] {
 
 function readRecordArray(value: unknown): Record<string, unknown>[] {
   return Array.isArray(value) ? value.filter(isRecord) : [];
+}
+
+function readQuestionData(value: unknown): Record<string, unknown> | null {
+  return isRecord(value) ? value : null;
 }
 
 function readJobLanguage(
@@ -165,6 +159,60 @@ function suggestCohortTagFromTableName(tableName: string): {
     recommendedOption: null,
     recommendedConfidence: null,
   };
+}
+
+function resolveAutoAnsweredQuestionValue(
+  question: InterpretationQuestionCreateInput,
+): string | null {
+  if (
+    question.questionDomain !== "preparation" ||
+    !question.questionCode ||
+    !AUTO_RESOLVABLE_PREPARATION_QUESTION_CODES.has(question.questionCode)
+  ) {
+    return null;
+  }
+
+  const recommendedOption = question.recommendedOption?.trim() ?? "";
+  if (!recommendedOption) {
+    return null;
+  }
+
+  if (
+    typeof question.recommendedConfidence !== "number" ||
+    question.recommendedConfidence <
+      CLARIFICATION_AUTO_RESOLUTION_CONFIDENCE_THRESHOLD
+  ) {
+    return null;
+  }
+
+  if (!question.userFacingOptions?.length) {
+    return recommendedOption;
+  }
+
+  return (
+    question.userFacingOptions.find(
+      (option) => option.value.trim() === recommendedOption,
+    )?.value ?? null
+  );
+}
+
+function applyAutoResolvedPreparationQuestions(
+  questions: InterpretationQuestionCreateInput[],
+): InterpretationQuestionCreateInput[] {
+  return questions.map((question) => {
+    const answeredValue = resolveAutoAnsweredQuestionValue(question);
+    if (!answeredValue) {
+      return question;
+    }
+
+    return {
+      ...question,
+      status: "answered",
+      answeredValue,
+      answeredById: null,
+      answeredAt: new Date(),
+    };
+  });
 }
 
 function readInterpretationLlmUsage(
@@ -234,7 +282,7 @@ function readQuestionDomain(value: unknown): "preparation" | "interpretation" {
 }
 
 function readQuestionCode(value: unknown): InterpretationQuestionCode | null {
-  return interpretationQuestionCodes.includes(
+  return interpretationQuestionCodeValues.includes(
     value as InterpretationQuestionCode,
   )
     ? (value as InterpretationQuestionCode)
@@ -279,6 +327,18 @@ function readDatasetProfileValueCounts(
   return readRecordArray(value).map((entry) => ({
     value: readString(entry.value),
     count: readNumber(entry.count),
+  }));
+}
+
+function readInterpretationQuestionTargetColumnRefs(
+  value: unknown,
+): InterpretationQuestionTargetColumnRef[] | null {
+  if (!Array.isArray(value) || value.length === 0) {
+    return null;
+  }
+  return readRecordArray(value).map((entry) => ({
+    tableName: readString(entry.tableName),
+    columnName: readString(entry.columnName),
   }));
 }
 
@@ -702,7 +762,10 @@ function mapQualitativeFindings(
   }));
 }
 
-function mapQuestions(value: unknown): InterpretationQuestionCreateInput[] {
+function mapQuestions(
+  value: unknown,
+  language: "de" | "en",
+): InterpretationQuestionCreateInput[] {
   return readRecordArray(value).flatMap((entry) => {
     const questionCode = readQuestionCode(entry.questionCode);
     if (
@@ -712,17 +775,32 @@ function mapQuestions(value: unknown): InterpretationQuestionCreateInput[] {
       return [];
     }
 
+    const rawPrompt = readString(
+      entry.prompt,
+      "Can you confirm this interpretation?",
+    );
+    const rawOptions = Array.isArray(entry.options)
+      ? readStringArray(entry.options)
+      : null;
+    const targetTableName = readNullableString(entry.targetTableName);
+    const targetColumnName = readNullableString(entry.targetColumnName);
+    const questionData = readQuestionData(entry.questionData);
+    const rendered = renderClarificationQuestion({
+      questionCode,
+      targetTableName,
+      targetColumnName,
+      language,
+      questionData,
+      rawPrompt,
+      rawOptions,
+    });
+
     return [
       {
-        prompt: readString(
-          entry.prompt,
-          "Can you confirm this interpretation?",
-        ),
         kind: readQuestionKind(entry.kind),
         questionDomain: readQuestionDomain(entry.questionDomain),
-        options: Array.isArray(entry.options)
-          ? readStringArray(entry.options)
-          : null,
+        userFacingPrompt: rendered.userFacingPrompt,
+        userFacingOptions: rendered.userFacingOptions,
         recommendedOption: readNullableString(entry.recommendedOption),
         recommendedConfidence: readNullableNumber(entry.recommendedConfidence),
         isBlocking: readBoolean(
@@ -730,8 +808,13 @@ function mapQuestions(value: unknown): InterpretationQuestionCreateInput[] {
           readQuestionKind(entry.kind) !== "free_text",
         ),
         questionCode,
-        targetTableName: readNullableString(entry.targetTableName),
-        targetColumnName: readNullableString(entry.targetColumnName),
+        targetTableName,
+        targetColumnName,
+        questionData,
+        preparationGroupId: readNullableString(entry.preparationGroupId),
+        preparationGroupColumns: readInterpretationQuestionTargetColumnRefs(
+          entry.preparationGroupColumns,
+        ),
       },
     ];
   });
@@ -761,20 +844,29 @@ function buildCohortTagQuestions(
     return [];
   }
 
-  const promptTemplate = COHORT_TAG_QUESTION_TEMPLATES[language];
   return datasetProfile.tables.map((table) => {
     const recommendation = suggestCohortTagFromTableName(table.name);
+    const rendered = renderClarificationQuestion({
+      questionCode: "cohort_tag",
+      targetTableName: table.name,
+      targetColumnName: null,
+      language,
+      questionData: null,
+      rawPrompt: "",
+      rawOptions: null,
+    });
     return {
-      prompt: promptTemplate.replace("{table}", table.name),
       kind: "free_text",
       questionDomain: "preparation",
-      options: null,
+      userFacingPrompt: rendered.userFacingPrompt,
+      userFacingOptions: rendered.userFacingOptions,
       recommendedOption: recommendation.recommendedOption,
       recommendedConfidence: recommendation.recommendedConfidence,
       isBlocking: true,
       questionCode: "cohort_tag",
       targetTableName: table.name,
       targetColumnName: null,
+      questionData: null,
     };
   });
 }
@@ -899,14 +991,14 @@ export class InterpretationArtifactService {
         supportingQuotes: supportingQuotes.map(
           ({ quoteKey: _quoteKey, ...quote }) => quote,
         ),
-        questions: [
-          ...mapQuestions(interpretation.questions),
+        questions: applyAutoResolvedPreparationQuestions([
+          ...mapQuestions(interpretation.questions, language),
           ...buildCohortTagQuestions(
             datasetProfile,
             activity?.systemType ?? null,
             language,
           ),
-        ],
+        ]),
         warnings: mapWarnings(interpretation.warnings),
         goalAlignment: mapGoalAlignment(
           interpretation.goalAlignment,

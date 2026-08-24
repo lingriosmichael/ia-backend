@@ -65,9 +65,11 @@ function buildToolRequest(
 
 function buildToolCallTraceEntry(
   calculationIds: string[],
+  goalId = "output_1",
 ): ActivityAnalysisV2ToolCallRecord {
   return {
     toolCallId: "tool-1",
+    goalId,
     toolName: "compare_target",
     arguments: {},
     calculationIds,
@@ -136,7 +138,75 @@ test("a single compare_target result produces a grounded achieved/not_achieved v
   assert.equal(goalAssessment.assessmentStatus, "achieved");
   assert.equal(goalAssessment.measuredValue, 70);
   assert.equal(goalAssessment.targetValue, 65);
+  assert.equal(goalAssessment.valueFormat, "number");
   assert.equal(result.validation.status, "passed");
+});
+
+test("ratio-based target comparisons are marked for percentage display", () => {
+  const ratioCalculation: ActivityAnalysisV2CalculationRecord = {
+    calculationId: "calc-ratio",
+    toolName: "calculate_ratio",
+    label: "Completion rate",
+    description: "Computes the completion rate.",
+    formula: "82 / 100",
+    value: 0.82,
+    unit: "ratio",
+    sourceUploadMetadataIds: ["upload-1"],
+    sourceTableNames: ["attendance"],
+    sourceColumns: ["participant_id"],
+    numerator: 82,
+    denominator: 100,
+    denominatorType: "rows",
+    result: {
+      numerator: 82,
+      denominator: 100,
+      ratio: 0.82,
+    },
+  };
+  const compareTarget = buildCompareTargetCalculation("calc-1", {
+    result: {
+      achieved: true,
+      comparison: "at_least",
+      value: 0.82,
+      target: 0.8,
+    },
+  });
+  const result = buildActivityAssessmentV2({
+    language: "en",
+    goals: [
+      buildGoal({ goalText: "At least 80% complete both training days" }),
+    ],
+    plannedToolRequests: [
+      buildToolRequest({
+        toolName: "calculate_ratio",
+        alias: "completion_rate",
+      }),
+      buildToolRequest(),
+    ],
+    toolCallTrace: [
+      {
+        toolCallId: "tool-ratio",
+        goalId: "output_1",
+        toolName: "calculate_ratio",
+        arguments: {},
+        calculationIds: ["calc-ratio"],
+        status: "succeeded",
+        errorMessage: null,
+        startedAt: "2026-08-08T10:00:00.000Z",
+        completedAt: "2026-08-08T10:00:00.010Z",
+        durationMs: 10,
+      },
+      buildToolCallTraceEntry(["calc-1"]),
+    ],
+    calculations: [ratioCalculation, compareTarget],
+    qualitativeFindings: [],
+    limitations: [],
+  });
+
+  const goalAssessment = result.assessment.goalAssessments[0]!;
+  assert.equal(goalAssessment.valueFormat, "percent");
+  assert.equal(goalAssessment.measuredValue, 0.82);
+  assert.equal(goalAssessment.targetValue, 0.8);
 });
 
 test("two compare_target results for the same goal fail validation instead of silently using only the first", () => {
@@ -185,6 +255,7 @@ test("an epistemic-role gate downgrade becomes qualitative_evidence_only instead
     toolCallTrace: [
       {
         toolCallId: "tool-1",
+        goalId: "output_1",
         toolName: "compare_target",
         arguments: {},
         calculationIds: [],
@@ -222,6 +293,7 @@ test("a goal becomes mixed_evidence when a target comparison and qualitative-cod
     toolCallTrace: [
       {
         toolCallId: "tool-qual",
+        goalId: "output_1",
         toolName: "group_count",
         arguments: {},
         calculationIds: ["calc-qual"],
@@ -280,6 +352,7 @@ test("mixed evidence raises evidenceTensionFlag when the epistemic-role gate als
     toolCallTrace: [
       {
         toolCallId: "tool-qual",
+        goalId: "output_1",
         toolName: "group_count",
         arguments: {},
         calculationIds: ["calc-qual"],
@@ -292,6 +365,7 @@ test("mixed evidence raises evidenceTensionFlag when the epistemic-role gate als
       buildToolCallTraceEntry(["calc-1"]),
       {
         toolCallId: "tool-gate",
+        goalId: "output_1",
         toolName: "aggregate_numeric",
         arguments: {},
         calculationIds: [],
@@ -356,6 +430,7 @@ test("evidenceTensionFlag fires from a rate divergence even when no epistemic-ro
     toolCallTrace: [
       {
         toolCallId: "tool-qual",
+        goalId: "output_1",
         toolName: "group_count",
         arguments: {},
         calculationIds: ["calc-qual"],
@@ -412,6 +487,7 @@ test("evidenceTensionFlag stays false when a qualitative finding's rate is not o
     toolCallTrace: [
       {
         toolCallId: "tool-qual",
+        goalId: "output_1",
         toolName: "group_count",
         arguments: {},
         calculationIds: ["calc-qual"],
@@ -474,6 +550,7 @@ test("excerpt retrieval alone can ground a qualitative_evidence_only goal", () =
     toolCallTrace: [
       {
         toolCallId: "tool-excerpt",
+        goalId: "output_1",
         toolName: "excerpt_retrieval",
         arguments: {},
         calculationIds: [],

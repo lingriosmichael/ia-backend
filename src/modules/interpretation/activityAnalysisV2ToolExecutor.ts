@@ -901,6 +901,7 @@ export class ActivityAnalysisV2ToolExecutor {
             index,
             request.arguments as Record<string, unknown>,
           ),
+          goalId: request.goalId ?? null,
           toolName: request.toolName,
           arguments: request.arguments as Record<string, unknown>,
           calculationIds: [],
@@ -914,6 +915,19 @@ export class ActivityAnalysisV2ToolExecutor {
         continue;
       }
 
+      // Deliberately left as an if/else chain rather than extracted into a
+      // Record<string, handler> lookup table (the pattern the per-tool-
+      // family modules this file delegates to already use): unlike a
+      // typical dispatch table, most branches below don't just compute and
+      // return — they read and mutate the shared rowAliases/scalarAliases/
+      // scalarAliasRoles closures differently per tool, so extracting each
+      // into an independent handler function would mean threading that
+      // mutable state through an explicit parameter/return contract for
+      // ~30 branches. That's a real, worthwhile cleanup, but on the one
+      // file whose output is shown to users as a grounded numeric fact —
+      // it deserves a dedicated, carefully-reviewed change with the full
+      // test suite re-verified branch by branch, not a change bundled in
+      // alongside unrelated fixes.
       let toolCalculations: ActivityAnalysisV2CalculationRecord[] = [];
       let toolQualitativeFindings: ActivityAnalysisV2ToolExecutionResult["qualitativeFindings"] =
         [];
@@ -1531,6 +1545,7 @@ export class ActivityAnalysisV2ToolExecutor {
             index,
             request.arguments as Record<string, unknown>,
           ),
+          goalId: request.goalId ?? null,
           toolName: request.toolName,
           arguments: request.arguments as Record<string, unknown>,
           calculationIds: toolCalculations.map(
@@ -1553,6 +1568,7 @@ export class ActivityAnalysisV2ToolExecutor {
             index,
             request.arguments as Record<string, unknown>,
           ),
+          goalId: request.goalId ?? null,
           toolName: request.toolName,
           arguments: request.arguments as Record<string, unknown>,
           calculationIds: [],

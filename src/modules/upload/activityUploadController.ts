@@ -3,6 +3,7 @@ import { requireAuthenticatedUser } from "../../shared/auth/requireAuthenticated
 import { successResponse } from "../../shared/http/apiResponse.js";
 import { idParamSchema } from "../../schemas/httpSchemas.js";
 import { ActivityUploadService } from "./activityUploadService.js";
+import { requireParam } from "../../shared/http/requireParam.js";
 
 export class ActivityUploadController {
   constructor(private readonly activityUploadService: ActivityUploadService) {}
@@ -14,7 +15,7 @@ export class ActivityUploadController {
     const file = await request.file();
     const response = await this.activityUploadService.uploadForActivity(
       auth.userId,
-      params.activityId!,
+      requireParam(params, "activityId"),
       file,
     );
 

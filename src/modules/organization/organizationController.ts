@@ -9,6 +9,7 @@ import {
   updateOrganizationSchema,
 } from "../../schemas/httpSchemas.js";
 import { OrganizationService } from "./organizationService.js";
+import { requireParam } from "../../shared/http/requireParam.js";
 
 export class OrganizationController {
   constructor(private readonly organizationService: OrganizationService) {}
@@ -45,7 +46,7 @@ export class OrganizationController {
         };
     const organization = await this.organizationService.update(
       auth.userId,
-      params.organizationId!,
+      requireParam(params, "organizationId"),
       {
         ...payload,
         logoFile,
@@ -60,7 +61,7 @@ export class OrganizationController {
     const params = idParamSchema.parse(request.params);
     const workspace = await this.organizationService.getWorkspace(
       auth.userId,
-      params.organizationId!,
+      requireParam(params, "organizationId"),
     );
     return successResponse(workspace);
   }
@@ -71,7 +72,7 @@ export class OrganizationController {
     const params = idParamSchema.parse(request.params);
     const members = await this.organizationService.listMembers(
       auth.userId,
-      params.organizationId!,
+      requireParam(params, "organizationId"),
     );
     return successResponse(members);
   }
@@ -82,15 +83,20 @@ export class OrganizationController {
     const params = idParamSchema.parse(request.params);
     const removedMember = await this.organizationService.removeMember(
       auth.userId,
-      params.organizationId!,
-      params.membershipId!,
+      requireParam(params, "organizationId"),
+      requireParam(params, "membershipId"),
     );
     return successResponse(removedMember);
   }
 
   async getLogo(request: FastifyRequest, reply: FastifyReply) {
+    const auth = requireAuthenticatedUser(request);
+
     const params = idParamSchema.parse(request.params);
-    const logo = await this.organizationService.getLogo(params.organizationId!);
+    const logo = await this.organizationService.getLogo(
+      auth.userId,
+      requireParam(params, "organizationId"),
+    );
 
     return reply
       .type(logo.contentType)
@@ -99,6 +105,13 @@ export class OrganizationController {
   }
 }
 
+// Every multipart field arrives as a raw string (or undefined), unlike the
+// JSON-body path where updateOrganizationSchema.parse() runs directly
+// against already-typed values. The parseNullable*/parseStringArrayField
+// helpers below exist to bridge that gap — coercing string/undefined into
+// the number/boolean/array/null shapes the shared schema expects — before
+// that same schema validates the result, rather than duplicating the
+// schema's own validation rules here.
 async function parseMultipartOrganizationUpdate(
   request: FastifyRequest,
 ): Promise<{

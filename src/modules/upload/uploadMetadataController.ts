@@ -5,6 +5,7 @@ import { idParamSchema } from "../../schemas/httpSchemas.js";
 import { EvidenceProcessingService } from "../processing/evidenceProcessingService.js";
 import { buildDownloadContentDisposition } from "./fileStorageService.js";
 import { UploadMetadataService } from "./uploadMetadataService.js";
+import { requireParam } from "../../shared/http/requireParam.js";
 
 export class UploadMetadataController {
   constructor(
@@ -18,7 +19,7 @@ export class UploadMetadataController {
     const params = idParamSchema.parse(request.params);
     const records = await this.uploadMetadataService.listByActivity(
       auth.userId,
-      params.activityId!,
+      requireParam(params, "activityId"),
     );
     return successResponse(records);
   }
@@ -29,7 +30,7 @@ export class UploadMetadataController {
     const params = idParamSchema.parse(request.params);
     const file = await this.uploadMetadataService.getFile(
       auth.userId,
-      params.evidenceId!,
+      requireParam(params, "evidenceId"),
     );
 
     return reply
@@ -38,7 +39,7 @@ export class UploadMetadataController {
         "content-disposition",
         buildDownloadContentDisposition("inline", file.originalFileName),
       )
-      .send(file.buffer);
+      .send(file.stream);
   }
 
   async delete(request: FastifyRequest) {
@@ -47,7 +48,7 @@ export class UploadMetadataController {
     const params = idParamSchema.parse(request.params);
     const response = await this.uploadMetadataService.delete(
       auth.userId,
-      params.evidenceId!,
+      requireParam(params, "evidenceId"),
     );
     return successResponse(response);
   }
@@ -58,7 +59,7 @@ export class UploadMetadataController {
     const params = idParamSchema.parse(request.params);
     const response = await this.evidenceProcessingService.startEvidenceAnalysis(
       auth.userId,
-      params.evidenceId!,
+      requireParam(params, "evidenceId"),
     );
     return successResponse(response);
   }

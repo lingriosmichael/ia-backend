@@ -2,14 +2,17 @@ import { databaseSession } from "../../shared/database/databaseClient.js";
 import type {
   DatasetProfileTable,
   DatasetPreparationDecisionSelection,
+  DatasetPreparationDecisionSummary,
   DatasetPreparationStatus,
   EpistemicRole,
   EvidenceModality,
   InterpretationQuestionCode,
   PreparedDatasetColumnRole,
   PreparedDatasetIdentifierHandling,
+  PreparedDatasetMetricKind,
   PreparedDatasetSnapshot,
   PreparedDatasetTable,
+  PreparedDatasetValueScope,
 } from "../../shared/contracts.js";
 import { classifyEvidenceModalityFromPayload } from "../../shared/utils/evidenceModality.js";
 import { shouldIgnoreInterpretationQuestion } from "../../shared/utils/interpretationQuestionFilters.js";
@@ -21,7 +24,12 @@ import type {
 } from "./datasetPreparationPersistence.js";
 import type { InterpretationResultPersistenceRecord } from "./interpretationResultPersistence.js";
 
-const PREPARATION_QUESTION_CODES = new Set<InterpretationQuestionCode>([
+// Exported so interpretationReviewState.ts's
+// FIRST_LAYER_BLOCKING_QUESTION_CODES can share this exact set instead of
+// maintaining an independent copy — the two used to be separately
+// maintained identical literals, risking one getting a new code added
+// without the other.
+export const PREPARATION_QUESTION_CODES = new Set<InterpretationQuestionCode>([
   "normalization_merge",
   "row_grain",
   "duplicate_identifier_resolution",
@@ -30,6 +38,7 @@ const PREPARATION_QUESTION_CODES = new Set<InterpretationQuestionCode>([
   "cohort_tag",
   "pairing_group_key",
   "pairing_group_role",
+  "declared_scale_bounds",
 ]);
 
 function isPreparationQuestionCode(
@@ -66,11 +75,29 @@ function isPreparationQuestion(
   );
 }
 
-function emptyDecisionSummary() {
+// Explicit return type (rather than relying on inference) so this object's
+// keys are checked against DatasetPreparationDecisionSummary at compile
+// time — adding a field to one without the other now fails the build
+// instead of silently drifting apart, per CLAUDE.md's "update the model
+// and any contract mapper in the same change" rule.
+function emptyDecisionSummary(): DatasetPreparationDecisionSummary {
   return {
     normalizationMerges: [] as DatasetPreparationDecisionSelection[],
     rowGrains: [] as DatasetPreparationDecisionSelection[],
     duplicateIdentifierResolutions: [] as DatasetPreparationDecisionSelection[],
+    // primaryStatusFields/positiveStatusDefinitions are structurally always
+    // empty: their source question codes (primary_status_field,
+    // positive_status_values) are deferred to ActivityAnalysisV2's
+    // activity-scoped clarification mechanism and stripped before
+    // persistence (see DEFERRED_TO_ACTIVITY_ANALYSIS_V2_QUESTION_CODES in
+    // interpretationArtifactService.ts), so no question with either code
+    // ever reaches mapQuestionCodeToSummaryKey below to populate these.
+    // primaryStatusColumn selection still works via the likelyStatusColumns
+    // heuristic fallback further down this file when there's exactly one
+    // candidate; it's only the explicit-answer override path (needed to
+    // disambiguate when there's more than one candidate) that's dead. See
+    // countPositiveRows in deterministicAnalysisService.ts for the
+    // downstream effect.
     primaryStatusFields: [] as DatasetPreparationDecisionSelection[],
     positiveStatusDefinitions: [] as DatasetPreparationDecisionSelection[],
     primaryDateFields: [] as DatasetPreparationDecisionSelection[],
@@ -79,6 +106,7 @@ function emptyDecisionSummary() {
     cohortTags: [] as DatasetPreparationDecisionSelection[],
     pairingGroupKeys: [] as DatasetPreparationDecisionSelection[],
     pairingGroupRoles: [] as DatasetPreparationDecisionSelection[],
+    declaredScaleBounds: [] as DatasetPreparationDecisionSelection[],
   };
 }
 
@@ -112,6 +140,8 @@ function mapQuestionCodeToSummaryKey(questionCode: InterpretationQuestionCode) {
       return "pairingGroupKeys";
     case "pairing_group_role":
       return "pairingGroupRoles";
+    case "declared_scale_bounds":
+      return "declaredScaleBounds";
   }
 }
 
@@ -126,6 +156,151 @@ function matchSelectionByTable(
 
 function normalizeText(value: string): string {
   return value.trim().toLowerCase();
+}
+
+function normalizeColumnName(value: string): string {
+  return value.trim().toLowerCase();
+}
+
+function columnNameIncludesCue(
+  value: string,
+  cues: readonly string[],
+): boolean {
+  const normalized = normalizeColumnName(value);
+  return cues.some((cue) => normalized.includes(cue));
+}
+
+const RATIO_COLUMN_CUES = [
+  "prozent",
+  "percent",
+  "quote",
+  "ratio",
+  "rate",
+  "anteil",
+] as const;
+const DURATION_COLUMN_CUES = [
+  "dauer",
+  "duration",
+  "minute",
+  "minuten",
+  "hour",
+  "hours",
+  "stunde",
+  "stunden",
+  "day",
+  "days",
+  "tag",
+  "tage",
+] as const;
+const AMOUNT_COLUMN_CUES = [
+  "betrag",
+  "amount",
+  "cost",
+  "kosten",
+  "budget",
+  "preis",
+  "price",
+  "euro",
+  "eur",
+] as const;
+const TABLE_AGGREGATE_SCOPE_CUES = [
+  "gesamt",
+  "total",
+  "overall",
+  "kumul",
+  "cumulative",
+  "bisher",
+  "year_to_date",
+  "ytd",
+  "zielwert",
+  "expected",
+  "erwartet",
+  "planned",
+  "geplant",
+  "mindest",
+  "maximum",
+  "minimum",
+] as const;
+
+function inferPreparedColumnMetricKind(input: {
+  columnName: string;
+  inferredType: string | null;
+  epistemicRole: EpistemicRole | null;
+  distinctCount: number | null;
+  minValue: number | null;
+  maxValue: number | null;
+}): PreparedDatasetMetricKind | null {
+  if (input.epistemicRole === "validated_scale") {
+    return "score";
+  }
+  if (input.epistemicRole === "flag" || input.inferredType === "boolean") {
+    return "flag";
+  }
+  if (input.inferredType !== "numeric") {
+    return null;
+  }
+  if (columnNameIncludesCue(input.columnName, RATIO_COLUMN_CUES)) {
+    return "ratio";
+  }
+  if (columnNameIncludesCue(input.columnName, DURATION_COLUMN_CUES)) {
+    return "duration";
+  }
+  if (columnNameIncludesCue(input.columnName, AMOUNT_COLUMN_CUES)) {
+    return "amount";
+  }
+  if (
+    input.minValue !== null &&
+    input.maxValue !== null &&
+    input.minValue >= 0 &&
+    input.maxValue <= 1 &&
+    (input.distinctCount ?? 0) > 2
+  ) {
+    return "ratio";
+  }
+  return "count";
+}
+
+function inferPreparedColumnValueScope(input: {
+  columnName: string;
+  role: PreparedDatasetColumnRole;
+  metricKind: PreparedDatasetMetricKind | null;
+  rowCount: number;
+  distinctCount: number | null;
+  minValue: number | null;
+  inferredGoalSupportType: "output" | null;
+}): PreparedDatasetValueScope | null {
+  if (input.inferredGoalSupportType) {
+    return "goal_support";
+  }
+  if (input.role === "identifier") {
+    return "entity";
+  }
+  if (input.metricKind === null) {
+    return null;
+  }
+  if (input.metricKind === "flag") {
+    return "row";
+  }
+  if (columnNameIncludesCue(input.columnName, TABLE_AGGREGATE_SCOPE_CUES)) {
+    return "table_aggregate";
+  }
+  if (
+    input.metricKind === "count" &&
+    input.rowCount > 1 &&
+    input.distinctCount === 1 &&
+    (input.minValue ?? 0) > 1
+  ) {
+    return "table_aggregate";
+  }
+  return "row";
+}
+
+function inferGoalSupportType(columnName: string): "output" | null {
+  const normalized = normalizeColumnName(columnName);
+  if (normalized.startsWith("ziel_output_")) {
+    return "output";
+  }
+  return null;
 }
 
 function parseIdentifierHandling(
@@ -318,6 +493,33 @@ function parsePairingGroupRoleAnswer(
     return "after";
   }
   return null;
+}
+
+// Free-text answer to declared_scale_bounds, e.g. "1 to 5" or "0 bis 10" —
+// takes the first two numbers found in the answer, regardless of wording,
+// rather than requiring an exact phrase match (unlike the closed-option
+// answers above). Rejects a degenerate/reversed range (min >= max) as
+// unparseable rather than silently storing something a matcher would trust.
+function parseDeclaredScaleBoundsAnswer(
+  answer: string | null,
+): { min: number; max: number } | null {
+  if (!answer) {
+    return null;
+  }
+  const matches = answer.match(/-?\d+(?:[.,]\d+)?/g);
+  if (!matches) {
+    return null;
+  }
+  const [firstMatch, secondMatch] = matches;
+  if (!firstMatch || !secondMatch) {
+    return null;
+  }
+  const min = Number.parseFloat(firstMatch.replace(",", "."));
+  const max = Number.parseFloat(secondMatch.replace(",", "."));
+  if (Number.isNaN(min) || Number.isNaN(max) || min >= max) {
+    return null;
+  }
+  return { min, max };
 }
 
 function parsePositiveStatusValues(
@@ -542,6 +744,56 @@ function buildPreparedDatasetSnapshot(
           selection.tableName === tableName &&
           selection.columnName === columnName,
       );
+      const declaredScaleBoundsAnswer =
+        decisionSummary.declaredScaleBounds.find(
+          (selection) =>
+            selection.tableName === tableName &&
+            selection.columnName === columnName,
+        );
+      const declaredScaleBounds =
+        epistemicRole === "validated_scale"
+          ? parseDeclaredScaleBoundsAnswer(
+              declaredScaleBoundsAnswer?.value ?? null,
+            )
+          : null;
+
+      // Catches a mistyped/misremembered declared range (e.g. "1 to 5" when
+      // the questionnaire was actually run 1-7) regardless of whether the
+      // answer came from a solo confirmation or was fanned out from a
+      // shared baseline/endline instrument-group answer — grouping must
+      // never suppress this check, since a fanned-out answer is identical
+      // by construction and can no longer be caught by
+      // hasCompatibleScaleBounds's cross-column equality check alone.
+      if (
+        declaredScaleBounds &&
+        profileColumn?.numericSummary &&
+        (profileColumn.numericSummary.min < declaredScaleBounds.min ||
+          profileColumn.numericSummary.max > declaredScaleBounds.max)
+      ) {
+        unresolvedRequirements.push(
+          `Observed values in '${columnName}' (${profileColumn.numericSummary.min}–${profileColumn.numericSummary.max}) fall outside the declared scale bounds (${declaredScaleBounds.min}–${declaredScaleBounds.max}).`,
+        );
+      }
+
+      const minValue = profileColumn?.numericSummary?.min ?? null;
+      const maxValue = profileColumn?.numericSummary?.max ?? null;
+      const metricKind = inferPreparedColumnMetricKind({
+        columnName,
+        inferredType: profileColumn?.inferredType ?? null,
+        epistemicRole,
+        distinctCount: profileColumn?.distinctCount ?? null,
+        minValue,
+        maxValue,
+      });
+      const valueScope = inferPreparedColumnValueScope({
+        columnName,
+        role,
+        metricKind,
+        rowCount,
+        distinctCount: profileColumn?.distinctCount ?? null,
+        minValue,
+        inferredGoalSupportType: inferGoalSupportType(columnName),
+      });
 
       return {
         name: columnName,
@@ -555,8 +807,10 @@ function buildPreparedDatasetSnapshot(
             : null,
         normalizationAccepted,
         epistemicRole,
-        minValue: profileColumn?.numericSummary?.min ?? null,
-        maxValue: profileColumn?.numericSummary?.max ?? null,
+        minValue,
+        maxValue,
+        scaleMin: declaredScaleBounds?.min ?? null,
+        scaleMax: declaredScaleBounds?.max ?? null,
         pairingGroupKey:
           epistemicRole === "validated_scale"
             ? parsePairingGroupKeyAnswer(pairingGroupKeyAnswer?.value ?? null)
@@ -565,6 +819,8 @@ function buildPreparedDatasetSnapshot(
           epistemicRole === "validated_scale"
             ? parsePairingGroupRoleAnswer(pairingGroupRoleAnswer?.value ?? null)
             : null,
+        metricKind,
+        valueScope,
       };
     });
 
@@ -621,15 +877,22 @@ function buildPreparationInput(
       tableName: question.targetTableName ?? null,
       columnName: question.targetColumnName ?? null,
       value: question.answeredValue ?? "",
+      groupId: question.preparationGroupId ?? null,
+      groupColumns: question.preparationGroupColumns ?? null,
     };
-    decisionSummary[mapQuestionCodeToSummaryKey(question.questionCode!)].push(
-      selection,
-    );
+    // mapQuestionCodeToSummaryKey only covers preparation-domain codes —
+    // an interpretation-domain code (e.g. filter_value_grounding) has no
+    // decisionSummary bucket and is safely skipped here rather than
+    // indexed with an undefined key.
+    const summaryKey = mapQuestionCodeToSummaryKey(question.questionCode!);
+    if (summaryKey) {
+      decisionSummary[summaryKey].push(selection);
+    }
 
     return {
       questionId: question.id,
       questionCode: question.questionCode!,
-      questionPrompt: question.prompt,
+      questionPrompt: question.userFacingPrompt,
       tableName: question.targetTableName ?? null,
       columnName: question.targetColumnName ?? null,
       answeredValue: question.answeredValue ?? "",

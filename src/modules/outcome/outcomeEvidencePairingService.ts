@@ -61,6 +61,10 @@ function isReadyForPairingPreparation(
   );
 }
 
+function normalizeOutcomeStatementText(value: string): string {
+  return value.trim().toLocaleLowerCase();
+}
+
 // Exported for direct unit testing, same reasoning as
 // outcomeEvidencePairingCandidateMatcher.ts's exported pure helpers — this
 // is deterministic reason-code derivation with no repository dependency,
@@ -132,6 +136,13 @@ export function listDiagnosticReasons(
       .map((column) => ({ table, column })),
   );
   const hasDeclaredPairingGroups = declaredScaleColumns.length > 0;
+  // Every declared-group-key/opposite-role pair that still didn't produce a
+  // candidate splits into two distinct causes, kept as separate reason
+  // codes so the message tells a reviewer what to actually do next: bounds
+  // were declared on both sides but genuinely differ (scale_bounds_mismatch,
+  // nothing to fix — these really are different instruments) vs. bounds
+  // haven't been declared on one or both sides yet
+  // (scale_bounds_not_declared, answer the declared_scale_bounds question).
   const hasScaleBoundsMismatch = declaredScaleColumns.some(
     ({ column: beforeColumn }) => {
       if (beforeColumn.pairingGroupRole !== "before") {
@@ -140,13 +151,49 @@ export function listDiagnosticReasons(
       const normalizedKey = normalizeColumnName(
         beforeColumn.pairingGroupKey ?? "",
       );
-      return declaredScaleColumns.some(
-        ({ column: afterColumn }) =>
-          afterColumn.pairingGroupRole === "after" &&
-          normalizeColumnName(afterColumn.pairingGroupKey ?? "") ===
-            normalizedKey &&
-          !hasCompatibleScaleBounds(beforeColumn, afterColumn),
+      return declaredScaleColumns.some(({ column: afterColumn }) => {
+        if (
+          afterColumn.pairingGroupRole !== "after" ||
+          normalizeColumnName(afterColumn.pairingGroupKey ?? "") !==
+            normalizedKey
+        ) {
+          return false;
+        }
+        const bothSidesHaveDeclaredBounds =
+          beforeColumn.scaleMin != null &&
+          beforeColumn.scaleMax != null &&
+          afterColumn.scaleMin != null &&
+          afterColumn.scaleMax != null;
+        return (
+          bothSidesHaveDeclaredBounds &&
+          !hasCompatibleScaleBounds(beforeColumn, afterColumn)
+        );
+      });
+    },
+  );
+  const hasScaleBoundsNotDeclared = declaredScaleColumns.some(
+    ({ column: beforeColumn }) => {
+      if (beforeColumn.pairingGroupRole !== "before") {
+        return false;
+      }
+      const normalizedKey = normalizeColumnName(
+        beforeColumn.pairingGroupKey ?? "",
       );
+      return declaredScaleColumns.some(({ column: afterColumn }) => {
+        if (
+          afterColumn.pairingGroupRole !== "after" ||
+          normalizeColumnName(afterColumn.pairingGroupKey ?? "") !==
+            normalizedKey
+        ) {
+          return false;
+        }
+        return (
+          beforeColumn.scaleMin == null ||
+          beforeColumn.scaleMax == null ||
+          afterColumn.scaleMin == null ||
+          afterColumn.scaleMax == null
+        );
+      });
     },
   );
 
@@ -166,6 +213,9 @@ export function listDiagnosticReasons(
   }
   if (hasScaleBoundsMismatch) {
     addReason("scale_bounds_mismatch");
+  }
+  if (hasScaleBoundsNotDeclared) {
+    addReason("scale_bounds_not_declared");
   }
 
   return reasons;
@@ -280,6 +330,14 @@ function buildProposalIdFromConfirmedLink(
   });
 }
 
+// This class coordinates reconciliation, diagnostics, decision application,
+// and suggestion orchestration — a wide surface for one class, noted here
+// deliberately rather than left implicit. It stays justified today because
+// the actual heavy lifting is delegated to focused collaborators
+// (outcomeEvidencePairingCandidateMatcher.ts,
+// outcomeEvidencePairingEvidenceLoader.ts) rather than implemented inline;
+// if this class keeps growing its own logic rather than delegating further,
+// that's the signal to split it, not file count alone.
 export class OutcomeEvidencePairingService {
   constructor(
     private readonly authorizationService: AuthorizationService,
@@ -330,6 +388,7 @@ export class OutcomeEvidencePairingService {
       );
     return this.composeReviewRecord(
       project.id,
+      project.intendedChanges ?? [],
       pairingResult,
       this.buildDiagnostics(
         "propose",
@@ -415,6 +474,7 @@ export class OutcomeEvidencePairingService {
 
     return this.composeReviewRecord(
       project.id,
+      project.intendedChanges ?? [],
       pairingResult,
       this.buildDiagnostics(
         "refresh",
@@ -464,8 +524,24 @@ export class OutcomeEvidencePairingService {
     const validOutcomeIds = new Set(
       outcomeStatements.map((outcomeStatement) => outcomeStatement.id),
     );
+    const orphanedConfirmedLinks = confirmedLinks.filter(
+      (link) => !validOutcomeIds.has(link.outcomeId),
+    );
+    if (orphanedConfirmedLinks.length > 0) {
+      for (const link of orphanedConfirmedLinks) {
+        await this.outcomeEvidenceLinkRepository.deleteById(
+          link.linkId,
+          databaseSession,
+        );
+      }
+    }
+    const activeConfirmedLinks = confirmedLinks.filter((link) =>
+      validOutcomeIds.has(link.outcomeId),
+    );
     const confirmedProposalIds = new Set(
-      confirmedLinks.map((link) => buildProposalIdFromConfirmedLink(link)),
+      activeConfirmedLinks.map((link) =>
+        buildProposalIdFromConfirmedLink(link),
+      ),
     );
     const proposalDecisions = (existing?.proposalDecisions ?? []).filter(
       (decision) =>
@@ -556,6 +632,7 @@ export class OutcomeEvidencePairingService {
 
   private async composeReviewRecord(
     projectId: string,
+    currentIntendedChanges: string[],
     pairingResult: OutcomeEvidencePairingResultPersistenceRecord,
     diagnostics: OutcomeEvidencePairingDiagnostics,
     eligibleEvidenceOptions: OutcomeEvidencePairingProposal[],
@@ -573,6 +650,22 @@ export class OutcomeEvidencePairingService {
     const validOutcomeIds = new Set(
       outcomeStatements.map((outcomeStatement) => outcomeStatement.id),
     );
+    const currentIntendedChangeSet = new Set(
+      currentIntendedChanges.map((statement) =>
+        normalizeOutcomeStatementText(statement),
+      ),
+    );
+    const activeOutcomeStatements = outcomeStatements.filter(
+      (outcomeStatement) =>
+        currentIntendedChangeSet.has(
+          normalizeOutcomeStatementText(outcomeStatement.statement),
+        ) ||
+        confirmedLinks.some((link) => link.outcomeId === outcomeStatement.id) ||
+        pairingResult.proposals.some(
+          (proposal) =>
+            proposal.suggestedOutcome?.outcomeId === outcomeStatement.id,
+        ),
+    );
 
     return {
       id: pairingResult.id,
@@ -582,7 +675,7 @@ export class OutcomeEvidencePairingService {
       proposals: pairingResult.proposals,
       eligibleEvidenceOptions,
       proposalDecisions: pairingResult.proposalDecisions,
-      outcomeSections: outcomeStatements.map((outcomeStatement) => ({
+      outcomeSections: activeOutcomeStatements.map((outcomeStatement) => ({
         outcomeStatement: mapOutcomeStatement(outcomeStatement),
         confirmedLinks: confirmedLinks
           .filter((link) => link.outcomeId === outcomeStatement.id)
@@ -687,13 +780,18 @@ export class OutcomeEvidencePairingService {
       string,
       OutcomeEvidencePairingActivityUploadState[]
     >();
-    for (const activity of mappedActivities) {
-      const readiness =
-        await this.interpretationService.inspectActivityInterpretationReadiness(
-          userId,
-          activity.id,
-        );
-      uploadStatesByActivityId.set(activity.id, readiness.uploadStates);
+    // Parallelized rather than awaited one activity at a time — currently
+    // bounded to ~2 system activities (baseline/impact_measurement), but no
+    // reason to serialize independent lookups even at that scale.
+    const readinessResults = await Promise.all(
+      mappedActivities.map((activity) =>
+        this.interpretationService
+          .inspectActivityInterpretationReadiness(userId, activity.id)
+          .then((readiness) => ({ activityId: activity.id, readiness })),
+      ),
+    );
+    for (const { activityId, readiness } of readinessResults) {
+      uploadStatesByActivityId.set(activityId, readiness.uploadStates);
     }
     for (const upload of uploads) {
       if (!upload.activityId) {

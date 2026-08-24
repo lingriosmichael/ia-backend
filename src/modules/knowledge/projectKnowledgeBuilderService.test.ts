@@ -557,6 +557,37 @@ test("unacknowledged activities are skipped entirely", async () => {
   assert.equal(repos.knowledgeEntities.length, 0);
 });
 
+test("buildForProject releases the build lock on failure so a later call can retry instead of being stuck forever", async () => {
+  // Regression test: markBuilding claimed the lock unconditionally with no
+  // try/finally around the build body, so any exception mid-build left the
+  // model permanently "building" — markBuilding's CAS filter then rejected
+  // every future build attempt for the project. See
+  // projectKnowledgeBuilderService.ts's buildForProject/runBuild split.
+  const activities = [makeActivity({ id: "activity-1" })];
+  const uploads = [makeUpload({ id: "upload-1", activityId: "activity-1" })];
+  const repos = createFakeRepositories({
+    activities,
+    uploads,
+    interpretationResults: [],
+  });
+  repos.interpretationResultRepository.findLatestByUploadMetadataIds =
+    async () => {
+      throw new Error("Simulated failure mid-build");
+    };
+  const service = buildService(repos);
+
+  await assert.rejects(
+    service.buildForProject("project-1"),
+    /Simulated failure mid-build/,
+  );
+  assert.equal(repos.projectKnowledgeModelStatus, "stale");
+
+  repos.interpretationResultRepository.findLatestByUploadMetadataIds =
+    async () => [];
+  const result = await service.buildForProject("project-1");
+  assert.equal(result.status, "ready");
+});
+
 test("the Knowledge Builder module never imports an AI/LLM client", () => {
   const currentDirectory = path.dirname(fileURLToPath(import.meta.url));
   const source = readFileSync(

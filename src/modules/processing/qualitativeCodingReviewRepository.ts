@@ -14,6 +14,10 @@ export interface QualitativeCodingReviewRepository {
     uploadMetadataId: string,
     session: DatabaseSession,
   ): Promise<QualitativeCodingReviewPersistenceRecord | null>;
+  findByUploadMetadataIds(
+    uploadMetadataIds: string[],
+    session: DatabaseSession,
+  ): Promise<QualitativeCodingReviewPersistenceRecord[]>;
   approveIfPending(
     uploadMetadataId: string,
     input: QualitativeCodingReviewApproveInput,

@@ -7,6 +7,7 @@ import type {
 } from "../../shared/contracts.js";
 import { AuthorizationService } from "../../shared/auth/authorizationService.js";
 import { databaseSession } from "../../shared/database/databaseClient.js";
+import type { TransactionManager } from "../../shared/database/transactionManager.js";
 import { AppError } from "../../shared/errors/appError.js";
 import {
   mapParsedRepresentationPreview,
@@ -61,6 +62,7 @@ export class PrivacyReviewService {
     private readonly authorizationService: AuthorizationService,
     private readonly privacyReviewRepository: PrivacyReviewRepository,
     private readonly parsedRepresentationRepository: ParsedRepresentationRepository,
+    private readonly transactionManager: TransactionManager,
   ) {}
 
   async getByProcessingJobId(
@@ -246,42 +248,56 @@ export class PrivacyReviewService {
       );
     }
 
-    // Atomic conditional update: the earlier findByProcessingJobId check
-    // above is only for a clean 404/409 error message — this is the real
-    // guard against two concurrent approvals both succeeding.
-    const approvedReview = await this.privacyReviewRepository.approveIfPending(
-      processingJobId,
-      { decisions: decisionsToApply, approvedById: userId, approvedAt },
-      databaseSession,
-    );
+    // Both writes below must succeed or fail together: approving the review
+    // but then failing to requeue the job (or vice versa) used to leave the
+    // review permanently "approved" with the job stuck at
+    // awaiting_privacy_review, since each write used the shared
+    // (non-transactional) databaseSession independently — any retry then
+    // hit a 409 privacy_review_already_resolved forever with no recovery
+    // path. Wrapping both in one transaction means a failure on either
+    // write rolls the other back instead of leaving that split-brain state.
+    const { approvedReview, updatedJob } =
+      await this.transactionManager.runInTransaction(async (session) => {
+        // Atomic conditional update: the earlier findByProcessingJobId
+        // check above is only for a clean 404/409 error message — this is
+        // the real guard against two concurrent approvals both succeeding.
+        const approvedReview =
+          await this.privacyReviewRepository.approveIfPending(
+            processingJobId,
+            { decisions: decisionsToApply, approvedById: userId, approvedAt },
+            session,
+          );
 
-    if (!approvedReview) {
-      throw new AppError(
-        "Privacy review has already been resolved.",
-        409,
-        "privacy_review_already_resolved",
-      );
-    }
+        if (!approvedReview) {
+          throw new AppError(
+            "Privacy review has already been resolved.",
+            409,
+            "privacy_review_already_resolved",
+          );
+        }
 
-    const updatedJob = await this.processingJobRepository.update(
-      processingJobId,
-      {
-        status: "queued",
-        errorMessage: null,
-        failureCode: null,
-        leaseOwner: null,
-        leaseExpiresAt: null,
-        lastHeartbeatAt: null,
-        nextAttemptAt: null,
-        completedAt: null,
-        payload: {
-          ...(job.payload ?? {}),
-          stage: "evidence_privacy_transform",
-          privacyReviewApprovedAt: approvedAt.toISOString(),
-        },
-      },
-      databaseSession,
-    );
+        const updatedJob = await this.processingJobRepository.update(
+          processingJobId,
+          {
+            status: "queued",
+            errorMessage: null,
+            failureCode: null,
+            leaseOwner: null,
+            leaseExpiresAt: null,
+            lastHeartbeatAt: null,
+            nextAttemptAt: null,
+            completedAt: null,
+            payload: {
+              ...(job.payload ?? {}),
+              stage: "evidence_privacy_transform",
+              privacyReviewApprovedAt: approvedAt.toISOString(),
+            },
+          },
+          session,
+        );
+
+        return { approvedReview, updatedJob };
+      });
 
     return {
       review: mapPrivacyReview({

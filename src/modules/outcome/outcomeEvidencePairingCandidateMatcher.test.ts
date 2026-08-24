@@ -6,25 +6,32 @@ import {
 } from "./outcomeEvidencePairingCandidateMatcher.js";
 import type { OutcomeEvidencePairingEvidenceTable } from "./outcomeEvidencePairingEvidenceLoader.js";
 
-// Every validated_scale fixture column defaults to a 1-5 bound unless a
-// test explicitly overrides it to exercise the scale-bounds-mismatch check
-// — keeps the other, unrelated tests below from having to plumb bounds
-// through individually. pairingGroupKey/pairingGroupRole must be set
-// explicitly per test: unlike bounds, there's no sensible default for
-// declared pairing identity — that's the entire point of this being a
-// human-declared fact rather than an inferred one.
+// Every validated_scale fixture column defaults to a declared 1-5 bound
+// unless a test explicitly overrides it to exercise the
+// scale-bounds-mismatch check — keeps the other, unrelated tests below
+// from having to plumb bounds through individually. pairingGroupKey/
+// pairingGroupRole must be set explicitly per test: unlike bounds, there's
+// no sensible default for declared pairing identity — that's the entire
+// point of this being a human-declared fact rather than an inferred one.
+// minValue/maxValue (observed response spread) default to a *different*
+// range (2-4) than scaleMin/scaleMax (declared 1-5) precisely to prove
+// pairing goes off the declared bounds, not the observed ones.
 function column(
   name: string,
   epistemicRole: "validated_scale" | "categorical" | "identifier" | null,
   options?: {
     minValue?: number | null;
     maxValue?: number | null;
+    scaleMin?: number | null;
+    scaleMax?: number | null;
     pairingGroupKey?: string | null;
     pairingGroupRole?: "before" | "after" | null;
   },
 ) {
-  const defaultBounds =
-    epistemicRole === "validated_scale" ? { minValue: 1, maxValue: 5 } : null;
+  const defaultObservedBounds =
+    epistemicRole === "validated_scale" ? { minValue: 2, maxValue: 4 } : null;
+  const defaultDeclaredBounds =
+    epistemicRole === "validated_scale" ? { scaleMin: 1, scaleMax: 5 } : null;
   return {
     name,
     inferredType: null,
@@ -36,11 +43,19 @@ function column(
     minValue:
       options?.minValue !== undefined
         ? options.minValue
-        : (defaultBounds?.minValue ?? null),
+        : (defaultObservedBounds?.minValue ?? null),
     maxValue:
       options?.maxValue !== undefined
         ? options.maxValue
-        : (defaultBounds?.maxValue ?? null),
+        : (defaultObservedBounds?.maxValue ?? null),
+    scaleMin:
+      options?.scaleMin !== undefined
+        ? options.scaleMin
+        : (defaultDeclaredBounds?.scaleMin ?? null),
+    scaleMax:
+      options?.scaleMax !== undefined
+        ? options.scaleMax
+        : (defaultDeclaredBounds?.scaleMax ?? null),
     pairingGroupKey: options?.pairingGroupKey ?? null,
     pairingGroupRole: options?.pairingGroupRole ?? null,
   };
@@ -611,7 +626,7 @@ test("canSafelyPairEvidenceTables allows pairing when neither table has a declar
   assert.equal(canSafelyPairEvidenceTables(before, after), true);
 });
 
-test("does not pair two validated_scale columns whose observed numeric bounds don't match", () => {
+test("does not pair two validated_scale columns whose declared scale bounds don't match", () => {
   const tables: OutcomeEvidencePairingEvidenceTable[] = [
     {
       activityId: "activity-baseline",
@@ -622,8 +637,8 @@ test("does not pair two validated_scale columns whose observed numeric bounds do
       columns: [
         column("teilnehmer_id", "identifier"),
         column("q1", "validated_scale", {
-          minValue: 1,
-          maxValue: 5,
+          scaleMin: 1,
+          scaleMax: 5,
           pairingGroupKey: "Wellbeing",
           pairingGroupRole: "before",
         }),
@@ -641,8 +656,8 @@ test("does not pair two validated_scale columns whose observed numeric bounds do
         // (0-10 instead of 1-5) — must never be treated as a comparable
         // before/after pair.
         column("q2", "validated_scale", {
-          minValue: 0,
-          maxValue: 10,
+          scaleMin: 0,
+          scaleMax: 10,
           pairingGroupKey: "Wellbeing",
           pairingGroupRole: "after",
         }),
@@ -657,7 +672,58 @@ test("does not pair two validated_scale columns whose observed numeric bounds do
   );
 });
 
-test("does not pair two validated_scale columns when either side's bounds are unknown", () => {
+test("pairs two validated_scale columns whose declared bounds match even when their observed response ranges differ", () => {
+  // This is the actual bug fix: nobody answering the extremes of a real
+  // 1-5 scale (observed 2-4 on one side, 4-5 on the other) must not be
+  // mistaken for two different instruments once the check is based on the
+  // declared scale, not the response spread that happened to occur.
+  const tables: OutcomeEvidencePairingEvidenceTable[] = [
+    {
+      activityId: "activity-baseline",
+      activitySystemType: "baseline",
+      uploadMetadataId: "upload-baseline",
+      tableName: "umfrage",
+      identifierColumn: "teilnehmer_id",
+      columns: [
+        column("teilnehmer_id", "identifier"),
+        column("selbstwirksamkeit_baseline", "validated_scale", {
+          minValue: 2,
+          maxValue: 4,
+          scaleMin: 1,
+          scaleMax: 5,
+          pairingGroupKey: "Selbstwirksamkeit",
+          pairingGroupRole: "before",
+        }),
+      ],
+    },
+    {
+      activityId: "activity-impact-measurement",
+      activitySystemType: "impact_measurement",
+      uploadMetadataId: "upload-wirkungsmessung",
+      tableName: "umfrage",
+      identifierColumn: "teilnehmer_id",
+      columns: [
+        column("teilnehmer_id", "identifier"),
+        column("selbstwirksamkeit_abschluss", "validated_scale", {
+          minValue: 4,
+          maxValue: 5,
+          scaleMin: 1,
+          scaleMax: 5,
+          pairingGroupKey: "Selbstwirksamkeit",
+          pairingGroupRole: "after",
+        }),
+      ],
+    },
+  ];
+
+  const candidates = computeOutcomeEvidencePairingCandidates(tables);
+  assert.equal(
+    candidates.filter((candidate) => candidate.shape === "paired_delta").length,
+    1,
+  );
+});
+
+test("does not pair two validated_scale columns when either side's declared bounds are unknown", () => {
   const tables: OutcomeEvidencePairingEvidenceTable[] = [
     {
       activityId: "activity-baseline",
@@ -668,8 +734,8 @@ test("does not pair two validated_scale columns when either side's bounds are un
       columns: [
         column("teilnehmer_id", "identifier"),
         column("q1", "validated_scale", {
-          minValue: null,
-          maxValue: null,
+          scaleMin: null,
+          scaleMax: null,
           pairingGroupKey: "Wellbeing",
           pairingGroupRole: "before",
         }),
@@ -684,8 +750,8 @@ test("does not pair two validated_scale columns when either side's bounds are un
       columns: [
         column("teilnehmer_id", "identifier"),
         column("q2", "validated_scale", {
-          minValue: 1,
-          maxValue: 5,
+          scaleMin: 1,
+          scaleMax: 5,
           pairingGroupKey: "Wellbeing",
           pairingGroupRole: "after",
         }),

@@ -23,8 +23,14 @@ import type { OrganizationRepository } from "../organization/organizationReposit
 import type { UploadMetadataRepository } from "../upload/uploadMetadataRepository.js";
 import type { UserRepository } from "../user/userRepository.js";
 import { ProcessingResourceCleanupService } from "../processing/processingResourceCleanupService.js";
+import { ProjectDerivedStateInvalidationService } from "./projectDerivedStateInvalidationService.js";
 import type { ProcessingJobRepository } from "../ai/execution/processingJobRepository.js";
 import type { ProjectOutcomeStatementRepository } from "../outcome/projectOutcomeStatementRepository.js";
+import {
+  ensureOutcomeStatementsForIntendedChanges,
+  normalizeOutcomeStatementValue,
+  syncOutcomeStatementsForIntendedChanges,
+} from "../outcome/projectOutcomeStatementService.js";
 import type {
   ActiveProcessingJobStatus,
   ProjectStatus,
@@ -82,8 +88,28 @@ function toIso(value: Date) {
   return value.toISOString();
 }
 
-function normalizeOutcomeStatementValue(value: string) {
-  return value.trim().toLocaleLowerCase();
+function hasSameNormalizedStringSet(
+  left: string[] | null | undefined,
+  right: string[] | null | undefined,
+) {
+  const leftSet = new Set(
+    (left ?? []).map((value) => normalizeOutcomeStatementValue(value)),
+  );
+  const rightSet = new Set(
+    (right ?? []).map((value) => normalizeOutcomeStatementValue(value)),
+  );
+
+  if (leftSet.size !== rightSet.size) {
+    return false;
+  }
+
+  for (const value of leftSet) {
+    if (!rightSet.has(value)) {
+      return false;
+    }
+  }
+
+  return true;
 }
 
 function resolveOverarchingTargetGroup(input: {
@@ -114,11 +140,17 @@ export class ProjectService {
     private readonly transactionManager: TransactionManager,
     private readonly userRepository: UserRepository,
     private readonly processingResourceCleanupService: ProcessingResourceCleanupService,
+    private readonly projectDerivedStateInvalidationService: ProjectDerivedStateInvalidationService,
     private readonly organizationRepository: OrganizationRepository,
     private readonly logger: FastifyBaseLogger,
     private readonly projectOutcomeStatementRepository?: ProjectOutcomeStatementRepository,
   ) {}
 
+  // Thin wrapper around the shared ensureOutcomeStatementsForIntendedChanges
+  // (see projectOutcomeStatementService.ts) that adds the one thing specific
+  // to this call site: projectOutcomeStatementRepository is optional here
+  // (unlike ProjectOutcomeStatementService, which requires it), so this is a
+  // no-op when it wasn't provided.
   private async ensureOutcomeStatementsForIntendedChanges(
     input: {
       projectId: string;
@@ -127,44 +159,15 @@ export class ProjectService {
     },
     session = databaseSession,
   ) {
-    if (
-      !this.projectOutcomeStatementRepository ||
-      input.intendedChanges.length === 0
-    ) {
+    if (!this.projectOutcomeStatementRepository) {
       return;
     }
 
-    const existing =
-      await this.projectOutcomeStatementRepository.listByProjectId(
-        input.projectId,
-        session,
-      );
-    const existingStatements = new Set(
-      existing.map((statement) =>
-        normalizeOutcomeStatementValue(statement.statement),
-      ),
+    await ensureOutcomeStatementsForIntendedChanges(
+      this.projectOutcomeStatementRepository,
+      input,
+      session,
     );
-
-    for (const intendedChange of input.intendedChanges) {
-      const normalizedValue = normalizeOutcomeStatementValue(intendedChange);
-      if (normalizedValue.length === 0) {
-        continue;
-      }
-      if (existingStatements.has(normalizedValue)) {
-        continue;
-      }
-
-      await this.projectOutcomeStatementRepository.create(
-        {
-          projectId: input.projectId,
-          organizationId: input.organizationId,
-          term: "long",
-          statement: intendedChange,
-        },
-        session,
-      );
-      existingStatements.add(normalizedValue);
-    }
   }
 
   async listForOrganization(userId: string, organizationId: string) {
@@ -407,15 +410,45 @@ export class ProjectService {
       databaseSession,
     );
 
-    if (intendedChanges !== undefined) {
-      await this.ensureOutcomeStatementsForIntendedChanges(
-        {
-          projectId: updatedProject.id,
-          organizationId: updatedProject.organizationId,
-          intendedChanges,
-        },
-        databaseSession,
+    if (
+      intendedChanges !== undefined &&
+      this.projectOutcomeStatementRepository
+    ) {
+      const intendedChangesChanged = !hasSameNormalizedStringSet(
+        project.intendedChanges,
+        intendedChanges,
       );
+      const { deletedOutcomeStatementIds } =
+        await syncOutcomeStatementsForIntendedChanges(
+          this.projectOutcomeStatementRepository,
+          {
+            projectId: updatedProject.id,
+            organizationId: updatedProject.organizationId,
+            previousIntendedChanges: project.intendedChanges ?? [],
+            intendedChanges,
+          },
+          databaseSession,
+        );
+
+      if (deletedOutcomeStatementIds.length > 0) {
+        await this.processingResourceCleanupService.deleteByOutcomeStatementIds(
+          updatedProject.id,
+          deletedOutcomeStatementIds,
+          databaseSession,
+        );
+      } else if (intendedChangesChanged) {
+        await this.processingResourceCleanupService.resetOutcomeEvidencePairingByProjectId(
+          updatedProject.id,
+          databaseSession,
+        );
+      }
+
+      if (intendedChangesChanged) {
+        await this.projectDerivedStateInvalidationService.invalidateProject(
+          updatedProject.id,
+          databaseSession,
+        );
+      }
     }
 
     return mapProjectSummary(

@@ -1,38 +1,33 @@
 import mongoose from "mongoose";
-import { loadConfig } from "../shared/config/env.js";
-import {
-  connectMongoDatabase,
-  disconnectMongoDatabase,
-} from "../shared/database/mongoose.js";
+import { runMigrationScript } from "./shared/migrationScriptRunner.js";
 
-async function run() {
-  const config = loadConfig();
-  await connectMongoDatabase(config);
-
+function getCollection() {
   const database = mongoose.connection.db;
   if (!database) {
     throw new Error("Mongo database connection is not available.");
   }
+  return database.collection("activities");
+}
 
-  await database.collection("activities").updateMany(
-    {
-      outcome: { $exists: true },
-    },
-    {
+const outcomeFieldFilter = { outcome: { $exists: true } };
+
+runMigrationScript({
+  scriptLabel: "Activity outcome field removal",
+  preview: async () => {
+    const affectedCount =
+      await getCollection().countDocuments(outcomeFieldFilter);
+    console.log(
+      `${affectedCount} activity document(s) currently carry the deprecated outcome field.`,
+    );
+  },
+  apply: async () => {
+    const result = await getCollection().updateMany(outcomeFieldFilter, {
       $unset: {
         outcome: "",
       },
-    },
-  );
-}
-
-run()
-  .then(async () => {
-    await disconnectMongoDatabase();
-    console.log("Activity outcome field removal completed.");
-  })
-  .catch(async (error) => {
-    console.error(error);
-    await disconnectMongoDatabase();
-    process.exit(1);
-  });
+    });
+    console.log(
+      `Unset outcome on ${result.modifiedCount} activity document(s).`,
+    );
+  },
+});

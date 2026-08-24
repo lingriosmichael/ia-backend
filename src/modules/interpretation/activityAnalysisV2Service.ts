@@ -43,7 +43,10 @@ import type { ActivityAnalysisRunV2PersistenceRecord } from "./activityAnalysisR
 import { buildActivityAssessmentV2 } from "./activityAnalysisV2Assessment.js";
 import { buildActivityAnalysisV2Diagnostics } from "./activityAnalysisV2Diagnostics.js";
 import { ActivityAnalysisV2ToolExecutor } from "./activityAnalysisV2ToolExecutor.js";
-import type { ActivityAnalysisV2ToolRequest } from "./activityAnalysisV2ToolTypes.js";
+import type {
+  ActivityAnalysisV2ToolExecutionResult,
+  ActivityAnalysisV2ToolRequest,
+} from "./activityAnalysisV2ToolTypes.js";
 import type {
   CurrentActivityEvidenceLoader,
   CurrentActivityEvidenceSnapshot,
@@ -56,6 +59,7 @@ import {
 import type { DatasetPreparationService } from "./datasetPreparationService.js";
 import type { InterpretationResultRepository } from "./interpretationResultRepository.js";
 import { validateAnswerAgainstQuestionOptions } from "./interpretationQuestionAnswerValidation.js";
+import { renderClarificationQuestion } from "./clarificationQuestionCopy.js";
 
 // All four limits below are now actually enforced (see the evidence-item
 // cap in previewActivityAnalysis and the tool-call-count/wall-clock checks
@@ -127,6 +131,7 @@ type PlannerClarificationAnswer = {
     | "primary_status_field"
     | "positive_status_values"
     | "primary_date_field"
+    | "filter_value_grounding"
     | null;
   targetTableName: string | null;
   targetColumnName: string | null;
@@ -143,6 +148,7 @@ type ClarificationAnswerDraftInput = {
     | "primary_status_field"
     | "positive_status_values"
     | "primary_date_field"
+    | "filter_value_grounding"
     | null;
   targetTableName?: string | null;
   targetColumnName?: string | null;
@@ -165,6 +171,17 @@ type PlannerHintColumnInput = {
     | "unknown"
     | null;
   epistemicRole: EpistemicRole | null | undefined;
+  metricKind:
+    | "count"
+    | "ratio"
+    | "amount"
+    | "duration"
+    | "score"
+    | "flag"
+    | null
+    | undefined;
+  valueScope:
+    "row" | "entity" | "table_aggregate" | "goal_support" | null | undefined;
   role:
     | "identifier"
     | "primary_status"
@@ -181,6 +198,27 @@ type PlannerHintColumnInput = {
   // resolveObservedValuesForColumn).
   positiveStatusValues?: string[];
 };
+
+function withMetricMetadata<
+  T extends {
+    metricKind?:
+      | "count"
+      | "ratio"
+      | "amount"
+      | "duration"
+      | "score"
+      | "flag"
+      | null
+      | undefined;
+    valueScope?:
+      "row" | "entity" | "table_aggregate" | "goal_support" | null | undefined;
+  },
+>(target: T) {
+  return {
+    ...(target.metricKind ? { metricKind: target.metricKind } : {}),
+    ...(target.valueScope ? { valueScope: target.valueScope } : {}),
+  };
+}
 
 function buildPlannerClarificationAnswer(
   input: ClarificationAnswerDraftInput,
@@ -277,6 +315,7 @@ function buildPlannerHints(
       goalType,
       inferredType: column.inferredType,
       epistemicRole: column.epistemicRole ?? null,
+      ...withMetricMetadata(column),
     });
   }
 
@@ -286,7 +325,7 @@ function buildPlannerHints(
   };
 }
 
-// The V2 planner (analyst.py) only ever generates the six question codes
+// The V2 planner (analyst.py) only ever generates the question codes
 // below; epistemic_role_clarification/validated_scale_confirmation are
 // generated exclusively by the dataset-preparation stage
 // (interpretation_pipeline.py) and are resolved before V2 ever runs — they
@@ -301,6 +340,10 @@ const PLANNER_QUESTION_CODES: readonly string[] = [
   "primary_status_field",
   "positive_status_values",
   "primary_date_field",
+  // Filter-value grounding (see CLARIFICATION_QUESTION_WORDING_PLAN.md
+  // Phase 5) is, like the six above, exclusively planner-generated —
+  // unlike epistemic_role_clarification/validated_scale_confirmation.
+  "filter_value_grounding",
 ];
 
 function toPlannerQuestionCode(
@@ -424,6 +467,7 @@ function mapActivityAnalysisRunV2Record(
     })),
     toolCallTrace: run.toolCallTrace.map((toolCall) => ({
       toolCallId: toolCall.toolCallId,
+      goalId: toolCall.goalId ?? null,
       toolName: toolCall.toolName,
       arguments: toolCall.arguments,
       calculationIds: [...toolCall.calculationIds],
@@ -544,7 +588,18 @@ function buildClarificationQuestionId(input: {
         input.questionCode ?? "",
         input.targetTableName ?? "",
         input.targetColumnName ?? "",
-        input.prompt.trim(),
+        // Only the one open-ended exception (questionCode === null) uses
+        // prompt text as part of its identity — it's the only signal that
+        // distinguishes two different free-form questions about the same
+        // goal. Every closed questionCode is rendered by
+        // clarificationQuestionCopy.ts, not authored per-call, so its
+        // wording can legitimately differ between calls (e.g. the
+        // replan-failure fallback below re-feeds a previous run's already-
+        // rendered InterpretationQuestion back in as if it were a fresh
+        // draft). Hashing that rendered text would make a closed question's
+        // id drift and silently orphan it — questionCode/table/column alone
+        // are already a complete, stable identity for those.
+        input.questionCode === null ? input.prompt.trim() : "",
       ].join("|"),
     )
     .digest("hex")
@@ -729,6 +784,35 @@ export class ActivityAnalysisV2Service {
     });
   }
 
+  // Only used by the replan-failure fallback below, which re-derives a
+  // question list from a *previous* run's already-persisted
+  // InterpretationQuestion[] instead of a fresh planner response. That
+  // type no longer carries prompt/options (Phase 6), so this adapts it
+  // back into the draft shape buildClarificationQuestions expects.
+  // Feeding userFacingPrompt/userFacingOptions back in as prompt/options is
+  // safe: renderClarificationQuestion ignores them entirely for a non-null
+  // questionCode, and for the one null-questionCode exception,
+  // re-sanitizing already-sanitized text is a no-op.
+  private toClarificationQuestionDraft(
+    question: InterpretationQuestion,
+  ): ActivityAnalysisV2ClarificationQuestionDraft {
+    return {
+      goalId: question.goalId ?? null,
+      prompt: question.userFacingPrompt,
+      kind: question.kind,
+      questionDomain: question.questionDomain,
+      options:
+        question.userFacingOptions?.map((option) => option.value) ?? null,
+      recommendedOption: question.recommendedOption,
+      recommendedConfidence: question.recommendedConfidence,
+      isBlocking: question.isBlocking,
+      questionCode: question.questionCode,
+      targetTableName: question.targetTableName,
+      targetColumnName: question.targetColumnName,
+      questionData: question.questionData,
+    };
+  }
+
   // A question is only ever omitted here if it's in resolvedQuestionIds —
   // i.e. the backend actually merged an answer for it into a replan this
   // run (see autoResolvedQuestionIds in previewActivityAnalysis). A high
@@ -742,6 +826,7 @@ export class ActivityAnalysisV2Service {
     drafts: ActivityAnalysisV2ClarificationQuestionDraft[],
     existingAnswers: ActivityAnalysisV2ClarificationAnswerPersistenceRecord[],
     resolvedQuestionIds: ReadonlySet<string>,
+    language: "de" | "en",
   ): InterpretationQuestion[] {
     const answerByQuestionId = new Map(
       existingAnswers.map((answer) => [answer.questionId, answer]),
@@ -760,25 +845,45 @@ export class ActivityAnalysisV2Service {
         return [];
       }
 
+      const questionCode = draft.questionCode ?? null;
+      const questionData = draft.questionData ?? null;
+      const rendered = renderClarificationQuestion({
+        questionCode,
+        targetTableName: draft.targetTableName ?? null,
+        targetColumnName: draft.targetColumnName ?? null,
+        language,
+        questionData,
+        rawPrompt: draft.prompt,
+        rawOptions: draft.options ?? null,
+      });
+
       const answered = answerByQuestionId.get(questionId) ?? null;
       return [
         {
           id: questionId,
           goalId: draft.goalId ?? null,
-          prompt: draft.prompt,
           kind: draft.kind,
           questionDomain: draft.questionDomain,
-          options: draft.options ?? null,
+          userFacingPrompt: rendered.userFacingPrompt,
+          userFacingOptions: rendered.userFacingOptions,
           recommendedOption: draft.recommendedOption ?? null,
           recommendedConfidence: draft.recommendedConfidence ?? null,
           isBlocking: draft.isBlocking,
-          questionCode: draft.questionCode ?? null,
+          questionCode,
           targetTableName: draft.targetTableName ?? null,
           targetColumnName: draft.targetColumnName ?? null,
+          questionData,
           status: answered ? ("answered" as const) : ("pending" as const),
           answeredValue: answered?.answeredValue ?? null,
           answeredById: answered?.answeredById ?? null,
           answeredAt: answered?.answeredAt.toISOString() ?? null,
+          // Instrument-group detection only runs in the deterministic
+          // preparation stage (interpretation_pipeline.py) — the
+          // ActivityAnalystV2 planner's own clarification questions never
+          // carry validated_scale_confirmation/declared_scale_bounds, so
+          // this is always null here, never inferred.
+          preparationGroupId: null,
+          preparationGroupColumns: null,
         },
       ];
     });
@@ -964,6 +1069,8 @@ export class ActivityAnalysisV2Service {
             role: column.role,
             inferredType: column.inferredType,
             epistemicRole: column.epistemicRole,
+            metricKind: column.metricKind ?? null,
+            valueScope: column.valueScope ?? null,
             positiveStatusValues: column.positiveStatusValues,
           })) ??
           fallbackColumnNames.map((columnName) => {
@@ -974,6 +1081,8 @@ export class ActivityAnalysisV2Service {
               role: syntheticColumn ? ("other" as const) : null,
               inferredType: syntheticColumn?.inferredType ?? null,
               epistemicRole: syntheticColumn?.epistemicRole ?? null,
+              metricKind: null,
+              valueScope: null,
             };
           });
         missingEpistemicRoleColumnCount += columns.filter(
@@ -986,6 +1095,7 @@ export class ActivityAnalysisV2Service {
             role: column.role,
             inferredType: column.inferredType,
             epistemicRole: column.epistemicRole,
+            ...withMetricMetadata(column),
             observedValues: resolveObservedValuesForColumn(column, rows),
           }));
 
@@ -1060,18 +1170,22 @@ export class ActivityAnalysisV2Service {
       );
     }
 
+    const uploadMetadataIds = evidenceSnapshot.evidence.map(
+      (item) => item.uploadMetadataId,
+    );
     const qualitativeCodingReviewStatuses = await Promise.all([
       this.interpretationResultRepository.findLatestByUploadMetadataIds(
-        evidenceSnapshot.evidence.map((item) => item.uploadMetadataId),
+        uploadMetadataIds,
         databaseSession,
       ),
-      Promise.all(
-        evidenceSnapshot.evidence.map((item) =>
-          this.qualitativeCodingReviewRepository.findByUploadMetadataId(
-            item.uploadMetadataId,
-            databaseSession,
-          ),
-        ),
+      // Batched rather than one findByUploadMetadataId call per upload —
+      // this gate runs twice per POST/PATCH by design (see the defensive
+      // re-check note above), so an N-upload activity used to cost up to
+      // ~3N redundant Mongo round trips from this lookup alone (see the
+      // matching fix in currentActivityEvidenceLoader.ts).
+      this.qualitativeCodingReviewRepository.findByUploadMetadataIds(
+        uploadMetadataIds,
+        databaseSession,
       ),
     ]);
     const interpretationResultsByUploadMetadataId = new Map(
@@ -1081,9 +1195,9 @@ export class ActivityAnalysisV2Service {
       ]),
     );
     const qualitativeCodingReviewByUploadMetadataId = new Map(
-      evidenceSnapshot.evidence.map((item, index) => [
-        item.uploadMetadataId,
-        qualitativeCodingReviewStatuses[1][index] ?? null,
+      qualitativeCodingReviewStatuses[1].map((review) => [
+        review.uploadMetadataId,
+        review,
       ]),
     );
     const pendingQualitativeCodingReviewUploads =
@@ -1418,9 +1532,12 @@ export class ActivityAnalysisV2Service {
           evidence: this.buildEvidenceSnapshotRecords(evidenceSnapshot),
           runLimits: PHASE_1_RUN_LIMITS,
           clarificationQuestions: this.buildClarificationQuestions(
-            previousRun?.clarificationQuestions ?? [],
+            (previousRun?.clarificationQuestions ?? []).map((question) =>
+              this.toClarificationQuestionDraft(question),
+            ),
             persistedClarificationAnswers,
             new Set(),
+            language,
           ),
           toolCallTrace: [],
           calculations: [],
@@ -1447,8 +1564,69 @@ export class ActivityAnalysisV2Service {
       plannerResponse.clarificationQuestions ?? [],
       persistedClarificationAnswers,
       autoResolvedQuestionIds,
+      language,
     );
     const evidenceRecords = this.buildEvidenceSnapshotRecords(evidenceSnapshot);
+
+    // Checked before the timeout below: a run that both timed out and got
+    // an invalid plan from the planner is more informatively logged as a
+    // planner-validation failure than a generic timeout — the validation
+    // issues say *why* the plan was rejected, which a bare elapsed-time
+    // message can't. User-facing status is "failed" either way; this
+    // ordering only affects which persisted errorMessage/diagnostics a
+    // developer sees when debugging.
+    let run: ActivityAnalysisRunV2PersistenceRecord;
+    if (plannerResponse.validation.status === "failed") {
+      const diagnostics = buildActivityAnalysisV2Diagnostics({
+        goals,
+        evidenceCount: evidenceSnapshot.evidence.length,
+        plannedToolRequestCount: plannerResponse.toolRequests.length,
+        executedToolCallCount: 0,
+        calculationCount: 0,
+        validation: plannerResponse.validation,
+        assessment: null,
+        contextExtraction: buildContextExtractionDiagnosticsInput(
+          evidenceTableDiagnostics,
+          plannerResponse.contextCandidateDiagnostics,
+          0,
+        ),
+      });
+      run = await this.activityAnalysisRunV2Repository.create(
+        {
+          organizationId: project.organizationId,
+          projectId: project.id,
+          activityId: activity.id,
+          activityName: activity.name,
+          phase: "phase_3_goal_planner",
+          status: "failed",
+          goalsSnapshot: {
+            activityType: activity.activityType,
+            objectives: activity.objectives,
+            output: activity.output,
+          },
+          evidence: evidenceRecords,
+          runLimits: PHASE_1_RUN_LIMITS,
+          clarificationQuestions,
+          toolCallTrace: [],
+          calculations: [],
+          contextCatalogEntries: [],
+          qualitativeFindings: [],
+          assessment: null,
+          diagnostics,
+          validation: plannerResponse.validation,
+          errorMessage: "ActivityAnalystV2 planner returned an invalid plan.",
+        },
+        databaseSession,
+      );
+      this.logger.warn(
+        {
+          activityId: activity.id,
+          validationIssues: plannerResponse.validation.issues,
+        },
+        "ActivityAnalystV2 planner returned an invalid shadow plan",
+      );
+      return mapActivityAnalysisRunV2Record(run);
+    }
 
     if (Date.now() - runStartedAt > PHASE_1_RUN_LIMITS.timeoutMs) {
       const timeoutMessage = `ActivityAnalystV2 run exceeded its configured time budget of ${PHASE_1_RUN_LIMITS.timeoutMs}ms before deterministic execution could start.`;
@@ -1502,59 +1680,6 @@ export class ActivityAnalysisV2Service {
         "ActivityAnalystV2 run exceeded its time budget before deterministic execution",
       );
       return mapActivityAnalysisRunV2Record(timedOutRun);
-    }
-
-    let run: ActivityAnalysisRunV2PersistenceRecord;
-    if (plannerResponse.validation.status === "failed") {
-      const diagnostics = buildActivityAnalysisV2Diagnostics({
-        goals,
-        evidenceCount: evidenceSnapshot.evidence.length,
-        plannedToolRequestCount: plannerResponse.toolRequests.length,
-        executedToolCallCount: 0,
-        calculationCount: 0,
-        validation: plannerResponse.validation,
-        assessment: null,
-        contextExtraction: buildContextExtractionDiagnosticsInput(
-          evidenceTableDiagnostics,
-          plannerResponse.contextCandidateDiagnostics,
-          0,
-        ),
-      });
-      run = await this.activityAnalysisRunV2Repository.create(
-        {
-          organizationId: project.organizationId,
-          projectId: project.id,
-          activityId: activity.id,
-          activityName: activity.name,
-          phase: "phase_3_goal_planner",
-          status: "failed",
-          goalsSnapshot: {
-            activityType: activity.activityType,
-            objectives: activity.objectives,
-            output: activity.output,
-          },
-          evidence: evidenceRecords,
-          runLimits: PHASE_1_RUN_LIMITS,
-          clarificationQuestions,
-          toolCallTrace: [],
-          calculations: [],
-          contextCatalogEntries: [],
-          qualitativeFindings: [],
-          assessment: null,
-          diagnostics,
-          validation: plannerResponse.validation,
-          errorMessage: "ActivityAnalystV2 planner returned an invalid plan.",
-        },
-        databaseSession,
-      );
-      this.logger.warn(
-        {
-          activityId: activity.id,
-          validationIssues: plannerResponse.validation.issues,
-        },
-        "ActivityAnalystV2 planner returned an invalid shadow plan",
-      );
-      return mapActivityAnalysisRunV2Record(run);
     }
 
     if (
@@ -1630,8 +1755,20 @@ export class ActivityAnalysisV2Service {
           }) as ActivityAnalysisV2ToolRequest,
       );
 
+    // Hoisted so the catch block below can distinguish "the persistence
+    // write itself failed after every computation step already succeeded"
+    // from "a computation step failed" — see the catch block for why that
+    // distinction matters.
+    let execution: ActivityAnalysisV2ToolExecutionResult | undefined;
+    let assessmentResult:
+      Awaited<ReturnType<typeof buildActivityAssessmentV2>> | undefined;
+    let contextCatalogEntries:
+      Awaited<ReturnType<typeof this.buildContextCatalogEntries>> | undefined;
+    let diagnostics:
+      ReturnType<typeof buildActivityAnalysisV2Diagnostics> | undefined;
+
     try {
-      const execution = await runLoggedPipelineStage(
+      execution = await runLoggedPipelineStage(
         this.logger,
         {
           ...stageContext,
@@ -1662,23 +1799,27 @@ export class ActivityAnalysisV2Service {
           }),
         },
       );
-      const assessmentResult = await runLoggedPipelineStage(
+      // Captured as a const so the closure below (which TypeScript cannot
+      // narrow across, since `execution` is a hoisted `let`) can reference
+      // it without a redundant undefined check.
+      const executedTools = execution;
+      assessmentResult = await runLoggedPipelineStage(
         this.logger,
         {
           ...stageContext,
           stage: "v2_assess",
           plannedToolRequestCount: plannerResponse.toolRequests.length,
-          executedToolCallCount: execution.toolCallTrace.length,
-          calculationCount: execution.calculations.length,
+          executedToolCallCount: executedTools.toolCallTrace.length,
+          calculationCount: executedTools.calculations.length,
         },
         async () =>
           buildActivityAssessmentV2({
             language,
             goals: plannerResponse.goalPlans,
             plannedToolRequests: plannerResponse.toolRequests,
-            toolCallTrace: execution.toolCallTrace,
-            calculations: execution.calculations,
-            qualitativeFindings: execution.qualitativeFindings,
+            toolCallTrace: executedTools.toolCallTrace,
+            calculations: executedTools.calculations,
+            qualitativeFindings: executedTools.qualitativeFindings,
             limitations: plannerResponse.limitations,
           }),
         {
@@ -1691,7 +1832,7 @@ export class ActivityAnalysisV2Service {
         },
       );
 
-      const contextCatalogEntries = await this.buildContextCatalogEntries(
+      contextCatalogEntries = await this.buildContextCatalogEntries(
         plannerResponse.contextCandidates ?? [],
         evidenceSnapshot,
         activity,
@@ -1699,7 +1840,7 @@ export class ActivityAnalysisV2Service {
         runStartedAt,
       );
 
-      const diagnostics = buildActivityAnalysisV2Diagnostics({
+      diagnostics = buildActivityAnalysisV2Diagnostics({
         goals,
         evidenceCount: evidenceSnapshot.evidence.length,
         plannedToolRequestCount: plannerResponse.toolRequests.length,
@@ -1749,27 +1890,89 @@ export class ActivityAnalysisV2Service {
         "ActivityAnalystV2 shadow preview completed",
       );
     } catch (error) {
+      if (
+        execution !== undefined &&
+        assessmentResult !== undefined &&
+        contextCatalogEntries !== undefined &&
+        diagnostics !== undefined
+      ) {
+        // Every computation step already succeeded — deterministic tool
+        // execution, goal assessment, and context-catalog extraction all
+        // finished before this error was thrown, which means it happened
+        // purely in the persistence write below (e.g. a transient Mongo
+        // error on `create()`). Persisting a fabricated "failed" run in
+        // that case would silently discard a correct, LLM-cost-incurring
+        // result. Retry the write once; if it still fails, let it
+        // propagate so the *job* (not a wrong run record) is marked failed
+        // and retried by the job-lease/attempt system — see
+        // CURRENT_ANALYSIS_PIPELINE.md Stage 8's job-status-vs-run-status
+        // distinction.
+        this.logger.warn(
+          { activityId: activity.id, error },
+          "ActivityAnalystV2 run persistence failed after successful execution and assessment; retrying the write once before escalating",
+        );
+        run = await this.activityAnalysisRunV2Repository.create(
+          {
+            organizationId: project.organizationId,
+            projectId: project.id,
+            activityId: activity.id,
+            activityName: activity.name,
+            phase: "phase_4_rendering",
+            status: "completed",
+            goalsSnapshot: {
+              activityType: activity.activityType,
+              objectives: activity.objectives,
+              output: activity.output,
+            },
+            evidence: evidenceRecords,
+            runLimits: PHASE_1_RUN_LIMITS,
+            clarificationQuestions: [],
+            toolCallTrace: execution.toolCallTrace,
+            calculations: execution.calculations,
+            contextCatalogEntries,
+            qualitativeFindings: execution.qualitativeFindings,
+            assessment: assessmentResult.assessment,
+            diagnostics,
+            validation: assessmentResult.validation,
+            errorMessage: null,
+          },
+          databaseSession,
+        );
+        this.logger.info(
+          {
+            activityId: activity.id,
+            analysisRunId: run.id,
+            diagnostics,
+          },
+          "ActivityAnalystV2 shadow preview completed after a retried persistence write",
+        );
+        return mapActivityAnalysisRunV2Record(run);
+      }
+
       const toolCallTrace =
-        error &&
+        execution?.toolCallTrace ??
+        (error &&
         typeof error === "object" &&
         "toolCallTrace" in error &&
         Array.isArray(error.toolCallTrace)
           ? (error.toolCallTrace as ActivityAnalysisRunV2PersistenceRecord["toolCallTrace"])
-          : [];
+          : []);
       const calculations =
-        error &&
+        execution?.calculations ??
+        (error &&
         typeof error === "object" &&
         "calculations" in error &&
         Array.isArray(error.calculations)
           ? (error.calculations as ActivityAnalysisRunV2PersistenceRecord["calculations"])
-          : [];
+          : []);
       const qualitativeFindings =
-        error &&
+        execution?.qualitativeFindings ??
+        (error &&
         typeof error === "object" &&
         "qualitativeFindings" in error &&
         Array.isArray(error.qualitativeFindings)
           ? (error.qualitativeFindings as ActivityAnalysisRunV2PersistenceRecord["qualitativeFindings"])
-          : [];
+          : []);
       const failedValidation = {
         status: "failed" as const,
         issues: [
@@ -1778,7 +1981,7 @@ export class ActivityAnalysisV2Service {
             : "Phase 3 planned deterministic execution failed.",
         ],
       };
-      const diagnostics = buildActivityAnalysisV2Diagnostics({
+      const failureDiagnostics = buildActivityAnalysisV2Diagnostics({
         goals,
         evidenceCount: evidenceSnapshot.evidence.length,
         plannedToolRequestCount: plannerResponse.toolRequests.length,
@@ -1816,7 +2019,7 @@ export class ActivityAnalysisV2Service {
           contextCatalogEntries: [],
           qualitativeFindings,
           assessment: null,
-          diagnostics,
+          diagnostics: failureDiagnostics,
           validation: failedValidation,
           errorMessage:
             error instanceof Error
@@ -1848,10 +2051,11 @@ export class ActivityAnalysisV2Service {
       {
         questionId: question.id,
         goalId: question.goalId ?? null,
-        prompt: question.prompt,
+        prompt: question.userFacingPrompt,
         kind: question.kind,
         questionDomain: question.questionDomain,
-        options: question.options ?? null,
+        options:
+          question.userFacingOptions?.map((option) => option.value) ?? null,
         recommendedOption: question.recommendedOption ?? null,
         recommendedConfidence: question.recommendedConfidence ?? null,
         isBlocking: question.isBlocking,

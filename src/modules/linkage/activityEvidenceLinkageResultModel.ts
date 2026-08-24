@@ -22,6 +22,13 @@ const activityEvidenceLinkageResultSchema = new Schema(
     groups: { type: [Schema.Types.Mixed], default: [] },
     proposals: { type: [Schema.Types.Mixed], default: [] },
     proposalDecisions: { type: [Schema.Types.Mixed], default: [] },
+    // The concernTaggingInstruction that produced the concern_flag/
+    // concern_flag_reason fields currently baked into `groups`' entities —
+    // compared against the activity's *current* instruction before reusing
+    // any of them as a cache, so an edited instruction can't accidentally
+    // reuse tags produced under the old wording. See
+    // EvidenceLinkageReconciliationService.applyConcernTaggingIfConfigured.
+    concernTaggingInstruction: { type: String, default: null },
   },
   {
     collection: "activity_evidence_linkage_results",

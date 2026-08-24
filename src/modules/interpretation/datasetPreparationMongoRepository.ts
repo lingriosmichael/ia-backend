@@ -51,6 +51,11 @@ function toDatasetPreparationRecord(
         primaryStatusFields: [],
         positiveStatusDefinitions: [],
         primaryDateFields: [],
+        epistemicRoleClarifications: [],
+        validatedScaleConfirmations: [],
+        cohortTags: [],
+        pairingGroupKeys: [],
+        pairingGroupRoles: [],
       },
     preparedDataset:
       (document.preparedDataset as PreparedDatasetSnapshot | null) ?? null,

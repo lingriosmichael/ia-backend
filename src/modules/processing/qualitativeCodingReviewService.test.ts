@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { AppError } from "../../shared/errors/appError.js";
 import type { AuthorizationService } from "../../shared/auth/authorizationService.js";
+import type { ProcessingJobRepository } from "../ai/execution/processingJobRepository.js";
 import type { InterpretationResultRepository } from "../interpretation/interpretationResultRepository.js";
 import type { PrivacySafeRepresentationRepository } from "./privacySafeRepresentationRepository.js";
 import type { PythonProcessingClient } from "./pythonProcessingClient.js";
@@ -17,6 +18,7 @@ function createService(overrides?: {
   privacySafeRepresentationRepository?: Partial<PrivacySafeRepresentationRepository>;
   interpretationResultRepository?: Partial<InterpretationResultRepository>;
   qualitativeCodingReviewRepository?: Partial<QualitativeCodingReviewRepository>;
+  processingJobRepository?: Partial<ProcessingJobRepository>;
   pythonProcessingClient?: Partial<PythonProcessingClient>;
 }) {
   const uploadMetadataRepository = {
@@ -216,6 +218,11 @@ function createService(overrides?: {
     ...(overrides?.qualitativeCodingReviewRepository ?? {}),
   } as unknown as QualitativeCodingReviewRepository;
 
+  const processingJobRepository = {
+    findActiveByUploadMetadataId: async () => null,
+    ...(overrides?.processingJobRepository ?? {}),
+  } as unknown as ProcessingJobRepository;
+
   const pythonProcessingClient = {
     proposeQualitativeCodingReview: async () => ({
       findings: [
@@ -263,6 +270,7 @@ function createService(overrides?: {
     privacySafeRepresentationRepository,
     interpretationResultRepository,
     qualitativeCodingReviewRepository,
+    processingJobRepository,
     pythonProcessingClient,
     noopLlmTokenLedgerService,
     noopLlmTokenLedgerService,
@@ -309,6 +317,103 @@ test("generate persists the qualitative coding review proposal", async () => {
       sourceCodebookOriginalFileName: null,
     },
   ]);
+});
+
+test("assertReadyToGenerate rejects when another job is already generating a review for this upload", async () => {
+  // Regression test: the existingReview check alone only catches a second
+  // generate() call once the first has already finished persisting a
+  // review row. Between "job created" and "job completed" there is no
+  // review row yet, so two generate requests close together (e.g. the
+  // frontend's auto-trigger firing twice) could both pass that check and
+  // both create a job, doubling LLM cost with the second silently
+  // clobbering the first's results. See qualitativeCodingReviewService.ts's
+  // assertReadyToGenerate.
+  const service = createService({
+    qualitativeCodingReviewRepository: {
+      findByUploadMetadataId: async () => null,
+    },
+    processingJobRepository: {
+      findActiveByUploadMetadataId: async () => ({
+        id: "job-already-running",
+        organizationId: "org-1",
+        projectId: "project-1",
+        activityId: "activity-1",
+        uploadMetadataId: "upload-1",
+        jobType: "qualitative_coding_review",
+        status: "processing",
+        triggeredById: "user-1",
+        payload: null,
+        errorMessage: null,
+        leaseOwner: "worker-a",
+        leaseExpiresAt: new Date(Date.now() + 60_000),
+        lastHeartbeatAt: new Date(),
+        attemptCount: 1,
+        nextAttemptAt: null,
+        failureCode: null,
+        maxAttempts: 3,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        startedAt: new Date(),
+        completedAt: null,
+      }),
+    },
+  });
+
+  await assert.rejects(
+    service.assertReadyToGenerate("user-1", "upload-1"),
+    (error: unknown) =>
+      error instanceof AppError &&
+      error.statusCode === 409 &&
+      error.code === "qualitative_coding_review_generation_in_progress",
+  );
+});
+
+test("generate's own defensive re-check does not reject itself against the job it is currently running as", async () => {
+  // The worker calls generate() with its own job's id as currentJobId
+  // specifically so this doesn't happen: by the time the worker's
+  // defensive re-check runs, its own job has already claimed status
+  // "processing" and is therefore "active" for this upload — it must be
+  // excluded from the check, or every legitimate generation would reject
+  // itself.
+  const service = createService({
+    qualitativeCodingReviewRepository: {
+      findByUploadMetadataId: async () => null,
+    },
+    processingJobRepository: {
+      findActiveByUploadMetadataId: async () => ({
+        id: "job-current",
+        organizationId: "org-1",
+        projectId: "project-1",
+        activityId: "activity-1",
+        uploadMetadataId: "upload-1",
+        jobType: "qualitative_coding_review",
+        status: "processing",
+        triggeredById: "user-1",
+        payload: null,
+        errorMessage: null,
+        leaseOwner: "worker-a",
+        leaseExpiresAt: new Date(Date.now() + 60_000),
+        lastHeartbeatAt: new Date(),
+        attemptCount: 1,
+        nextAttemptAt: null,
+        failureCode: null,
+        maxAttempts: 3,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        startedAt: new Date(),
+        completedAt: null,
+      }),
+    },
+  });
+
+  const review = await service.generate(
+    "user-1",
+    "upload-1",
+    "de",
+    "job-current",
+  );
+
+  assert.equal(review.status, "pending");
 });
 
 test("generate rejects a second call for an upload that already has a review, instead of silently regenerating it", async () => {

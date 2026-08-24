@@ -86,6 +86,27 @@ export class MongoQualitativeCodingReviewRepository implements QualitativeCoding
     return toQualitativeCodingReviewRecord(document);
   }
 
+  async findByUploadMetadataIds(
+    uploadMetadataIds: string[],
+    session: DatabaseSession,
+  ): Promise<QualitativeCodingReviewPersistenceRecord[]> {
+    if (uploadMetadataIds.length === 0) {
+      return [];
+    }
+    const documents = await applyMongoSession(
+      QualitativeCodingReviewMongoModel.find({
+        uploadMetadataId: { $in: uploadMetadataIds },
+      }),
+      session,
+    ).exec();
+    return documents
+      .map((document) => toQualitativeCodingReviewRecord(document))
+      .filter(
+        (record): record is QualitativeCodingReviewPersistenceRecord =>
+          record !== null,
+      );
+  }
+
   async approveIfPending(
     uploadMetadataId: string,
     input: QualitativeCodingReviewApproveInput,

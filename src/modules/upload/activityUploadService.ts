@@ -23,8 +23,12 @@ export class ActivityUploadService {
       throw new AppError("A file is required.", 400, "file_required");
     }
 
-    await this.authorizationService.canUploadToActivity(userId, activityId);
-    const activity = await this.activityService.getById(userId, activityId);
+    // canUploadToActivity's returned context already carries the activity —
+    // no need for a second, separately-authorized lookup right after it.
+    const { activity } = await this.authorizationService.canUploadToActivity(
+      userId,
+      activityId,
+    );
     const storedFile = await this.fileStorageService.storeActivityUpload(
       activityId,
       file,

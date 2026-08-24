@@ -143,6 +143,29 @@ export class ProjectKnowledgeBuilderService {
       throw new ProjectKnowledgeModelBuildInProgressError(projectId);
     }
 
+    try {
+      return await this.runBuild(projectId, projectKnowledgeModel);
+    } catch (error) {
+      // The build lock was successfully claimed above, so it must be
+      // released on any failure — otherwise markBuilding's CAS filter
+      // (`status != "building"`) rejects every future build attempt for
+      // this project forever. markStale is the same release mechanism
+      // ProjectDerivedStateInvalidationService already uses to make a
+      // model eligible for rebuild; reusing it here means a failed build
+      // leaves the model in the same "needs a rebuild" state as any other
+      // invalidation, rather than a permanently stuck one.
+      await this.projectKnowledgeModelRepository.markStale(
+        projectId,
+        databaseSession,
+      );
+      throw error;
+    }
+  }
+
+  private async runBuild(
+    projectId: string,
+    projectKnowledgeModel: ProjectKnowledgeModelPersistenceRecord,
+  ): Promise<ProjectKnowledgeModelPersistenceRecord> {
     const activities = await this.activityRepository.listByProject(
       projectId,
       databaseSession,

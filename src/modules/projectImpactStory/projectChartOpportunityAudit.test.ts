@@ -81,6 +81,17 @@ test("flags an activity with no current V2 run as blocked_by_missing_data", () =
   assert.equal(audit[0]?.reasonCode, "stale_or_missing_analysis_run");
 });
 
+test("does not flag an activity with no current V2 run as blocked when it already has confirmed outcome evidence", () => {
+  const audit = buildProjectChartOpportunityAudit(
+    [{ id: "activity-1", name: "Baseline" }],
+    [],
+    [buildUpload("upload-activity-1", "activity-1")],
+    new Set(["activity-1"]),
+  );
+
+  assert.equal(audit.length, 0);
+});
+
 test("flags an activity with no uploads at all differently from one with stale evidence", () => {
   const audit = buildProjectChartOpportunityAudit(
     [{ id: "activity-1", name: "Workshop A" }],

@@ -27,4 +27,8 @@ export interface ProjectOutcomeStatementRepository {
     outcomeStatementId: string,
     session: DatabaseSession,
   ): Promise<boolean>;
+  deleteByProjectId(
+    projectId: string,
+    session: DatabaseSession,
+  ): Promise<number>;
 }

@@ -53,6 +53,25 @@ function formatNumber(value: number, language: "de" | "en"): string {
   }).format(value);
 }
 
+function inferGoalAssessmentValueFormat(
+  sourceCalculation: ActivityAnalysisV2CalculationRecord | null,
+  measuredValue: number,
+  targetValue: number,
+): "number" | "percent" {
+  if (sourceCalculation?.unit === "ratio") {
+    return "percent";
+  }
+  if (
+    measuredValue >= 0 &&
+    measuredValue <= 1 &&
+    targetValue >= 0 &&
+    targetValue <= 1
+  ) {
+    return "percent";
+  }
+  return "number";
+}
+
 function isTargetComparisonResult(
   result: unknown,
 ): result is TargetComparisonResult {
@@ -199,6 +218,7 @@ function buildGoalFindingText(input: {
   evidenceTensionFlag: boolean;
   measuredValue: number | null;
   targetValue: number | null;
+  valueFormat: "number" | "percent" | null;
   comparison: "at_least" | "at_most" | "equal" | null;
   achieved: boolean | null;
   issue: string | null;
@@ -216,6 +236,7 @@ function buildGoalFindingText(input: {
       evidenceTensionFlag: false,
       measuredValue: null,
       targetValue: null,
+      valueFormat: null,
       comparison: null,
       achieved: null,
       issue: null,
@@ -236,6 +257,7 @@ function buildGoalFindingText(input: {
       evidenceTensionFlag: false,
       measuredValue: null,
       targetValue: null,
+      valueFormat: null,
       comparison: null,
       achieved: null,
       issue: null,
@@ -282,6 +304,7 @@ function buildGoalFindingText(input: {
       evidenceTensionFlag: false,
       measuredValue: null,
       targetValue: null,
+      valueFormat: null,
       comparison: null,
       achieved: null,
       issue: `Goal ${input.goalId} produced ${comparisonCalculations.length} compare_target results; expected at most one.`,
@@ -315,6 +338,11 @@ function buildGoalFindingText(input: {
           input.qualitativeFindings,
           comparableRateCalculation,
         ));
+    const valueFormat = inferGoalAssessmentValueFormat(
+      comparableRateCalculation,
+      measuredValue,
+      targetValue,
+    );
     return {
       assessmentStatus: mixedEvidence
         ? "mixed_evidence"
@@ -336,6 +364,7 @@ function buildGoalFindingText(input: {
       evidenceTensionFlag,
       measuredValue,
       targetValue,
+      valueFormat,
       comparison: result.comparison,
       achieved: result.achieved,
       issue: null,
@@ -352,6 +381,7 @@ function buildGoalFindingText(input: {
       evidenceTensionFlag: false,
       measuredValue: null,
       targetValue: null,
+      valueFormat: null,
       comparison: null,
       achieved: null,
       issue: null,
@@ -367,6 +397,7 @@ function buildGoalFindingText(input: {
     evidenceTensionFlag: false,
     measuredValue: null,
     targetValue: null,
+    valueFormat: null,
     comparison: null,
     achieved: null,
     issue: null,
@@ -441,26 +472,31 @@ export function buildActivityAssessmentV2(
     string,
     ActivityAnalysisV2ToolCallRecord[]
   >();
-  input.plannedToolRequests.forEach((toolRequest, index) => {
-    const toolCall = input.toolCallTrace[index];
-    const calculationIds = toolCall?.calculationIds ?? [];
-    const qualitativeFindingIds = toolCall?.qualitativeFindingIds ?? [];
-    const existing = calculationIdsByGoalId.get(toolRequest.goalId) ?? [];
-    calculationIdsByGoalId.set(toolRequest.goalId, [
-      ...existing,
-      ...calculationIds,
-    ]);
-    qualitativeFindingIdsByGoalId.set(toolRequest.goalId, [
-      ...(qualitativeFindingIdsByGoalId.get(toolRequest.goalId) ?? []),
-      ...qualitativeFindingIds,
-    ]);
-    if (toolCall) {
-      toolCallsByGoalId.set(toolRequest.goalId, [
-        ...(toolCallsByGoalId.get(toolRequest.goalId) ?? []),
-        toolCall,
-      ]);
+  // Correlate by each tool call's own goalId, carried directly on the
+  // trace record by the executor — not by matching array position against
+  // plannedToolRequests. A positional zip is only correct as long as both
+  // arrays stay exactly same-length and same-order end to end; a future
+  // change that filters, reorders, or dedups either one would silently
+  // attribute one goal's calculation to a different goal, with nothing to
+  // catch it. Correlating by id is correct regardless of either array's
+  // order.
+  for (const toolCall of input.toolCallTrace) {
+    if (!toolCall.goalId) {
+      continue;
     }
-  });
+    calculationIdsByGoalId.set(toolCall.goalId, [
+      ...(calculationIdsByGoalId.get(toolCall.goalId) ?? []),
+      ...toolCall.calculationIds,
+    ]);
+    qualitativeFindingIdsByGoalId.set(toolCall.goalId, [
+      ...(qualitativeFindingIdsByGoalId.get(toolCall.goalId) ?? []),
+      ...(toolCall.qualitativeFindingIds ?? []),
+    ]);
+    toolCallsByGoalId.set(toolCall.goalId, [
+      ...(toolCallsByGoalId.get(toolCall.goalId) ?? []),
+      toolCall,
+    ]);
+  }
 
   const assessment: ActivityAssessmentV2 = {
     goalAssessments: input.goals.map((goal) => {
@@ -535,6 +571,7 @@ export function buildActivityAssessmentV2(
         evidenceTensionFlag: finding.evidenceTensionFlag,
         measuredValue: finding.measuredValue,
         targetValue: finding.targetValue,
+        valueFormat: finding.valueFormat,
         comparison: finding.comparison,
         achieved: finding.achieved,
       };

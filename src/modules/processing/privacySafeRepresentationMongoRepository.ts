@@ -92,6 +92,28 @@ export class MongoPrivacySafeRepresentationRepository implements PrivacySafeRepr
     return toPrivacySafeRepresentationRecord(document);
   }
 
+  async findByIds(
+    privacySafeRepresentationIds: string[],
+    session: DatabaseSession,
+  ): Promise<PrivacySafeRepresentationPersistenceRecord[]> {
+    if (privacySafeRepresentationIds.length === 0) {
+      return [];
+    }
+    const documents = await applyMongoSession(
+      PrivacySafeRepresentationMongoModel.find({
+        _id: { $in: privacySafeRepresentationIds },
+      }),
+      session,
+    ).exec();
+
+    return documents
+      .map((document) => toPrivacySafeRepresentationRecord(document))
+      .filter(
+        (record): record is PrivacySafeRepresentationPersistenceRecord =>
+          record !== null,
+      );
+  }
+
   async findLatestByUploadMetadataIds(
     uploadMetadataIds: string[],
     session: DatabaseSession,
