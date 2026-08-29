@@ -1,15 +1,18 @@
 import type { DatabaseSession } from "../../shared/database/databaseClient.js";
 import { createDocumentId } from "../../shared/database/documentId.js";
+import { isMongoDuplicateKeyError } from "../../shared/database/mongoErrors.js";
 import {
   applyMongoSession,
   getMongoSessionOptions,
 } from "../../shared/database/mongoSession.js";
+import { AppError } from "../../shared/errors/appError.js";
 import {
   OutcomeEvidenceLinkMongoModel,
   type OutcomeEvidenceLinkMongoHydratedDocument,
 } from "./outcomeEvidenceLinkModel.js";
 import type { OutcomeEvidenceLinkRepository } from "./outcomeEvidenceLinkRepository.js";
 import type {
+  OutcomeEvidenceLinkMatchDiagnostics,
   OutcomeEvidenceLinkCreateInput,
   OutcomeEvidenceLinkPersistenceRecord,
 } from "./outcomeEvidenceLinkPersistence.js";
@@ -48,6 +51,9 @@ function toOutcomeEvidenceLinkRecord(
     confirmedAt: document.confirmedAt.toISOString(),
     createdAt: document.createdAt,
     updatedAt: document.updatedAt,
+    matchDiagnostics:
+      (document.matchDiagnostics as OutcomeEvidenceLinkMatchDiagnostics | null) ??
+      null,
   };
 
   if (document.shape === "paired_delta") {
@@ -153,17 +159,35 @@ export class MongoOutcomeEvidenceLinkRepository implements OutcomeEvidenceLinkRe
     input: OutcomeEvidenceLinkCreateInput,
     session: DatabaseSession,
   ): Promise<OutcomeEvidenceLinkPersistenceRecord> {
-    const [document] = await OutcomeEvidenceLinkMongoModel.create(
-      [
-        {
-          _id: createDocumentId(),
-          ...input,
-        },
-      ],
-      getMongoSessionOptions(session),
-    );
+    try {
+      const [document] = await OutcomeEvidenceLinkMongoModel.create(
+        [
+          {
+            _id: createDocumentId(),
+            ...input,
+          },
+        ],
+        getMongoSessionOptions(session),
+      );
 
-    return toOutcomeEvidenceLinkRecord(document);
+      return toOutcomeEvidenceLinkRecord(document);
+    } catch (error) {
+      // The unique { projectId, proposalId } index (outcomeEvidenceLinkModel.ts)
+      // is the real duplicate-prevention guarantee: it closes the race that
+      // an application-level read-then-write check (assertNotAlreadyConfirmed)
+      // cannot, since two concurrent approve calls for the same recommendation
+      // can both pass that check before either insert lands. This surfaces
+      // the loser of that race as the same friendly error the read-check
+      // already produces for the non-concurrent case.
+      if (isMongoDuplicateKeyError(error)) {
+        throw new AppError(
+          "This evidence option has already been confirmed.",
+          409,
+          "outcome_evidence_link_already_confirmed",
+        );
+      }
+      throw error;
+    }
   }
 
   async findById(
@@ -186,6 +210,24 @@ export class MongoOutcomeEvidenceLinkRepository implements OutcomeEvidenceLinkRe
       OutcomeEvidenceLinkMongoModel.find({ projectId }).sort({
         createdAt: 1,
       }),
+      session,
+    ).exec();
+
+    return documents.map((document) => toOutcomeEvidenceLinkRecord(document));
+  }
+
+  async listByActivityId(
+    activityId: string,
+    session: DatabaseSession,
+  ): Promise<OutcomeEvidenceLinkPersistenceRecord[]> {
+    const documents = await applyMongoSession(
+      OutcomeEvidenceLinkMongoModel.find({
+        $or: [
+          { activityId },
+          { activityIdBefore: activityId },
+          { activityIdAfter: activityId },
+        ],
+      }).sort({ createdAt: 1 }),
       session,
     ).exec();
 

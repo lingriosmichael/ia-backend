@@ -98,11 +98,7 @@ function makePreparation(
       positiveStatusDefinitions: [],
       primaryDateFields: [],
       epistemicRoleClarifications: [],
-      validatedScaleConfirmations: [],
       cohortTags: [],
-      pairingGroupKeys: [],
-      pairingGroupRoles: [],
-      declaredScaleBounds: [],
     },
     preparedDataset: {
       evidenceModality: "structured_quantitative",

@@ -33,5 +33,9 @@ export interface OutcomeEvidenceLinkRepository {
     projectId: string,
     session: DatabaseSession,
   ): Promise<OutcomeEvidenceLinkPersistenceRecord[]>;
+  listByActivityId(
+    activityId: string,
+    session: DatabaseSession,
+  ): Promise<OutcomeEvidenceLinkPersistenceRecord[]>;
   deleteById(linkId: string, session: DatabaseSession): Promise<boolean>;
 }

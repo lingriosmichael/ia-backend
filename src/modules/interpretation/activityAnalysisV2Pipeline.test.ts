@@ -22,7 +22,17 @@ const NOW = new Date("2026-08-09T10:00:00.000Z");
 const WORKSPACE_ROOT = path.resolve(
   fileURLToPath(new URL("../../../../", import.meta.url)),
 );
-const DATA_ROOT = path.join(WORKSPACE_ROOT, "ia_webapp", "data");
+// ia_webapp/data/01_mentor_recruitment etc. were reorganized under
+// ia_webapp/data/mentoringProject/ (alongside a new, unrelated
+// miteinanderProject/ fixture set) — every fixture this file loads lives
+// under the mentoring project, so this stays a single join here rather
+// than prefixing each relative path below.
+const DATA_ROOT = path.join(
+  WORKSPACE_ROOT,
+  "ia_webapp",
+  "data",
+  "mentoringProject",
+);
 
 function parseDelimitedLine(line: string, delimiter = ";"): string[] {
   const values: string[] = [];
@@ -404,6 +414,7 @@ test("full V2 pipeline counts recruitment applications from the real recruitment
         },
       ],
       limitations: [],
+      clarificationQuestions: [],
       validation: {
         status: "passed",
         issues: [],
@@ -759,6 +770,7 @@ test("full V2 pipeline uses the real training fixtures for cross-file cohort cal
         },
       ],
       limitations: [],
+      clarificationQuestions: [],
       validation: {
         status: "passed",
         issues: [],

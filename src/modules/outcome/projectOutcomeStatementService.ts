@@ -208,10 +208,6 @@ export class ProjectOutcomeStatementService {
       },
       databaseSession,
     );
-    await this.processingResourceCleanupService?.resetOutcomeEvidencePairingByProjectId(
-      project.id,
-      databaseSession,
-    );
     await this.projectDerivedStateInvalidationService?.invalidateProject(
       project.id,
       databaseSession,
@@ -244,10 +240,6 @@ export class ProjectOutcomeStatementService {
         "project_outcome_statement_not_found",
       );
     }
-    await this.processingResourceCleanupService?.resetOutcomeEvidencePairingByProjectId(
-      projectId,
-      databaseSession,
-    );
     await this.projectDerivedStateInvalidationService?.invalidateProject(
       projectId,
       databaseSession,
@@ -268,7 +260,6 @@ export class ProjectOutcomeStatementService {
     );
 
     await this.processingResourceCleanupService?.deleteByOutcomeStatementIds(
-      projectId,
       [existing.id],
       databaseSession,
     );

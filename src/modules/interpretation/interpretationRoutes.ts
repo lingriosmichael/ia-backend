@@ -115,10 +115,4 @@ export async function registerInterpretationRoutes(
     },
     controller.answerQuestions.bind(controller),
   );
-
-  app.post(
-    "/activities/:activityId/interpretation-acknowledgment",
-    { preHandler: authenticate },
-    controller.acknowledgeReview.bind(controller),
-  );
 }

@@ -240,90 +240,20 @@ const EPISTEMIC_ROLE_CLARIFICATION_OPTIONS: Record<
   ],
 };
 
-const VALIDATED_SCALE_CONFIRMATION_PROMPT: Record<
-  ClarificationQuestionLanguage,
-  string
-> = {
-  de:
-    "Bewerten Teilnehmende sich in '{column}' selbst auf einer Skala, " +
-    "zum Beispiel von 1 bis 5?",
-  en:
-    "Does '{column}' ask participants to rate themselves on a scale, " +
-    "for example from 1 to 5?",
-};
-const VALIDATED_SCALE_CONFIRMATION_OPTIONS: Record<
-  ClarificationQuestionLanguage,
-  string[]
-> = {
-  de: ["Ja, das ist eine Selbsteinschätzung", "Nein, das ist etwas anderes"],
-  en: ["Yes, this is a self-rating", "No, this is something else"],
-};
-
-const PAIRING_GROUP_KEY_PROMPT: Record<ClarificationQuestionLanguage, string> =
-  {
-    de:
-      "Wird die Frage in '{column}' später noch einmal gestellt, zum " +
-      "Beispiel einmal am Anfang und einmal am Ende? Wenn ja: kurzer " +
-      "gemeinsamer Name, zum Beispiel 'Berufliche Klarheit'. Wenn nein: " +
-      "'nicht zutreffend'.",
-    en:
-      "Is the question in '{column}' asked again later, for example once " +
-      "at the beginning and once at the end? If yes: enter a short shared " +
-      "name such as 'Career clarity'. If not: answer 'not applicable'.",
-  };
-
-const PAIRING_GROUP_ROLE_PROMPT: Record<ClarificationQuestionLanguage, string> =
-  {
-    de:
-      "Wenn '{column}' zu so einer wiederholten Frage gehört: Ist das die " +
-      "Antwort vom Anfang oder vom Ende?",
-    en:
-      "If '{column}' belongs to a repeated question: is this the answer " +
-      "from the beginning or from the end?",
-  };
-const PAIRING_GROUP_ROLE_OPTIONS: Record<
-  ClarificationQuestionLanguage,
-  string[]
-> = {
-  de: [
-    "Am Anfang / vor dem Programm",
-    "Am Ende / nach dem Programm",
-    "Nicht zutreffend",
-  ],
-  en: [
-    "At the beginning / before the program",
-    "At the end / after the program",
-    "Not applicable",
-  ],
-};
-
-const DECLARED_SCALE_BOUNDS_PROMPT: Record<
-  ClarificationQuestionLanguage,
-  string
-> = {
-  de:
-    "Was ist der volle mögliche Wertebereich der Skala in '{column}', " +
-    "unabhängig davon, was tatsächlich geantwortet wurde — zum " +
-    "Beispiel '1 bis 5' oder '0 bis 10'?",
-  en:
-    "What is the full possible range of the scale in '{column}', " +
-    "regardless of what people actually answered — for example " +
-    "'1 to 5' or '0 to 10'?",
-};
-
-// Verbatim port of the template previously in
-// ia_backend/src/modules/interpretation/interpretationArtifactService.ts's
-// COHORT_TAG_QUESTION_TEMPLATES — the one code whose wording already lived
-// in ia_backend rather than ia_python_service before this migration.
+// Not shown in the primary UI: cohort_tag is answered by dragging files
+// into named groups (InterpretationCohortGroupingBoard in ia_webapp), which
+// uses its own instruction copy, not this prompt. Kept as a required field
+// on the question record itself (for any other consumer/API view), so this
+// describes the underlying question in general terms rather than the old
+// single-file free-text mechanism (with its now-inapplicable "not
+// applicable" escape hatch) that the grouping board replaced.
 const COHORT_TAG_PROMPT: Record<ClarificationQuestionLanguage, string> = {
   de:
-    `Um wen geht es in der Tabelle '{table}'? Zum Beispiel um "Jugendliche" oder "Mentor:innen". ` +
-    `Das hilft dabei, nur passende Baseline- und Wirkungsmessungsdaten miteinander zu vergleichen. ` +
-    `Antworten Sie "nicht zutreffend", wenn dieses Projekt nur eine einzige Kohorte hat.`,
+    `Welche Zielgruppe betrifft die Tabelle '{table}'? Das hilft dabei, nur ` +
+    `passende Ausgangslage- und Wirkungsdaten miteinander zu vergleichen.`,
   en:
-    `Who is the table '{table}' about? For example "young people" or "mentors". ` +
-    `This helps compare only the right baseline and endline data with each other. ` +
-    `Answer "not applicable" if this project only has a single cohort.`,
+    `Which cohort does the table '{table}' concern? This helps compare only ` +
+    `the right baseline and endline data with each other.`,
 };
 
 // New (Phase 5): the Stage-9 filter-value-grounding question. Unlike the
@@ -475,20 +405,6 @@ function renderEpistemicRoleClarification(
   };
 }
 
-function renderValidatedScaleConfirmation(
-  input: ClarificationQuestionRenderInput,
-): ClarificationQuestionRenderOutput {
-  return {
-    userFacingPrompt: fillTemplate(
-      localized(VALIDATED_SCALE_CONFIRMATION_PROMPT, input.language),
-      { column: input.targetColumnName ?? "" },
-    ),
-    userFacingOptions: toIdentityOptions(
-      localized(VALIDATED_SCALE_CONFIRMATION_OPTIONS, input.language),
-    ),
-  };
-}
-
 function renderCohortTag(
   input: ClarificationQuestionRenderInput,
 ): ClarificationQuestionRenderOutput {
@@ -497,50 +413,6 @@ function renderCohortTag(
       localized(COHORT_TAG_PROMPT, input.language),
       {
         table: input.targetTableName ?? "",
-      },
-    ),
-    userFacingOptions: null,
-  };
-}
-
-function renderPairingGroupKey(
-  input: ClarificationQuestionRenderInput,
-): ClarificationQuestionRenderOutput {
-  return {
-    userFacingPrompt: fillTemplate(
-      localized(PAIRING_GROUP_KEY_PROMPT, input.language),
-      {
-        column: input.targetColumnName ?? "",
-      },
-    ),
-    userFacingOptions: null,
-  };
-}
-
-function renderPairingGroupRole(
-  input: ClarificationQuestionRenderInput,
-): ClarificationQuestionRenderOutput {
-  return {
-    userFacingPrompt: fillTemplate(
-      localized(PAIRING_GROUP_ROLE_PROMPT, input.language),
-      {
-        column: input.targetColumnName ?? "",
-      },
-    ),
-    userFacingOptions: toIdentityOptions(
-      localized(PAIRING_GROUP_ROLE_OPTIONS, input.language),
-    ),
-  };
-}
-
-function renderDeclaredScaleBounds(
-  input: ClarificationQuestionRenderInput,
-): ClarificationQuestionRenderOutput {
-  return {
-    userFacingPrompt: fillTemplate(
-      localized(DECLARED_SCALE_BOUNDS_PROMPT, input.language),
-      {
-        column: input.targetColumnName ?? "",
       },
     ),
     userFacingOptions: null,
@@ -578,11 +450,7 @@ const RENDERERS: Record<
   positive_status_values: renderPositiveStatusValues,
   primary_date_field: renderPrimaryDateField,
   epistemic_role_clarification: renderEpistemicRoleClarification,
-  validated_scale_confirmation: renderValidatedScaleConfirmation,
   cohort_tag: renderCohortTag,
-  pairing_group_key: renderPairingGroupKey,
-  pairing_group_role: renderPairingGroupRole,
-  declared_scale_bounds: renderDeclaredScaleBounds,
   filter_value_grounding: renderFilterValueGrounding,
 };
 

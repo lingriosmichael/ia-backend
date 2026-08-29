@@ -26,19 +26,19 @@ export interface OutcomeEvidencePairingEvidenceTable {
   identifierColumn: string | null;
   columns: PreparedDatasetColumn[];
   hasDuplicateIdentifierValues?: boolean;
+  // Observed distinct value count per column name, from the same row scan
+  // that produces hasDuplicateIdentifierValues — lets the candidate matcher
+  // gate single_distribution eligibility for epistemicRoles that don't
+  // already carry Python's own 2-15 distinct-value guarantee (unlike
+  // "categorical"), without a second pass over the data.
+  columnDistinctValueCounts?: Record<string, number>;
   // Human-declared, from PreparedDatasetTable.cohortTag (the cohort_tag
   // preparation question) — the authoritative cohort/segment signal.
   // Replaces the previous row-content zielgruppe/target_group scrape.
   cohortTag?: string | null;
 }
 
-function isOutcomeEvidenceSystemActivity(
-  systemType: ActivitySystemType | null,
-): boolean {
-  return systemType === "baseline" || systemType === "impact_measurement";
-}
-
-function isReadyForPairing(
+export function isReadyForPairing(
   preparation: DatasetPreparationPersistenceRecord | undefined,
 ): preparation is DatasetPreparationPersistenceRecord & {
   preparedDataset: NonNullable<
@@ -99,25 +99,37 @@ function findPayloadTable(
   return tables.length === 1 ? (tables[0] ?? null) : null;
 }
 
-export function extractOutcomeEvidenceIdentifierMetadata(
+export function extractOutcomeEvidenceTableRowMetadata(
   payload: Record<string, unknown>,
   preparedTableName: string,
   identifierColumn: string | null,
+  columnNames: string[],
 ): {
   hasDuplicateIdentifierValues: boolean;
+  columnDistinctValueCounts: Record<string, number>;
 } {
   const payloadTable = findPayloadTable(payload, preparedTableName);
   if (!payloadTable) {
-    return { hasDuplicateIdentifierValues: false };
+    return {
+      hasDuplicateIdentifierValues: false,
+      columnDistinctValueCounts: {},
+    };
   }
 
   const rows = readRecordArray(payloadTable.rows);
   if (rows.length === 0) {
-    return { hasDuplicateIdentifierValues: false };
+    return {
+      hasDuplicateIdentifierValues: false,
+      columnDistinctValueCounts: {},
+    };
   }
 
   const distinctIdentifierValues = new Set<string>();
   let identifierValueCount = 0;
+  const distinctValuesByColumn = new Map<string, Set<string>>(
+    columnNames.map((columnName) => [columnName, new Set<string>()]),
+  );
+
   for (const row of rows) {
     if (identifierColumn) {
       const identifierValue = normalizeJoinValue(row[identifierColumn]);
@@ -126,6 +138,17 @@ export function extractOutcomeEvidenceIdentifierMetadata(
         distinctIdentifierValues.add(identifierValue);
       }
     }
+    for (const [columnName, distinctValues] of distinctValuesByColumn) {
+      const value = normalizeJoinValue(row[columnName]);
+      if (value !== null) {
+        distinctValues.add(value);
+      }
+    }
+  }
+
+  const columnDistinctValueCounts: Record<string, number> = {};
+  for (const [columnName, distinctValues] of distinctValuesByColumn) {
+    columnDistinctValueCounts[columnName] = distinctValues.size;
   }
 
   return {
@@ -135,18 +158,19 @@ export function extractOutcomeEvidenceIdentifierMetadata(
     hasDuplicateIdentifierValues:
       identifierValueCount > 0 &&
       identifierValueCount > distinctIdentifierValues.size,
+    columnDistinctValueCounts,
   };
 }
 
 /**
- * Shared table-loading core for both outcome-evidence pairing (system
- * activities only — see loadProjectEvidenceTablesForOutcomePairing) and
- * the exploratory story-chart pairing lane (every activity — see
- * loadProjectEvidenceTablesForStoryPairing), parameterized by which
- * activities are in scope. Both callers hand the *same* declared-pairing
- * candidates (computeOutcomeEvidencePairingCandidates) whatever tables
- * this returns; only the activity scope differs, never the pairing logic
- * itself.
+ * Table-loading core for the exploratory story-chart pairing lane (every
+ * activity in the project — see loadProjectEvidenceTablesForStoryPairing).
+ * Parameterized by an activity-scope predicate for historical reasons (it
+ * used to also serve the outcome-evidence-pairing flow's system-activity-
+ * only scope, removed in OUTCOME_EVIDENCE_MERGE_PLAN.md Phase 6 in favor of
+ * outcomeEvidenceCandidateCatalogBuilder.ts's single-activity loader) — kept
+ * as a parameter rather than inlined since it costs nothing and documents
+ * the one real scope decision this function makes.
  */
 async function loadEvidenceTablesForPairing(
   deps: OutcomeEvidencePairingEvidenceLoaderDependencies,
@@ -223,11 +247,12 @@ async function loadEvidenceTablesForPairing(
     }
 
     for (const preparedTable of preparation.preparedDataset.tables) {
-      const identifierMetadata = extractOutcomeEvidenceIdentifierMetadata(
+      const rowMetadata = extractOutcomeEvidenceTableRowMetadata(
         privacySafeRepresentationByUploadId.get(result.uploadMetadataId)
           ?.payload ?? {},
         preparedTable.name,
         preparedTable.identifierColumn,
+        preparedTable.columns.map((column) => column.name),
       );
       tables.push({
         activityId,
@@ -236,8 +261,8 @@ async function loadEvidenceTablesForPairing(
         tableName: preparedTable.name,
         identifierColumn: preparedTable.identifierColumn,
         columns: preparedTable.columns,
-        hasDuplicateIdentifierValues:
-          identifierMetadata.hasDuplicateIdentifierValues,
+        hasDuplicateIdentifierValues: rowMetadata.hasDuplicateIdentifierValues,
+        columnDistinctValueCounts: rowMetadata.columnDistinctValueCounts,
         cohortTag: preparedTable.cohortTag ?? null,
       });
     }
@@ -247,36 +272,15 @@ async function loadEvidenceTablesForPairing(
 }
 
 /**
- * Loads every ready, deterministic-analysis-eligible table across an
- * entire project's *system* activities only (baseline/impact_measurement)
- * — deliberately project-scoped, not per-activity like
- * linkageEvidenceLoader.ts, because a before/after outcome pair spans two
- * different system activities (see IMPACT_STORY_OUTCOME_EXTENSION_PLAN.md
- * §4.1). Feeds confirmed OutcomeEvidenceLink pairing proposals — see
- * loadProjectEvidenceTablesForStoryPairing for the broader, all-activities
- * variant used by the exploratory story-chart lane.
- */
-export async function loadProjectEvidenceTablesForOutcomePairing(
-  deps: OutcomeEvidencePairingEvidenceLoaderDependencies,
-  projectId: string,
-): Promise<OutcomeEvidencePairingEvidenceTable[]> {
-  return loadEvidenceTablesForPairing(
-    deps,
-    projectId,
-    isOutcomeEvidenceSystemActivity,
-  );
-}
-
-/**
- * Same table-loading core as loadProjectEvidenceTablesForOutcomePairing,
- * but scoped to *every* activity in the project, not just the two system
- * activities — needed for the exploratory paired-story-delta chart lane,
- * where the target case is a single ordinary activity's own before/after
- * columns (e.g. one workshop's own pre/post feedback form), which
- * loadProjectEvidenceTablesForOutcomePairing's system-activity-only scope
- * would never see. Declared-pairing detection itself
- * (computeOutcomeEvidencePairingCandidates) is unchanged and unaware of
- * systemType either way — only which tables reach it differs.
+ * Loads every ready, deterministic-analysis-eligible table across *every*
+ * activity in the project — needed for the exploratory paired-story-delta
+ * chart lane (projectImpactStoryPairedStoryDeltaCatalog.ts), where the
+ * target case is a single ordinary activity's own before/after columns
+ * (e.g. one workshop's own pre/post feedback form). That lane's own
+ * declared-pairing detection was removed in Phase 6 (see that file's doc
+ * comment), so this loader's result is currently unused there too, but the
+ * loader itself makes no assumption about that — it's a generic
+ * every-activity table load, kept for whatever that lane becomes next.
  */
 export async function loadProjectEvidenceTablesForStoryPairing(
   deps: OutcomeEvidencePairingEvidenceLoaderDependencies,

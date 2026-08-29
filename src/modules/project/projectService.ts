@@ -432,13 +432,7 @@ export class ProjectService {
 
       if (deletedOutcomeStatementIds.length > 0) {
         await this.processingResourceCleanupService.deleteByOutcomeStatementIds(
-          updatedProject.id,
           deletedOutcomeStatementIds,
-          databaseSession,
-        );
-      } else if (intendedChangesChanged) {
-        await this.processingResourceCleanupService.resetOutcomeEvidencePairingByProjectId(
-          updatedProject.id,
           databaseSession,
         );
       }

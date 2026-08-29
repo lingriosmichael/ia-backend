@@ -3,14 +3,14 @@ import type { ActivitySystemType } from "../../shared/contracts.js";
 import type { ActivityRepository } from "./activityRepository.js";
 import type { ActivityPersistenceRecord } from "./activityPersistence.js";
 
+// OUTCOME_EVIDENCE_MERGE_PLAN.md Phase 1/§4.1: the old baseline +
+// impact_measurement pair was replaced by this single merged activity once
+// the merge migration (mergeBaselineAndImpactMeasurementActivities.ts) ran
+// for every project.
 export const SYSTEM_ACTIVITY_DEFINITIONS = [
   {
-    systemType: "baseline",
-    name: "Baseline",
-  },
-  {
-    systemType: "impact_measurement",
-    name: "Wirkungsmessung",
+    systemType: "outcome_evidence",
+    name: "Ausgangslage & Wirkungsdaten",
   },
 ] as const satisfies Array<{
   systemType: ActivitySystemType;
@@ -54,13 +54,5 @@ export function sortActivitiesForDisplay<
 }
 
 function getSystemActivityDisplayRank(systemType: ActivitySystemType | null) {
-  if (systemType === "baseline") {
-    return 0;
-  }
-
-  if (systemType === "impact_measurement") {
-    return 2;
-  }
-
-  return 1;
+  return systemType === "outcome_evidence" ? 0 : 1;
 }

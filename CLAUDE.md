@@ -7,7 +7,7 @@ Stack: Node.js, TypeScript, Fastify, Mongoose, MongoDB, JWT auth.
 (Adjust this section to match reality as the codebase grows — keep it a
 truthful map, not an aspiration.)
 
-- `src/modules/<domain>/` — domain modules such as `organization`, `project`, `activity`, `upload`, `projectImpactStory`
+- `src/modules/<domain>/` — domain modules such as `organization`, `project`, `activity`, `upload`, `outcome`, `projectImpactStory`
 - `src/modules/<domain>/*Controller.ts` — request/response coordination
 - `src/modules/<domain>/*Routes.ts` — Fastify route registration
 - `src/modules/<domain>/*Service.ts` — business logic
@@ -37,21 +37,26 @@ That's fine as long as each one still has a single, obvious responsibility.
 For the full activity-analysis pipeline (upload → privacy review →
 interpretation → dataset preparation → deterministic analysis →
 `ActivityAnalystV2`) across all three services, see
-`CURRENT_ANALYSIS_PIPELINE.md` at the workspace root — it's the canonical
+`CURRENT_ANALYSIS_PIPELINE.md` in `documentation/` — it's the canonical
 map, not this file.
 
 The old `src/modules/analytics/` module (a configurable per-activity and
 per-project analytics dashboard) was deleted 2026-08-18, along with
 `src/workers/analyticsWorker.ts` — don't recreate it if it looks missing.
 It was replaced by `src/modules/projectImpactStory/`, a project-level
-feature that renders a narrative and chart plan from human-confirmed
-`OutcomeEvidenceLink` records rather than raw per-activity KPI tiles. This
-is a separate feature from the `ActivityAnalystV2` pipeline above, not a
-stage of it — it consumes V2 run outputs only indirectly, via evidence a
-human has already linked to a declared outcome. See
-`projectImpactStoryService.ts` here and `ia_python_service`'s
-`app/project_impact_story/` for the LLM-assisted narrative/chart-plan calls
-this module makes.
+feature that renders a narrative and chart plan. It is a separate feature
+from the `ActivityAnalystV2` pipeline above, not a stage of it, but it does
+read V2 run output **directly** for activity cards/chart-plan candidates
+(gated only by V2's own grounding) — only the narrative text specifically
+is restricted to human-confirmed `OutcomeEvidenceLink` records. Canonical
+doc: `CURRENT_ANALYTICS_PIPELINE.md` in `documentation/` — read that
+before non-trivial changes here, not just this paragraph.
+`OutcomeEvidenceLink` itself is owned by `src/modules/outcome/`, a further
+separate feature — the old "Wirkungsaussagen"/outcome-statements tab and its
+manual pairing flow were replaced 2026-08-27 by a merged-activity,
+LLM-recommendation design (the interpretation page now hosts the review
+surface, scoped to the single `"outcome_evidence"` system activity). Canonical
+doc: `OUTCOME_EVIDENCE_MERGE_PLAN.md` in `documentation/`.
 
 ## Layering rule
 

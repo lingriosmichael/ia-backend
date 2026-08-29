@@ -34,11 +34,7 @@ export const PREPARATION_QUESTION_CODES = new Set<InterpretationQuestionCode>([
   "row_grain",
   "duplicate_identifier_resolution",
   "epistemic_role_clarification",
-  "validated_scale_confirmation",
   "cohort_tag",
-  "pairing_group_key",
-  "pairing_group_role",
-  "declared_scale_bounds",
 ]);
 
 function isPreparationQuestionCode(
@@ -102,11 +98,7 @@ function emptyDecisionSummary(): DatasetPreparationDecisionSummary {
     positiveStatusDefinitions: [] as DatasetPreparationDecisionSelection[],
     primaryDateFields: [] as DatasetPreparationDecisionSelection[],
     epistemicRoleClarifications: [] as DatasetPreparationDecisionSelection[],
-    validatedScaleConfirmations: [] as DatasetPreparationDecisionSelection[],
     cohortTags: [] as DatasetPreparationDecisionSelection[],
-    pairingGroupKeys: [] as DatasetPreparationDecisionSelection[],
-    pairingGroupRoles: [] as DatasetPreparationDecisionSelection[],
-    declaredScaleBounds: [] as DatasetPreparationDecisionSelection[],
   };
 }
 
@@ -132,16 +124,8 @@ function mapQuestionCodeToSummaryKey(questionCode: InterpretationQuestionCode) {
       return "primaryDateFields";
     case "epistemic_role_clarification":
       return "epistemicRoleClarifications";
-    case "validated_scale_confirmation":
-      return "validatedScaleConfirmations";
     case "cohort_tag":
       return "cohortTags";
-    case "pairing_group_key":
-      return "pairingGroupKeys";
-    case "pairing_group_role":
-      return "pairingGroupRoles";
-    case "declared_scale_bounds":
-      return "declaredScaleBounds";
   }
 }
 
@@ -386,24 +370,6 @@ function parseEpistemicRoleClarificationAnswer(
   return null;
 }
 
-// Matches _VALIDATED_SCALE_CONFIRMATION_OPTIONS — same closed-option-set
-// reasoning as parseEpistemicRoleClarificationAnswer above.
-function parseValidatedScaleConfirmationAnswer(
-  answer: string | null,
-): boolean | null {
-  if (!answer) {
-    return null;
-  }
-  const normalized = normalizeText(answer);
-  if (normalized.startsWith("yes") || normalized.startsWith("ja")) {
-    return true;
-  }
-  if (normalized.startsWith("no") || normalized.startsWith("nein")) {
-    return false;
-  }
-  return null;
-}
-
 // The cohort_tag question's option list is generated per-project from
 // Project.targetGroups plus a leading "not applicable / single cohort"
 // option (unlike the other closed-option questions above, its wording isn't
@@ -435,91 +401,6 @@ function parseCohortTagAnswer(answer: string | null): string | null {
     return null;
   }
   return trimmed;
-}
-
-// pairing_group_key is free text (an instrument label, e.g. "Wellbeing
-// scale") — trusted verbatim except for the same "not applicable" escape
-// hatch as cohort_tag, so a column not part of any repeated measurement
-// doesn't need an invented label.
-const PAIRING_GROUP_KEY_NOT_APPLICABLE_MARKERS = [
-  "not applicable",
-  "n/a",
-  "nicht zutreffend",
-  "keine",
-];
-
-function parsePairingGroupKeyAnswer(answer: string | null): string | null {
-  if (!answer) {
-    return null;
-  }
-  const trimmed = answer.trim();
-  if (!trimmed) {
-    return null;
-  }
-  const normalized = normalizeText(trimmed);
-  if (
-    PAIRING_GROUP_KEY_NOT_APPLICABLE_MARKERS.some((marker) =>
-      normalized.includes(marker),
-    )
-  ) {
-    return null;
-  }
-  return trimmed;
-}
-
-// Matches _PAIRING_GROUP_ROLE_OPTIONS — same closed-option-set reasoning as
-// parseValidatedScaleConfirmationAnswer above.
-function parsePairingGroupRoleAnswer(
-  answer: string | null,
-): "before" | "after" | null {
-  if (!answer) {
-    return null;
-  }
-  const normalized = normalizeText(answer);
-  if (
-    normalized.startsWith("before") ||
-    normalized.startsWith("baseline") ||
-    normalized.startsWith("vorher") ||
-    normalized.startsWith("am anfang")
-  ) {
-    return "before";
-  }
-  if (
-    normalized.startsWith("after") ||
-    normalized.startsWith("endline") ||
-    normalized.startsWith("nachher") ||
-    normalized.startsWith("am ende")
-  ) {
-    return "after";
-  }
-  return null;
-}
-
-// Free-text answer to declared_scale_bounds, e.g. "1 to 5" or "0 bis 10" —
-// takes the first two numbers found in the answer, regardless of wording,
-// rather than requiring an exact phrase match (unlike the closed-option
-// answers above). Rejects a degenerate/reversed range (min >= max) as
-// unparseable rather than silently storing something a matcher would trust.
-function parseDeclaredScaleBoundsAnswer(
-  answer: string | null,
-): { min: number; max: number } | null {
-  if (!answer) {
-    return null;
-  }
-  const matches = answer.match(/-?\d+(?:[.,]\d+)?/g);
-  if (!matches) {
-    return null;
-  }
-  const [firstMatch, secondMatch] = matches;
-  if (!firstMatch || !secondMatch) {
-    return null;
-  }
-  const min = Number.parseFloat(firstMatch.replace(",", "."));
-  const max = Number.parseFloat(secondMatch.replace(",", "."));
-  if (Number.isNaN(min) || Number.isNaN(max) || min >= max) {
-    return null;
-  }
-  return { min, max };
 }
 
 function parsePositiveStatusValues(
@@ -699,18 +580,21 @@ function buildPreparedDatasetSnapshot(
 
       // Python can't fully resolve epistemicRole at profiling time: an
       // ambiguous string column (epistemicRole === null) needs a human
-      // choice between subjective_code/free_text, and a validated_scale
-      // candidate needs an explicit human confirmation before it's
-      // upgraded from the safe metric_count default — never auto-resolved
-      // (Section 3 of QUALITATIVE_MIXED_EVIDENCE_PLAN.md).
+      // choice between subjective_code/free_text — ask rather than
+      // silently default (Section 3 of QUALITATIVE_MIXED_EVIDENCE_PLAN.md).
+      //
+      // A validated_scale candidate used to also need an explicit human
+      // confirmation (validated_scale_confirmation) before being upgraded
+      // from the safe metric_count default, plus a declared pairing
+      // identity/instrument bounds (pairing_group_key/pairing_group_role/
+      // declared_scale_bounds) once confirmed. That whole mechanism was
+      // removed in OUTCOME_EVIDENCE_MERGE_PLAN.md Phase 6 — Python's
+      // isValidatedScaleCandidate is always false now (see
+      // interpretation_pipeline.py's _classify_epistemic_role), so
+      // epistemicRole can no longer resolve to "validated_scale" for a
+      // newly-interpreted column.
       const epistemicRoleClarificationAnswer =
         decisionSummary.epistemicRoleClarifications.find(
-          (selection) =>
-            selection.tableName === tableName &&
-            selection.columnName === columnName,
-        ) ?? null;
-      const validatedScaleConfirmationAnswer =
-        decisionSummary.validatedScaleConfirmations.find(
           (selection) =>
             selection.tableName === tableName &&
             selection.columnName === columnName,
@@ -722,58 +606,7 @@ function buildPreparedDatasetSnapshot(
           ? parseEpistemicRoleClarificationAnswer(
               epistemicRoleClarificationAnswer?.value ?? null,
             )
-          : profileColumn?.isValidatedScaleCandidate &&
-              parseValidatedScaleConfirmationAnswer(
-                validatedScaleConfirmationAnswer?.value ?? null,
-              ) === true
-            ? "validated_scale"
-            : baseEpistemicRole;
-
-      // Only meaningful once a column is actually confirmed validated_scale
-      // — mirrors how positiveStatusValues is only kept for the resolved
-      // primaryStatusColumn, rather than trusting an answer to a question
-      // whose premise (this column being a validated scale) didn't end up
-      // holding.
-      const pairingGroupKeyAnswer = decisionSummary.pairingGroupKeys.find(
-        (selection) =>
-          selection.tableName === tableName &&
-          selection.columnName === columnName,
-      );
-      const pairingGroupRoleAnswer = decisionSummary.pairingGroupRoles.find(
-        (selection) =>
-          selection.tableName === tableName &&
-          selection.columnName === columnName,
-      );
-      const declaredScaleBoundsAnswer =
-        decisionSummary.declaredScaleBounds.find(
-          (selection) =>
-            selection.tableName === tableName &&
-            selection.columnName === columnName,
-        );
-      const declaredScaleBounds =
-        epistemicRole === "validated_scale"
-          ? parseDeclaredScaleBoundsAnswer(
-              declaredScaleBoundsAnswer?.value ?? null,
-            )
-          : null;
-
-      // Catches a mistyped/misremembered declared range (e.g. "1 to 5" when
-      // the questionnaire was actually run 1-7) regardless of whether the
-      // answer came from a solo confirmation or was fanned out from a
-      // shared baseline/endline instrument-group answer — grouping must
-      // never suppress this check, since a fanned-out answer is identical
-      // by construction and can no longer be caught by
-      // hasCompatibleScaleBounds's cross-column equality check alone.
-      if (
-        declaredScaleBounds &&
-        profileColumn?.numericSummary &&
-        (profileColumn.numericSummary.min < declaredScaleBounds.min ||
-          profileColumn.numericSummary.max > declaredScaleBounds.max)
-      ) {
-        unresolvedRequirements.push(
-          `Observed values in '${columnName}' (${profileColumn.numericSummary.min}–${profileColumn.numericSummary.max}) fall outside the declared scale bounds (${declaredScaleBounds.min}–${declaredScaleBounds.max}).`,
-        );
-      }
+          : baseEpistemicRole;
 
       const minValue = profileColumn?.numericSummary?.min ?? null;
       const maxValue = profileColumn?.numericSummary?.max ?? null;
@@ -809,16 +642,6 @@ function buildPreparedDatasetSnapshot(
         epistemicRole,
         minValue,
         maxValue,
-        scaleMin: declaredScaleBounds?.min ?? null,
-        scaleMax: declaredScaleBounds?.max ?? null,
-        pairingGroupKey:
-          epistemicRole === "validated_scale"
-            ? parsePairingGroupKeyAnswer(pairingGroupKeyAnswer?.value ?? null)
-            : null,
-        pairingGroupRole:
-          epistemicRole === "validated_scale"
-            ? parsePairingGroupRoleAnswer(pairingGroupRoleAnswer?.value ?? null)
-            : null,
         metricKind,
         valueScope,
       };

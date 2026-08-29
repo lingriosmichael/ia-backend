@@ -32,11 +32,10 @@ import { ProjectImpactStoryService } from "../../modules/projectImpactStory/proj
 import { MongoProjectOutcomeStatementRepository } from "../../modules/outcome/projectOutcomeStatementMongoRepository.js";
 import { ProjectOutcomeStatementService } from "../../modules/outcome/projectOutcomeStatementService.js";
 import { ProjectOutcomeStatementController } from "../../modules/outcome/projectOutcomeStatementController.js";
-import { MongoOutcomeEvidencePairingResultRepository } from "../../modules/outcome/outcomeEvidencePairingResultMongoRepository.js";
 import { MongoOutcomeEvidenceLinkRepository } from "../../modules/outcome/outcomeEvidenceLinkMongoRepository.js";
-import { OutcomeEvidencePairingService } from "../../modules/outcome/outcomeEvidencePairingService.js";
-import { OutcomeEvidencePairingSuggestionService } from "../../modules/outcome/outcomeEvidencePairingSuggestionService.js";
-import { OutcomeEvidencePairingController } from "../../modules/outcome/outcomeEvidencePairingController.js";
+import { OutcomeEvidenceRecommendationService } from "../../modules/outcome/outcomeEvidenceRecommendationService.js";
+import { OutcomeEvidenceRecommendationApprovalService } from "../../modules/outcome/outcomeEvidenceRecommendationApprovalService.js";
+import { OutcomeEvidenceRecommendationController } from "../../modules/outcome/outcomeEvidenceRecommendationController.js";
 import { ProjectImpactStoryController } from "../../modules/projectImpactStory/projectImpactStoryController.js";
 import { MongoDeterministicAnalysisRepository } from "../../modules/interpretation/deterministicAnalysisMongoRepository.js";
 import { MongoDatasetPreparationRepository } from "../../modules/interpretation/datasetPreparationMongoRepository.js";
@@ -91,8 +90,6 @@ export function createApplicationContext(
   const invitationRepository = new MongoInvitationRepository();
   const projectOutcomeStatementRepository =
     new MongoProjectOutcomeStatementRepository();
-  const outcomeEvidencePairingResultRepository =
-    new MongoOutcomeEvidencePairingResultRepository();
   const outcomeEvidenceLinkRepository =
     new MongoOutcomeEvidenceLinkRepository();
   const projectRepository = new MongoProjectRepository();
@@ -149,7 +146,6 @@ export function createApplicationContext(
     projectAnalyticsSnapshotRepository,
     projectImpactStoryRepository,
     outcomeEvidenceLinkRepository,
-    outcomeEvidencePairingResultRepository,
     projectOutcomeStatementRepository,
   );
   const authorizationService = new AuthorizationService(
@@ -383,21 +379,32 @@ export function createApplicationContext(
     processingResourceCleanupService,
     projectDerivedStateInvalidationService,
   );
-  const outcomeEvidencePairingSuggestionService =
-    new OutcomeEvidencePairingSuggestionService(pythonProcessingClient, logger);
-  const outcomeEvidencePairingService = new OutcomeEvidencePairingService(
-    authorizationService,
-    activityRepository,
+  const outcomeEvidenceCandidateCatalogDependencies = {
     uploadMetadataRepository,
     interpretationResultRepository,
     datasetPreparationRepository,
     privacySafeRepresentationRepository,
-    outcomeEvidencePairingResultRepository,
-    outcomeEvidenceLinkRepository,
-    projectOutcomeStatementRepository,
-    outcomeEvidencePairingSuggestionService,
-    interpretationService,
-  );
+  };
+  const outcomeEvidenceRecommendationService =
+    new OutcomeEvidenceRecommendationService(
+      authorizationService,
+      activityRepository,
+      projectOutcomeStatementRepository,
+      outcomeEvidenceCandidateCatalogDependencies,
+      pythonProcessingClient,
+      logger,
+      outcomeEvidenceLinkRepository,
+    );
+  const outcomeEvidenceRecommendationApprovalService =
+    new OutcomeEvidenceRecommendationApprovalService(
+      authorizationService,
+      activityRepository,
+      outcomeEvidenceCandidateCatalogDependencies,
+      currentActivityEvidenceLoader,
+      activityAnalysisV2ToolExecutor,
+      outcomeEvidenceLinkRepository,
+      projectOutcomeStatementRepository,
+    );
   const invitationService = new InvitationService(
     invitationRepository,
     organizationRepository,
@@ -424,9 +431,11 @@ export function createApplicationContext(
     projectOutcomeStatementController: new ProjectOutcomeStatementController(
       projectOutcomeStatementService,
     ),
-    outcomeEvidencePairingController: new OutcomeEvidencePairingController(
-      outcomeEvidencePairingService,
-    ),
+    outcomeEvidenceRecommendationController:
+      new OutcomeEvidenceRecommendationController(
+        outcomeEvidenceRecommendationService,
+        outcomeEvidenceRecommendationApprovalService,
+      ),
     organizationController: new OrganizationController(organizationService),
     projectController: new ProjectController(projectService),
     activityController: new ActivityController(activityService),

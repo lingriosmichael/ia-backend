@@ -17,7 +17,7 @@ const NOW = new Date("2026-08-18T10:00:00.000Z");
 
 type CleanupServiceStub = Pick<
   ProcessingResourceCleanupService,
-  "resetOutcomeEvidencePairingByProjectId" | "deleteByOutcomeStatementIds"
+  "deleteByOutcomeStatementIds"
 >;
 
 type InvalidationServiceStub = Pick<
@@ -136,12 +136,9 @@ function createFixture(options?: {
     service: new ProjectOutcomeStatementService(
       authorizationService,
       options?.repository ?? createRepository(),
-      options?.cleanupService as
-        | ProcessingResourceCleanupService
-        | undefined,
+      options?.cleanupService as ProcessingResourceCleanupService | undefined,
       options?.invalidationService as
-        | ProjectDerivedStateInvalidationService
-        | undefined,
+        ProjectDerivedStateInvalidationService | undefined,
     ),
   };
 }
@@ -275,12 +272,8 @@ test("delete removes linked Wirkungsaussage state and invalidates project-derive
   const calls: string[] = [];
   const { service } = createFixture({
     cleanupService: {
-      resetOutcomeEvidencePairingByProjectId: async () => undefined,
-      deleteByOutcomeStatementIds: async (
-        projectId: string,
-        outcomeStatementIds: string[],
-      ) => {
-        calls.push(`cleanup:${projectId}:${outcomeStatementIds.join(",")}`);
+      deleteByOutcomeStatementIds: async (outcomeStatementIds: string[]) => {
+        calls.push(`cleanup:${outcomeStatementIds.join(",")}`);
       },
     },
     invalidationService: {
@@ -297,10 +290,7 @@ test("delete removes linked Wirkungsaussage state and invalidates project-derive
 
   await service.delete("user-1", "project-1", created.id);
 
-  assert.deepEqual(calls, [
-    `cleanup:project-1:${created.id}`,
-    "invalidate:project-1",
-  ]);
+  assert.deepEqual(calls, [`cleanup:${created.id}`, "invalidate:project-1"]);
 });
 
 test("create fails when the caller cannot edit the project", async () => {

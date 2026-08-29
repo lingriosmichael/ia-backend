@@ -3,16 +3,13 @@ import { databaseSession } from "../../shared/database/databaseClient.js";
 import { AppError } from "../../shared/errors/appError.js";
 import { AuthorizationService } from "../../shared/auth/authorizationService.js";
 import {
-  mapActivity,
   mapInterpretationResult,
   mapProcessingJob,
 } from "../../shared/utils/mappers.js";
 import type {
   ActivityEvidenceLinkageProposalDecision,
   ActivityEvidenceLinkageResultRecord,
-  ActivitySummary,
   ActivityWorkflowStageRecord,
-  OutcomeEvidencePairingActivityUploadState,
   ProjectInterpretationOverview,
   StartActivityInterpretationResponse,
   StartInterpretationResponse,
@@ -33,7 +30,6 @@ import { computeActivityWorkflowStage } from "../activity/activityWorkflowStage.
 import type { InterpretationResultRepository } from "./interpretationResultRepository.js";
 import {
   clearActivityInterpretationReviewStateIfPresent,
-  hasPendingBlockingQuestions,
   isBlockingQuestion,
 } from "./interpretationReviewState.js";
 import { DatasetPreparationService } from "./datasetPreparationService.js";
@@ -77,13 +73,6 @@ function getLatestJobByUploadMetadataId(
   }
 
   return latestJobByUploadId;
-}
-
-export interface ActivityInterpretationReadiness {
-  uploadCount: number;
-  activeUploadCount: number;
-  eligibleUploadCount: number;
-  uploadStates: OutcomeEvidencePairingActivityUploadState[];
 }
 
 function mapActivityEvidenceLinkageResult(
@@ -383,21 +372,6 @@ export class InterpretationService {
       jobs: jobsStarted,
       startedCount: jobsStarted.length,
       skippedCount: readiness.uploadCount - jobsStarted.length,
-    };
-  }
-
-  async inspectActivityInterpretationReadiness(
-    userId: string,
-    activityId: string,
-  ): Promise<ActivityInterpretationReadiness> {
-    await this.authorizationService.canViewActivity(userId, activityId);
-    const readiness =
-      await this.buildActivityInterpretationReadiness(activityId);
-    return {
-      uploadCount: readiness.uploadCount,
-      activeUploadCount: readiness.activeUploadCount,
-      eligibleUploadCount: readiness.eligibleUploadCount,
-      uploadStates: readiness.uploadStates,
     };
   }
 
@@ -737,15 +711,11 @@ export class InterpretationService {
     );
     // Validates the entire batch against the pre-answer question snapshot
     // before persisting anything, so an invalid answeredValue rejects the
-    // whole batch with nothing written. This is validation-level atomicity
-    // only, not a database transaction: the writes themselves still happen
-    // one question at a time in the loop below (no transactionManager is
-    // injected here), so a failure mid-loop — a concurrent deletion of a
-    // later question, or a transient write error — can still leave earlier
-    // questions in this same call persisted while later ones aren't. That
-    // window is narrow (it requires state to change mid-request) but real;
-    // don't read this comment as a durability guarantee across the whole
-    // batch.
+    // whole batch with nothing written. The write itself is a single
+    // findOneAndUpdate covering every answer (see
+    // InterpretationResultRepository.answerQuestions), so this really is
+    // all-or-nothing: there is no longer a mid-batch loop that can leave
+    // some answers persisted and others not.
     const resolvedAnswers = answers.map((answer) => {
       const question = questionById.get(answer.questionId);
       if (!question) {
@@ -764,36 +734,35 @@ export class InterpretationService {
       return { question, answeredValue: answer.answeredValue };
     });
 
-    let updated = result;
-    let shouldClearInterpretationReviewState = false;
-    for (const { question, answeredValue } of resolvedAnswers) {
-      const updatedDocument =
-        await this.interpretationResultRepository.answerQuestion(
-          interpretationResultId,
-          question.id,
-          { answeredValue, answeredById: userId, answeredAt: new Date() },
-          databaseSession,
-        );
+    const answeredAt = new Date();
+    const updatedDocument =
+      await this.interpretationResultRepository.answerQuestions(
+        interpretationResultId,
+        resolvedAnswers.map(({ question, answeredValue }) => ({
+          questionId: question.id,
+          answeredValue,
+        })),
+        userId,
+        answeredAt,
+        databaseSession,
+      );
 
-      if (!updatedDocument) {
-        throw new AppError(
-          "This question was not found.",
-          404,
-          "interpretation_question_not_found",
-          { questionId: question.id },
-        );
-      }
+    if (!updatedDocument) {
+      throw new AppError(
+        "This question was not found.",
+        404,
+        "interpretation_question_not_found",
+      );
+    }
 
-      updated = updatedDocument;
-      if (
+    const updated = updatedDocument;
+    const shouldClearInterpretationReviewState = resolvedAnswers.some(
+      ({ question, answeredValue }) =>
         (question.status === "answered" &&
           question.answeredValue !== answeredValue &&
           isBlockingQuestion(question)) ||
-        question.status !== "answered"
-      ) {
-        shouldClearInterpretationReviewState = true;
-      }
-    }
+        question.status !== "answered",
+    );
 
     if (result.activityId && shouldClearInterpretationReviewState) {
       await clearActivityInterpretationReviewStateIfPresent(
@@ -849,138 +818,5 @@ export class InterpretationService {
       deterministicAnalysis,
       privacySafePayload,
     });
-  }
-
-  async acknowledgeReview(
-    userId: string,
-    activityId: string,
-  ): Promise<ActivitySummary> {
-    const { project } = await this.authorizationService.canEditActivity(
-      userId,
-      activityId,
-    );
-
-    const uploads = await this.uploadMetadataRepository.listByActivityIds(
-      [activityId],
-      databaseSession,
-    );
-    const results =
-      await this.interpretationResultRepository.findLatestByUploadMetadataIds(
-        uploads.map((upload) => upload.id),
-        databaseSession,
-      );
-    const privacySafeRepresentations =
-      await this.privacySafeRepresentationRepository.findLatestByUploadMetadataIds(
-        uploads.map((upload) => upload.id),
-        databaseSession,
-      );
-
-    if (uploads.length === 0) {
-      throw new AppError(
-        "This activity has no evidence to acknowledge.",
-        409,
-        "interpretation_review_incomplete",
-      );
-    }
-
-    if (privacySafeRepresentations.length !== uploads.length) {
-      throw new AppError(
-        "Every evidence file must complete privacy-safe processing before this activity can be acknowledged.",
-        409,
-        "interpretation_review_incomplete",
-      );
-    }
-
-    const unsupportedEvidenceModalities = privacySafeRepresentations
-      .map((representation) =>
-        classifyEvidenceModalityFromPayload(representation.payload),
-      )
-      .filter(
-        (evidenceModality) => !isEvidenceModalitySupported(evidenceModality),
-      );
-
-    if (unsupportedEvidenceModalities.length > 0) {
-      throw new AppError(
-        "Every evidence file must be on a supported evidence modality before this activity can be acknowledged.",
-        409,
-        "interpretation_review_incomplete",
-        {
-          unsupportedEvidenceModalities: [
-            ...new Set(unsupportedEvidenceModalities),
-          ],
-        },
-      );
-    }
-
-    if (results.length !== uploads.length) {
-      throw new AppError(
-        "Every evidence file must be interpreted before this activity can be acknowledged.",
-        409,
-        "interpretation_review_incomplete",
-      );
-    }
-
-    // The frontend already disables its acknowledgment button while
-    // blocking questions remain pending, but that's a UX nicety, not the
-    // real guarantee — same principle as privacy review approval. The
-    // backend remains the source of truth for review completeness.
-    const privacySafePayloadByUploadId = new Map(
-      privacySafeRepresentations.map((representation) => [
-        representation.uploadMetadataId,
-        representation.payload,
-      ]),
-    );
-
-    if (
-      hasPendingBlockingQuestions(
-        results.map((result) => ({
-          ...result,
-          privacySafePayload:
-            privacySafePayloadByUploadId.get(result.uploadMetadataId) ?? null,
-        })),
-      )
-    ) {
-      throw new AppError(
-        "This activity still has unresolved clarification questions.",
-        409,
-        "interpretation_review_incomplete",
-      );
-    }
-
-    const updatedActivity = await this.activityRepository.update(
-      activityId,
-      {
-        interpretationAcknowledgedAt: new Date(),
-        interpretationAcknowledgedById: userId,
-      },
-      databaseSession,
-    );
-
-    // Acknowledgment is exactly the "verified evidence update" event the
-    // Project Knowledge Model's own design anticipated as the automatic
-    // rebuild trigger (see "Phase 4 — Project Knowledge Model.md",
-    // "Versioning and Rebuild Lifecycle" — rebuilds stay explicit/
-    // event-driven, never on a timer or on every page view). A rebuild
-    // failure must never fail the acknowledgment itself — acknowledgment
-    // already succeeded and is valid regardless; the rebuild is a
-    // best-effort downstream projection of it. AnalyticsExecutionService
-    // also self-heals for any activity acknowledged before this existed.
-    try {
-      await this.projectKnowledgeBuilderService.buildForProject(project.id);
-    } catch (error) {
-      this.logger.error(
-        { projectId: project.id, activityId, error },
-        "project knowledge model rebuild after acknowledgment failed",
-      );
-    }
-
-    return mapActivity(
-      {
-        ...updatedActivity,
-        projectOwnerId: project.ownerId,
-        projectStatus: project.status,
-      },
-      userId,
-    );
   }
 }

@@ -225,8 +225,7 @@ export interface InterpretationResultSynthesisFailureInput {
   error: string;
 }
 
-export interface InterpretationQuestionAnswerInput {
+export interface InterpretationQuestionBatchAnswerInput {
+  questionId: string;
   answeredValue: string;
-  answeredById: string;
-  answeredAt: Date;
 }

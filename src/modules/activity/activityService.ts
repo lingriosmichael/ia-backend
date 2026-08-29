@@ -10,12 +10,31 @@ import { ProcessingResourceCleanupService } from "../processing/processingResour
 import { ProjectDerivedStateInvalidationService } from "../project/projectDerivedStateInvalidationService.js";
 import type { UploadMetadataRepository } from "../upload/uploadMetadataRepository.js";
 import { mapActivity } from "../../shared/utils/mappers.js";
-import { trimNullableText, trimRequiredText } from "../../shared/utils/text.js";
+import {
+  joinNonEmptyTrimmedLines,
+  trimNullableText,
+  trimRequiredText,
+} from "../../shared/utils/text.js";
 import type { ActivityRepository } from "./activityRepository.js";
 import {
   ensureProjectSystemActivities,
   sortActivitiesForDisplay,
 } from "./systemActivities.js";
+
+function normalizeActivityOutput(
+  value: string | string[] | null | undefined,
+): string | null | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  if (Array.isArray(value)) {
+    const joinedValue = joinNonEmptyTrimmedLines(value);
+    return joinedValue.length > 0 ? joinedValue : null;
+  }
+
+  return trimNullableText(value) ?? null;
+}
 
 export class ActivityService {
   constructor(
@@ -76,7 +95,7 @@ export class ActivityService {
       endDate?: string;
       targetAudience?: string;
       objectives?: string;
-      output?: string;
+      output?: string | string[];
       concernTaggingInstruction?: string;
       status?: "active" | "completed";
     },
@@ -97,7 +116,7 @@ export class ActivityService {
         endDate: input.endDate ? new Date(input.endDate) : null,
         targetAudience: trimNullableText(input.targetAudience) ?? null,
         objectives: trimNullableText(input.objectives) ?? null,
-        output: trimNullableText(input.output) ?? null,
+        output: normalizeActivityOutput(input.output) ?? null,
         concernTaggingInstruction:
           trimNullableText(input.concernTaggingInstruction) ?? null,
         status: input.status,
@@ -126,7 +145,7 @@ export class ActivityService {
       endDate?: string | null;
       targetAudience?: string | null;
       objectives?: string | null;
-      output?: string | null;
+      output?: string | string[] | null;
       concernTaggingInstruction?: string | null;
       status?: "active" | "completed";
     },
@@ -167,7 +186,7 @@ export class ActivityService {
     const nextOutput =
       input.output === undefined
         ? activity.output
-        : (trimNullableText(input.output) ?? null);
+        : (normalizeActivityOutput(input.output) ?? null);
     const nextConcernTaggingInstruction =
       input.concernTaggingInstruction === undefined
         ? activity.concernTaggingInstruction
@@ -207,7 +226,7 @@ export class ActivityService {
               : null,
         targetAudience: trimNullableText(input.targetAudience),
         objectives: trimNullableText(input.objectives),
-        output: trimNullableText(input.output),
+        output: normalizeActivityOutput(input.output),
         concernTaggingInstruction: trimNullableText(
           input.concernTaggingInstruction,
         ),
@@ -294,7 +313,6 @@ export class ActivityService {
       await this.processingResourceCleanupService.deleteByActivityId(
         activityId,
         session,
-        { projectId: project.id },
       );
       await this.processingJobRepository.deleteByActivity(activityId, session);
       await this.uploadMetadataRepository.deleteByActivity(activityId, session);

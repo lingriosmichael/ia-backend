@@ -1,19 +1,8 @@
 import type { FastifyBaseLogger } from "fastify";
 import type { OutcomeEvidenceLinkPersistenceRecord } from "../outcome/outcomeEvidenceLinkPersistence.js";
-import {
-  buildPairedDeltaProposalId,
-  computeOutcomeEvidencePairingCandidates,
-} from "../outcome/outcomeEvidencePairingCandidateMatcher.js";
-import {
-  loadProjectEvidenceTablesForStoryPairing,
-  type OutcomeEvidencePairingEvidenceLoaderDependencies,
-} from "../outcome/outcomeEvidencePairingEvidenceLoader.js";
+import type { OutcomeEvidencePairingEvidenceLoaderDependencies } from "../outcome/outcomeEvidencePairingEvidenceLoader.js";
 import type { ActivityAnalysisV2ToolExecutor } from "../interpretation/activityAnalysisV2ToolExecutor.js";
 import type { CurrentActivityEvidenceLoader } from "../interpretation/currentActivityEvidenceLoader.js";
-import {
-  buildPairLabelDe,
-  computePairedDeltaMeasurement,
-} from "./projectImpactStoryImpactCatalog.js";
 
 export interface ProjectImpactStoryCatalogPairedStoryDeltaEntry {
   kind: "paired_story_delta";
@@ -33,112 +22,35 @@ interface ProjectImpactStoryPairedStoryDeltaCatalogInputActivity {
   name: string;
 }
 
-// Below this, a "trend" is more likely noise than a real pattern — same
-// spirit as any minimum-sample-size guard, chosen conservatively since
-// this shape is exploratory (no human has confirmed it as real outcome
-// evidence) and therefore gets no other sanity check before reaching the
-// chart planner.
-const MIN_PAIRED_STORY_DELTA_MATCHED_ROWS = 5;
-
-// Exploratory story-chart counterpart to buildProjectImpactStoryImpactCatalog:
-// same declared-pairing detection (computeOutcomeEvidencePairingCandidates)
-// and the same join_tables + paired_change measurement
-// (computePairedDeltaMeasurement), but sourced from every activity in the
-// project (loadProjectEvidenceTablesForStoryPairing), not just the two
-// system activities, and never requiring a human-confirmed
-// OutcomeEvidenceLink first. A candidate that *is* already confirmed is
-// deliberately excluded — it already has a better, claim-safe home in
-// impactCatalog, and must never also appear here as merely "exploratory."
-//
-// Every returned entry is unconfirmed, declared-metadata-only evidence —
-// never proof of outcome change. Callers must render it visually distinct
-// from impactCatalog (see ProjectImpactStoryChartSpec.isExploratory).
+/**
+ * Exploratory story-chart lane: used to surface unconfirmed "this looks
+ * like a before/after pair" chart suggestions across every activity in a
+ * project, via computeOutcomeEvidencePairingCandidates's declared
+ * pairing_group_key/pairing_group_role scan. That scan (and the
+ * clarification questions that ever populated those fields) was removed in
+ * OUTCOME_EVIDENCE_MERGE_PLAN.md Phase 6 as part of replacing the whole
+ * declared-pairing mechanism with the new LLM-based recommendation flow —
+ * a known, accepted, one-way consequence for this unrelated feature (see
+ * that plan's Phase 6 notes), not a bug. Nothing can ever populate those
+ * fields again, so this can only ever return an empty list now.
+ *
+ * Kept as a function, not deleted outright: `ProjectImpactStoryCatalogPairedStoryDeltaEntry`
+ * is still a real chart-entry kind rendered elsewhere
+ * (projectImpactStoryCatalog.ts, projectImpactStoryChartBacklog.ts,
+ * projectImpactStoryChartPlanExecution.ts) for already-materialized
+ * historical results, and this keeps that call site
+ * (projectImpactStoryService.ts) unchanged.
+ */
 export async function buildProjectImpactStoryPairedStoryDeltaCatalog(
-  deps: {
+  _deps: {
     outcomeEvidencePairingEvidenceLoaderDependencies: OutcomeEvidencePairingEvidenceLoaderDependencies;
     currentActivityEvidenceLoader: CurrentActivityEvidenceLoader;
     activityAnalysisV2ToolExecutor: ActivityAnalysisV2ToolExecutor;
     logger: FastifyBaseLogger;
   },
-  projectId: string,
-  activities: ProjectImpactStoryPairedStoryDeltaCatalogInputActivity[],
-  confirmedLinks: OutcomeEvidenceLinkPersistenceRecord[],
+  _projectId: string,
+  _activities: ProjectImpactStoryPairedStoryDeltaCatalogInputActivity[],
+  _confirmedLinks: OutcomeEvidenceLinkPersistenceRecord[],
 ): Promise<ProjectImpactStoryCatalogPairedStoryDeltaEntry[]> {
-  const tables = await loadProjectEvidenceTablesForStoryPairing(
-    deps.outcomeEvidencePairingEvidenceLoaderDependencies,
-    projectId,
-  );
-  if (tables.length === 0) {
-    return [];
-  }
-
-  const pairedDeltaCandidates = computeOutcomeEvidencePairingCandidates(
-    tables,
-  ).filter((candidate) => candidate.shape === "paired_delta");
-  if (pairedDeltaCandidates.length === 0) {
-    return [];
-  }
-
-  const confirmedProposalIds = new Set(
-    confirmedLinks
-      .filter((link) => link.shape === "paired_delta")
-      .map((link) =>
-        buildPairedDeltaProposalId(
-          {
-            uploadMetadataId: link.beforeUploadMetadataId,
-            tableName: link.beforeTableName,
-            columnName: link.beforeColumnName,
-          },
-          {
-            uploadMetadataId: link.afterUploadMetadataId,
-            tableName: link.afterTableName,
-            columnName: link.afterColumnName,
-          },
-        ),
-      ),
-  );
-
-  const activityNameById = new Map(
-    activities.map((activity) => [activity.id, activity.name]),
-  );
-
-  const entries: ProjectImpactStoryCatalogPairedStoryDeltaEntry[] = [];
-  for (const candidate of pairedDeltaCandidates) {
-    if (confirmedProposalIds.has(candidate.proposalId)) {
-      continue;
-    }
-
-    let measurement;
-    try {
-      measurement = await computePairedDeltaMeasurement(
-        deps.currentActivityEvidenceLoader,
-        deps.activityAnalysisV2ToolExecutor,
-        candidate,
-      );
-    } catch (error) {
-      deps.logger.warn(
-        { err: error, proposalId: candidate.proposalId },
-        "paired story delta candidate could not be measured against current evidence; skipping",
-      );
-      continue;
-    }
-
-    if (measurement.nMatched < MIN_PAIRED_STORY_DELTA_MATCHED_ROWS) {
-      continue;
-    }
-
-    entries.push({
-      kind: "paired_story_delta",
-      entryId: `story:paired_delta:${candidate.proposalId}`,
-      activityId: candidate.activityIdBefore,
-      activityName:
-        activityNameById.get(candidate.activityIdBefore) ??
-        candidate.activityIdBefore,
-      pairLabelDe: buildPairLabelDe(candidate.pairingGroupKey),
-      sourceDe: `Quelle: ${candidate.beforeTableName} → ${candidate.afterTableName}`,
-      ...measurement,
-    });
-  }
-
-  return entries;
+  return [];
 }

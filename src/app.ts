@@ -11,7 +11,7 @@ import { registerInvitationRoutes } from "./modules/invitation/invitationRoutes.
 import { registerInterpretationRoutes } from "./modules/interpretation/interpretationRoutes.js";
 import { registerProjectImpactStoryRoutes } from "./modules/projectImpactStory/projectImpactStoryRoutes.js";
 import { registerProjectOutcomeStatementRoutes } from "./modules/outcome/projectOutcomeStatementRoutes.js";
-import { registerOutcomeEvidencePairingRoutes } from "./modules/outcome/outcomeEvidencePairingRoutes.js";
+import { registerOutcomeEvidenceRecommendationRoutes } from "./modules/outcome/outcomeEvidenceRecommendationRoutes.js";
 import { registerOrganizationRoutes } from "./modules/organization/organizationRoutes.js";
 import { registerProjectRoutes } from "./modules/project/projectRoutes.js";
 import { registerPrivacyReviewRoutes } from "./modules/processing/privacyReviewRoutes.js";
@@ -253,9 +253,9 @@ export async function buildApp(config: BackendConfig) {
     context.projectOutcomeStatementController,
     context.authenticate,
   );
-  await registerOutcomeEvidencePairingRoutes(
+  await registerOutcomeEvidenceRecommendationRoutes(
     app,
-    context.outcomeEvidencePairingController,
+    context.outcomeEvidenceRecommendationController,
     context.authenticate,
   );
 

@@ -258,6 +258,27 @@ export class ProcessingJobService {
     return mapProcessingJob(job);
   }
 
+  // Lets a caller check "is a job of this type already running for this
+  // project" before creating a new one (ProjectImpactStoryController's
+  // trigger endpoint) or before resuming client-side tracking of a run that
+  // outlived a page remount (ProjectImpactStoryPage on mount). Scoped to
+  // jobType, not just projectId, since a project can have several kinds of
+  // job in flight at once and only one of them is relevant to either
+  // caller.
+  async findActiveByProjectAndType(
+    userId: string,
+    projectId: string,
+    jobType: ProcessingJobType,
+  ) {
+    await this.authorizationService.canViewProject(userId, projectId);
+    const job = await this.processingJobRepository.findActiveByProjectAndType(
+      projectId,
+      jobType,
+      databaseSession,
+    );
+    return job ? mapProcessingJob(job) : null;
+  }
+
   async cancel(userId: string, processingJobId: string) {
     const existingJob = await this.processingJobRepository.findById(
       processingJobId,

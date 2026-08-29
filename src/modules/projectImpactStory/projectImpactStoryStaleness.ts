@@ -16,6 +16,16 @@ interface StalenessCurrentActivityAnalysisRun {
   createdAt: Date;
 }
 
+interface StalenessCurrentConfirmedLink {
+  linkId: string;
+  updatedAt: Date;
+}
+
+interface StalenessOverlaySnapshot {
+  updatedAt: Date;
+  impactCatalog: Array<{ entryId: string }>;
+}
+
 // Computed on read, never persisted — a persisted `isStale` flag would
 // itself go stale the moment new evidence lands. Stale means either the
 // project's activity set changed, or the latest *completed* V2 run for some
@@ -26,6 +36,8 @@ export function computeProjectImpactStoryStaleness(
   story: StalenessStorySnapshot,
   currentActivities: StalenessCurrentActivity[],
   currentActivityAnalysisRuns: StalenessCurrentActivityAnalysisRun[],
+  currentConfirmedLinks: StalenessCurrentConfirmedLink[],
+  overlay: StalenessOverlaySnapshot | null,
 ): { isStale: boolean } {
   const currentActivityIds = new Set(
     currentActivities.map((activity) => activity.id),
@@ -71,6 +83,27 @@ export function computeProjectImpactStoryStaleness(
     if (!snapshotRunIds.has(runId)) {
       return { isStale: true };
     }
+  }
+
+  if (currentConfirmedLinks.length === 0) {
+    return {
+      isStale: overlay !== null && overlay.impactCatalog.length > 0,
+    };
+  }
+
+  if (!overlay) {
+    return { isStale: true };
+  }
+
+  if (overlay.impactCatalog.length > currentConfirmedLinks.length) {
+    return { isStale: true };
+  }
+
+  const latestConfirmedLinkUpdatedAt = Math.max(
+    ...currentConfirmedLinks.map((link) => link.updatedAt.getTime()),
+  );
+  if (latestConfirmedLinkUpdatedAt > overlay.updatedAt.getTime()) {
+    return { isStale: true };
   }
 
   return { isStale: false };

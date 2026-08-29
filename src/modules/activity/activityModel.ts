@@ -32,7 +32,7 @@ const activitySchema = new Schema(
     createdById: { type: String, required: true },
     systemType: {
       type: String,
-      enum: ["baseline", "impact_measurement"],
+      enum: ["outcome_evidence"],
       default: null,
     },
     name: { type: String, required: true, trim: true },

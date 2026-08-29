@@ -103,6 +103,7 @@ interface ProjectImpactStoryProjectContext {
   targetGroups: string[];
   overarchingTargetGroup: string | null;
   areaOfOperation: string | null;
+  initialSituation: string | null;
 }
 
 function mergeLlmUsage(
@@ -163,7 +164,7 @@ function buildImpactCatalogFallbackSentence(
   if (language === "en") {
     return `"${entry.outcomeStatement}" is not yet measurable — no linked evidence yet.`;
   }
-  return `„${entry.outcomeStatement}“ ist noch nicht messbar — es liegt noch keine verknüpfte Evidenz vor.`;
+  return `„${entry.outcomeStatement}“ ist noch nicht messbar — es liegt noch keine verknüpfte Datengrundlage vor.`;
 }
 
 function buildImpactCatalogFallbackNarrativeSummary(
@@ -324,11 +325,12 @@ export class ProjectImpactStoryService {
     private readonly outcomeEvidenceLinkRepository: OutcomeEvidenceLinkRepository,
     private readonly currentActivityEvidenceLoader: CurrentActivityEvidenceLoader,
     private readonly activityAnalysisV2ToolExecutor: ActivityAnalysisV2ToolExecutor,
-    // Used only to load evidence tables for the exploratory paired-story-
-    // delta catalog (loadProjectEvidenceTablesForStoryPairing) — the same
-    // three repositories OutcomeEvidencePairingService already depends on
-    // for the confirmed-outcome pairing flow, reused here rather than
-    // re-instantiated.
+    // Only ever passed through to buildProjectImpactStoryPairedStoryDeltaCatalog
+    // below, which has ignored all three (always returns `[]`) since
+    // OUTCOME_EVIDENCE_MERGE_PLAN.md Phase 6 removed the detection it relied
+    // on. Kept here rather than trimmed, to avoid touching this already-large
+    // constructor for a change with no behavior difference — see that file's
+    // own comment for why the signature was kept.
     private readonly interpretationResultRepository: InterpretationResultRepository,
     private readonly datasetPreparationRepository: DatasetPreparationRepository,
     private readonly privacySafeRepresentationRepository: PrivacySafeRepresentationRepository,
@@ -428,7 +430,7 @@ export class ProjectImpactStoryService {
     // buildProjectChartOpportunityAudit's "no current analysis run" entries
     // below only track each activity's own ActivityAnalystV2 goal
     // indicators — neither has any idea a zero-goal activity (e.g.
-    // Baseline/Wirkungsmessung, whose only role is supplying the
+    // Ausgangslage/Wirkungsdaten, whose only role is supplying the
     // before/after columns a paired_delta OutcomeEvidenceLink measures)
     // can still be squarely in use via this completely different data
     // source, loaded here. Without this, an activity directly powering the
@@ -561,6 +563,7 @@ export class ProjectImpactStoryService {
           project.targetGroups.find((group) => group.trim().length > 0) ??
           null,
         region: project.areaOfOperation,
+        initialSituation: project.initialSituation,
         outputFacts:
           toProjectImpactStoryNarrativeOutputFactRequests(headlineKpis),
         catalog:
@@ -577,7 +580,9 @@ export class ProjectImpactStoryService {
     const narrativeStatus: ProjectImpactStoryNarrativeStatus =
       response.groundingStatus === "PASSED"
         ? "generated"
-        : "deterministic_fallback";
+        : response.fellBackToDeterministicSummary
+          ? "deterministic_fallback"
+          : "generated_unverified";
 
     // The one place a grounding-exhaustion fallback becomes visible at
     // all: Python's HTTP call succeeds (200) either way, so nothing here
@@ -596,9 +601,14 @@ export class ProjectImpactStoryService {
     };
     if (narrativeStatus === "generated") {
       this.logger.info(logFields, "project impact story narrative generated");
+    } else if (narrativeStatus === "generated_unverified") {
+      this.logger.warn(
+        { ...logFields, narrativeStatus },
+        "project impact story narrative used the model's last attempt unverified: grounding never passed",
+      );
     } else {
       this.logger.warn(
-        logFields,
+        { ...logFields, narrativeStatus },
         "project impact story narrative fell back to deterministic template: grounding never passed",
       );
     }
@@ -710,7 +720,7 @@ export class ProjectImpactStoryService {
         "project impact story chart plan failed; using deterministic fallback KPIs",
       );
 
-      const fallback = buildDeterministicFallbackChartPlan(catalog);
+      const fallback = buildDeterministicFallbackChartPlan(catalog, language);
       return {
         headlineKpis: fallback.headlineKpis,
         chartPlan: [],
@@ -951,6 +961,11 @@ export class ProjectImpactStoryService {
       );
     const matchingOverlay =
       overlay?.analyticsSnapshotId === snapshot.id ? overlay : null;
+    const confirmedLinks =
+      await this.outcomeEvidenceLinkRepository.listByProjectId(
+        project.id,
+        databaseSession,
+      );
 
     const { activities, activityAnalysisRuns } = await loadProjectContext(
       this.activityRepository,
@@ -963,6 +978,8 @@ export class ProjectImpactStoryService {
       snapshot,
       activities,
       activityAnalysisRuns,
+      confirmedLinks,
+      matchingOverlay,
     );
 
     return {

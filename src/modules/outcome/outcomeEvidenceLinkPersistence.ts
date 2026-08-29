@@ -1,5 +1,13 @@
 import type { OutcomeEvidenceLink } from "../../shared/contracts.js";
 
+export interface OutcomeEvidenceLinkMatchDiagnostics {
+  matchedCount: number;
+  baselineCount: number;
+  comparisonCount: number;
+  matchedRatio: number;
+  candidateKeysConsidered: string[];
+}
+
 // A plain `Omit<Union, K>` does not distribute over a discriminated union —
 // `keyof` of a union collapses to only the shared keys, so it would silently
 // erase the shape-specific fields (paired_delta's beforeColumnName etc.)
@@ -14,6 +22,7 @@ export type OutcomeEvidenceLinkPersistenceRecord = OutcomeEvidenceLink & {
   projectId: string;
   createdAt: Date;
   updatedAt: Date;
+  matchDiagnostics?: OutcomeEvidenceLinkMatchDiagnostics | null;
 };
 
 export type OutcomeEvidenceLinkCreateInput = DistributiveOmit<
@@ -22,4 +31,11 @@ export type OutcomeEvidenceLinkCreateInput = DistributiveOmit<
 > & {
   organizationId: string;
   projectId: string;
+  // Deterministic pairing/column identity — see the unique index comment
+  // on outcomeEvidenceLinkModel.ts's `proposalId` field. Computed by the
+  // caller via buildPairedDeltaProposalId/buildSingleDistributionProposalId
+  // rather than derived here, since the caller already needs those values
+  // to run assertNotAlreadyConfirmed.
+  proposalId: string;
+  matchDiagnostics?: OutcomeEvidenceLinkMatchDiagnostics | null;
 };

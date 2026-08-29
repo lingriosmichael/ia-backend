@@ -259,9 +259,6 @@ test(
       {} as TransactionManager,
       userRepository,
       {
-        resetOutcomeEvidencePairingByProjectId: async (projectId: string) => {
-          calls.push(`resetPairing:${projectId}`);
-        },
         deleteByOutcomeStatementIds: async () => {
           calls.push("deleteOutcomeStatementState");
         },
@@ -291,7 +288,7 @@ test(
         statement: "Jugendliche gewinnen mehr berufliche Klarheit",
       },
     ]);
-    assert.deepEqual(calls, ["resetPairing:project-1", "invalidate:project-1"]);
+    assert.deepEqual(calls, ["invalidate:project-1"]);
   },
 );
 
@@ -385,16 +382,8 @@ test(
       {} as TransactionManager,
       userRepository,
       {
-        resetOutcomeEvidencePairingByProjectId: async () => {
-          calls.push("resetPairing");
-        },
-        deleteByOutcomeStatementIds: async (
-          projectId: string,
-          outcomeStatementIds: string[],
-        ) => {
-          calls.push(
-            `cleanupOutcomeState:${projectId}:${outcomeStatementIds.join(",")}`,
-          );
+        deleteByOutcomeStatementIds: async (outcomeStatementIds: string[]) => {
+          calls.push(`cleanupOutcomeState:${outcomeStatementIds.join(",")}`);
         },
       } as unknown as ProcessingResourceCleanupService,
       {
@@ -413,7 +402,7 @@ test(
 
     assert.deepEqual(calls, [
       "deleteOutcomeStatement:outcome-2",
-      "cleanupOutcomeState:project-1:outcome-2",
+      "cleanupOutcomeState:outcome-2",
       "invalidate:project-1",
     ]);
   },

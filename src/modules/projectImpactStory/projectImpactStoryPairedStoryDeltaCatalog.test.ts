@@ -5,7 +5,17 @@ import type { CurrentActivityEvidenceLoader } from "../interpretation/currentAct
 import type { OutcomeEvidencePairingEvidenceLoaderDependencies } from "../outcome/outcomeEvidencePairingEvidenceLoader.js";
 import { buildProjectImpactStoryPairedStoryDeltaCatalog } from "./projectImpactStoryPairedStoryDeltaCatalog.js";
 
-function buildPairingDeps(): OutcomeEvidencePairingEvidenceLoaderDependencies {
+// This exploratory lane's paired-delta detection went through
+// computeOutcomeEvidencePairingCandidates's declared pairing_group_key/
+// pairing_group_role scan — removed in OUTCOME_EVIDENCE_MERGE_PLAN.md
+// Phase 6 along with the rest of that declaration mechanism (it belonged
+// to the outcome-evidence-pairing flow this plan replaces). Nothing
+// populates those fields anymore, so this catalog can only ever return an
+// empty list now — a known, accepted consequence documented in the plan's
+// Phase 6 notes, not a bug. This test locks in that (still correct, not
+// crashing) behavior rather than testing paired-delta detection that no
+// longer exists.
+function buildDeps(): OutcomeEvidencePairingEvidenceLoaderDependencies {
   const activities = [{ id: "activity-workshop", systemType: null }];
   const uploads = [{ id: "upload-workshop", activityId: "activity-workshop" }];
   const results = [
@@ -28,20 +38,12 @@ function buildPairingDeps(): OutcomeEvidencePairingEvidenceLoaderDependencies {
                 epistemicRole: "validated_scale",
                 minValue: 1,
                 maxValue: 5,
-                scaleMin: 1,
-                scaleMax: 5,
-                pairingGroupKey: "Verstaendnis Skala",
-                pairingGroupRole: "before",
               },
               {
                 name: "verstaendnis_nachher",
                 epistemicRole: "validated_scale",
                 minValue: 1,
                 maxValue: 5,
-                scaleMin: 1,
-                scaleMax: 5,
-                pairingGroupKey: "Verstaendnis Skala",
-                pairingGroupRole: "after",
               },
             ],
           },
@@ -69,26 +71,13 @@ function buildPairingDeps(): OutcomeEvidencePairingEvidenceLoaderDependencies {
   } as unknown as OutcomeEvidencePairingEvidenceLoaderDependencies;
 }
 
-function buildToolExecutor(pairedRows: number): ActivityAnalysisV2ToolExecutor {
+function buildToolExecutor(): ActivityAnalysisV2ToolExecutor {
   return {
-    execute: async () => ({
-      toolCallTrace: [],
-      qualitativeFindings: [],
-      calculations: [
-        {
-          calculationId: "count",
-          toolName: "count_rows",
-          value: 20,
-          result: {},
-        },
-        {
-          calculationId: "delta",
-          toolName: "paired_change",
-          value: null,
-          result: { meanPre: 2.1, meanPost: 3.4, pairedCount: pairedRows },
-        },
-      ],
-    }),
+    execute: async () => {
+      throw new Error(
+        "should never be called — no paired_delta candidate can exist anymore",
+      );
+    },
   } as unknown as ActivityAnalysisV2ToolExecutor;
 }
 
@@ -108,76 +97,17 @@ const NOOP_LOGGER = {
   warn: () => {},
 } as unknown as import("fastify").FastifyBaseLogger;
 
-test("builds a paired_story_delta entry for a declared pair with enough matched rows", async () => {
+test("returns an empty catalog — declared paired_delta detection no longer exists post-merge", async () => {
   const entries = await buildProjectImpactStoryPairedStoryDeltaCatalog(
     {
-      outcomeEvidencePairingEvidenceLoaderDependencies: buildPairingDeps(),
+      outcomeEvidencePairingEvidenceLoaderDependencies: buildDeps(),
       currentActivityEvidenceLoader: buildEvidenceLoader(),
-      activityAnalysisV2ToolExecutor: buildToolExecutor(12),
+      activityAnalysisV2ToolExecutor: buildToolExecutor(),
       logger: NOOP_LOGGER,
     },
     "project-1",
     [{ id: "activity-workshop", name: "Workshop" }],
     [],
-  );
-
-  assert.equal(entries.length, 1);
-  assert.equal(entries[0]?.kind, "paired_story_delta");
-  assert.equal(entries[0]?.beforeValue, 2.1);
-  assert.equal(entries[0]?.afterValue, 3.4);
-  assert.equal(entries[0]?.nMatched, 12);
-  assert.equal(entries[0]?.activityName, "Workshop");
-});
-
-test("excludes a candidate below the minimum matched-rows threshold", async () => {
-  const entries = await buildProjectImpactStoryPairedStoryDeltaCatalog(
-    {
-      outcomeEvidencePairingEvidenceLoaderDependencies: buildPairingDeps(),
-      currentActivityEvidenceLoader: buildEvidenceLoader(),
-      activityAnalysisV2ToolExecutor: buildToolExecutor(2),
-      logger: NOOP_LOGGER,
-    },
-    "project-1",
-    [{ id: "activity-workshop", name: "Workshop" }],
-    [],
-  );
-
-  assert.deepEqual(entries, []);
-});
-
-test("excludes a candidate already confirmed as an OutcomeEvidenceLink", async () => {
-  const entries = await buildProjectImpactStoryPairedStoryDeltaCatalog(
-    {
-      outcomeEvidencePairingEvidenceLoaderDependencies: buildPairingDeps(),
-      currentActivityEvidenceLoader: buildEvidenceLoader(),
-      activityAnalysisV2ToolExecutor: buildToolExecutor(12),
-      logger: NOOP_LOGGER,
-    },
-    "project-1",
-    [{ id: "activity-workshop", name: "Workshop" }],
-    [
-      {
-        linkId: "link-1",
-        outcomeId: "outcome-1",
-        shape: "paired_delta",
-        activityIdBefore: "activity-workshop",
-        activityIdAfter: "activity-workshop",
-        beforeUploadMetadataId: "upload-workshop",
-        beforeTableName: "workshop_feedback",
-        beforeColumnName: "verstaendnis_vorher",
-        afterUploadMetadataId: "upload-workshop",
-        afterTableName: "workshop_feedback",
-        afterColumnName: "verstaendnis_nachher",
-        matchKey: "teilnehmer_id",
-        pairingGroupKey: "Verstaendnis Skala",
-        confirmedById: "user-1",
-        confirmedAt: "2026-01-01T00:00:00.000Z",
-        organizationId: "org-1",
-        projectId: "project-1",
-        createdAt: new Date("2026-01-01T00:00:00.000Z"),
-        updatedAt: new Date("2026-01-01T00:00:00.000Z"),
-      },
-    ],
   );
 
   assert.deepEqual(entries, []);

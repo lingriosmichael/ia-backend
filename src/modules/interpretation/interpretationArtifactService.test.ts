@@ -364,7 +364,7 @@ test("ingestProcessorArtifacts localizes synthesized cohort_tag questions from t
   const activityRepository = {
     findById: async () => ({
       id: "activity-1",
-      systemType: "baseline",
+      systemType: "outcome_evidence",
     }),
   } as unknown as ActivityRepository;
 
@@ -431,14 +431,11 @@ test("ingestProcessorArtifacts localizes synthesized cohort_tag questions from t
   );
 
   assert.ok(cohortQuestion);
-  assert.match(cohortQuestion.userFacingPrompt, /Um wen geht es/);
-  assert.doesNotMatch(
-    cohortQuestion.userFacingPrompt,
-    /Which cohort or participant segment/,
-  );
+  assert.match(cohortQuestion.userFacingPrompt, /Welche Zielgruppe betrifft/);
+  assert.doesNotMatch(cohortQuestion.userFacingPrompt, /Which cohort/);
 });
 
-test("ingestProcessorArtifacts auto-answers safe high-confidence preparation questions", async () => {
+test("ingestProcessorArtifacts synthesizes a cohort_tag question with no recommendation, left pending", async () => {
   let capturedCreateInput: InterpretationResultCreateInput | null = null;
 
   const interpretationResultRepository = {
@@ -533,7 +530,7 @@ test("ingestProcessorArtifacts auto-answers safe high-confidence preparation que
   const activityRepository = {
     findById: async () => ({
       id: "activity-1",
-      systemType: "baseline",
+      systemType: "outcome_evidence",
     }),
   } as unknown as ActivityRepository;
 
@@ -581,44 +578,14 @@ test("ingestProcessorArtifacts auto-answers safe high-confidence preparation que
         supportingQuotes: [],
         questions: [
           {
-            prompt: "Gemeinsamer Name fuer das Instrument?",
-            kind: "free_text",
-            questionDomain: "preparation",
-            recommendedOption: "Berufliche Klarheit",
-            recommendedConfidence: 0.83,
-            isBlocking: true,
-            questionCode: "pairing_group_key",
-            targetTableName: "baseline_jugendliche_export",
-            targetColumnName: "berufliche_klarheit_baseline_1_5",
-          },
-          {
-            prompt: "Ist das Anfang oder Ende?",
+            prompt: "Ist das eine Bewertung oder ein Kommentar?",
             kind: "single_choice",
             questionDomain: "preparation",
-            options: [
-              "Am Anfang / vor dem Programm",
-              "Am Ende / nach dem Programm",
-              "Nicht zutreffend",
-            ],
-            recommendedOption: "Am Anfang / vor dem Programm",
-            recommendedConfidence: 0.8,
-            isBlocking: true,
-            questionCode: "pairing_group_role",
-            targetTableName: "baseline_jugendliche_export",
-            targetColumnName: "berufliche_klarheit_baseline_1_5",
-          },
-          {
-            prompt: "Ist das eine Selbsteinschaetzung?",
-            kind: "single_choice",
-            questionDomain: "preparation",
-            options: [
-              "Ja, das ist eine Selbsteinschaetzung",
-              "Nein, das ist etwas anderes",
-            ],
-            recommendedOption: "Ja, das ist eine Selbsteinschaetzung",
+            options: ["Bewertung", "Kommentar"],
+            recommendedOption: "Bewertung",
             recommendedConfidence: 0.99,
             isBlocking: true,
-            questionCode: "validated_scale_confirmation",
+            questionCode: "epistemic_role_clarification",
             targetTableName: "baseline_jugendliche_export",
             targetColumnName: "berufliche_klarheit_baseline_1_5",
           },
@@ -641,25 +608,17 @@ test("ingestProcessorArtifacts auto-answers safe high-confidence preparation que
   const cohortQuestion = createdInput.questions.find(
     (question) => question.questionCode === "cohort_tag",
   );
-  const pairingGroupKeyQuestion = createdInput.questions.find(
-    (question) => question.questionCode === "pairing_group_key",
-  );
-  const pairingGroupRoleQuestion = createdInput.questions.find(
-    (question) => question.questionCode === "pairing_group_role",
-  );
-  const validatedScaleQuestion = createdInput.questions.find(
-    (question) => question.questionCode === "validated_scale_confirmation",
+  const epistemicRoleQuestion = createdInput.questions.find(
+    (question) => question.questionCode === "epistemic_role_clarification",
   );
 
-  assert.equal(cohortQuestion?.status, "answered");
-  assert.equal(cohortQuestion?.answeredValue, "Jugendliche");
-  assert.equal(pairingGroupKeyQuestion?.status, "answered");
-  assert.equal(pairingGroupKeyQuestion?.answeredValue, "Berufliche Klarheit");
-  assert.equal(pairingGroupRoleQuestion?.status, "answered");
-  assert.equal(
-    pairingGroupRoleQuestion?.answeredValue,
-    "Am Anfang / vor dem Programm",
-  );
-  assert.equal(validatedScaleQuestion?.status, undefined);
-  assert.equal(validatedScaleQuestion?.answeredValue, undefined);
+  // cohort_tag is answered by dragging files into named groups
+  // (InterpretationCohortGroupingBoard in ia_webapp), not by a backend
+  // recommendation — it's synthesized with no recommendedOption and left
+  // pending like any other question a human must resolve.
+  assert.equal(cohortQuestion?.recommendedOption, null);
+  assert.equal(cohortQuestion?.status, undefined);
+  assert.equal(cohortQuestion?.answeredValue, undefined);
+  assert.equal(epistemicRoleQuestion?.status, undefined);
+  assert.equal(epistemicRoleQuestion?.answeredValue, undefined);
 });

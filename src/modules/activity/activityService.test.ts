@@ -200,6 +200,96 @@ test("activity create trims text fields and collapses whitespace-only optional t
   assert.equal(captured.input?.output, null);
 });
 
+test("activity create joins output rows into newline-delimited goal text", async () => {
+  const captured: { input: Record<string, unknown> | null } = { input: null };
+
+  const activityRepository = {
+    create: async (input: Record<string, unknown>) => {
+      captured.input = input;
+      return {
+        id: "activity-1",
+        projectId: "project-1",
+        name: input.name,
+        description: input.description,
+        startDate: null,
+        endDate: null,
+        targetAudience: input.targetAudience,
+        objectives: input.objectives,
+        output: input.output,
+        status: "active",
+        interpretationAcknowledgedAt: null,
+        interpretationAcknowledgedById: null,
+        createdAt: new Date("2026-01-01T00:00:00.000Z"),
+        updatedAt: new Date("2026-01-01T00:00:00.000Z"),
+      };
+    },
+  } as unknown as ActivityRepository;
+
+  const authorizationService = {
+    canEditProject: async () => ({
+      membership: {
+        id: "membership-1",
+        userId: "user-1",
+        organizationId: "organization-1",
+        role: "PROJECT_MANAGER",
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      },
+      project: {
+        id: "project-1",
+        organizationId: "organization-1",
+        ownerId: "user-1",
+        ownerName: "Owner",
+        name: "Project One",
+        initialSituation: null,
+        startMonth: "012026",
+        endMonth: "122026",
+        fundingProgram: null,
+        fundingOrganization: null,
+        targetGroups: [],
+        overarchingTargetGroup: null,
+        intendedChanges: [],
+        areaOfOperation: null,
+        partnerships: null,
+        sdgs: [],
+        impactModel: {
+          inputs: null,
+          activities: null,
+          outputs: null,
+          impact: null,
+          outcomes: null,
+        },
+        successIndicators: null,
+        status: "active",
+        archivedFromStatus: null,
+        createdAt: new Date("2026-01-01T00:00:00.000Z"),
+        updatedAt: new Date("2026-01-01T00:00:00.000Z"),
+      },
+    }),
+  } as unknown as AuthorizationService;
+
+  const activityService = new ActivityService(
+    activityRepository,
+    authorizationService,
+    {} as UploadMetadataRepository,
+    new FileStorageService("/tmp"),
+    {
+      runInTransaction: async (operation) => operation(null),
+    } as TransactionManager,
+    {} as ProcessingJobRepository,
+    {} as ProcessingResourceCleanupService,
+    {} as ProjectDerivedStateInvalidationService,
+    { error: () => undefined } as never,
+  );
+
+  await activityService.create("user-1", "project-1", {
+    name: "My Activity",
+    output: ["  First output  ", "", "Second output"],
+  });
+
+  assert.equal(captured.input?.output, "First output\nSecond output");
+});
+
 test("activity update invalidates AI knowledge state when output actually changes", async () => {
   const calls: string[] = [];
   const captured: { input: Record<string, unknown> | null } = { input: null };
@@ -454,6 +544,92 @@ test("activity update does not invalidate AI knowledge state when the only chang
   assert.deepEqual(calls, []);
 });
 
+test("activity update treats equivalent output rows as unchanged after normalization", async () => {
+  const calls: string[] = [];
+  const captured: { input: Record<string, unknown> | null } = { input: null };
+
+  const activityBeforeUpdate = {
+    id: "activity-1",
+    projectId: "project-1",
+    systemType: null,
+    name: "Activity One",
+    description: null,
+    startDate: null,
+    endDate: null,
+    targetAudience: null,
+    objectives: null,
+    output: "First output\nSecond output",
+    status: "active",
+    interpretationAcknowledgedAt: new Date("2026-01-03T00:00:00.000Z"),
+    interpretationAcknowledgedById: "user-1",
+    createdAt: new Date("2026-01-01T00:00:00.000Z"),
+    updatedAt: new Date("2026-01-02T00:00:00.000Z"),
+  };
+
+  const activityRepository = {
+    findById: async () => activityBeforeUpdate,
+    update: async (_activityId: string, input: Record<string, unknown>) => {
+      captured.input = input;
+      return {
+        id: "activity-1",
+        projectId: "project-1",
+        name: "Activity One",
+        description: null,
+        startDate: null,
+        endDate: null,
+        targetAudience: null,
+        objectives: null,
+        output: "First output\nSecond output",
+        status: "active",
+        interpretationAcknowledgedAt: new Date("2026-01-03T00:00:00.000Z"),
+        interpretationAcknowledgedById: "user-1",
+        createdAt: new Date("2026-01-01T00:00:00.000Z"),
+        updatedAt: new Date("2026-01-02T00:00:00.000Z"),
+      };
+    },
+  } as unknown as ActivityRepository;
+
+  const authorizationService = {
+    canEditActivity: async () => ({
+      project: { id: "project-1", ownerId: "user-1" },
+      activity: activityBeforeUpdate,
+    }),
+  } as unknown as AuthorizationService;
+
+  const projectDerivedStateInvalidationService = {
+    invalidateProject: async (projectId: string) => {
+      calls.push(`invalidate:${projectId}`);
+    },
+  } as unknown as ProjectDerivedStateInvalidationService;
+
+  const activityService = new ActivityService(
+    activityRepository,
+    authorizationService,
+    {} as UploadMetadataRepository,
+    new FileStorageService("/tmp"),
+    {
+      runInTransaction: async (operation) => operation(null),
+    } as TransactionManager,
+    {} as ProcessingJobRepository,
+    {} as ProcessingResourceCleanupService,
+    projectDerivedStateInvalidationService,
+    { error: () => undefined } as never,
+  );
+
+  await activityService.update("user-1", "activity-1", {
+    output: ["  First output  ", "", "Second output"],
+  });
+
+  assert.equal(captured.input?.output, "First output\nSecond output");
+  assert.equal(captured.input?.interpretationAcknowledgedAt, undefined);
+  assert.equal(captured.input?.interpretationAcknowledgedById, undefined);
+  assert.equal(
+    captured.input?.activityAnalysisV2ClarificationAnswers,
+    undefined,
+  );
+  assert.deepEqual(calls, []);
+});
+
 test("activity delete clears acknowledgment and invalidates project derived state before deleting records", async () => {
   const calls: string[] = [];
 
@@ -676,7 +852,7 @@ test("activity update runs authorization before inspecting systemType, so an una
         id: "activity-1",
         projectId: "project-1",
         systemType: "baseline",
-        name: "Baseline",
+        name: "Ausgangslage",
         description: null,
         startDate: null,
         endDate: null,

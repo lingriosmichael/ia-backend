@@ -315,6 +315,29 @@ export function executeGroupAggregate(
   calculations: ActivityAnalysisV2CalculationRecord[];
   resultAlias: ActivityAnalysisV2RowAliasValue;
 } {
+  // Defense-in-depth: the planner's own alias validation lives in
+  // ia_python_service and this request's `arguments` are never re-parsed by
+  // a runtime schema on this side (see pythonProcessingClient.ts's
+  // `arguments: z.record(z.string(), z.unknown())`), so an unchecked plan
+  // could otherwise reach here with a missing or duplicate metric alias.
+  // Without this guard, `Object.fromEntries` below silently coerces a
+  // missing alias to the string key "undefined" or lets a duplicate alias
+  // overwrite an earlier metric's value instead of failing loudly.
+  const seenMetricAliases = new Set<string>();
+  for (const metric of metrics) {
+    if (!metric.alias || !metric.alias.trim()) {
+      throw new Error(
+        `group_aggregate metric for operation "${metric.operation}" is missing a non-empty alias.`,
+      );
+    }
+    if (seenMetricAliases.has(metric.alias)) {
+      throw new Error(
+        `group_aggregate metrics contain a duplicate alias: "${metric.alias}".`,
+      );
+    }
+    seenMetricAliases.add(metric.alias);
+  }
+
   const buckets = new Map<
     string,
     {

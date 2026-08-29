@@ -353,8 +353,8 @@ function buildGoalFindingText(input: {
         input.language === "de"
           ? mixedEvidence
             ? evidenceTensionFlag
-              ? `${goalText}: Es liegt ein quantitativer Zielvergleich vor, zugleich verweist ergänzende qualitative bzw. codierte Evidenz auf zusätzliche Signalrichtungen, die wegen der epistemischen Schutzregel nicht zu demselben Outcome-Claim verdichtet wurden. Der gemessene Wert liegt bei ${formatNumber(measuredValue, "de")} gegenüber dem Ziel ${formatNumber(targetValue, "de")}.`
-              : `${goalText}: Es liegen sowohl ein quantitativer Zielvergleich als auch ergänzende qualitative bzw. codierte Evidenz vor. Der gemessene Wert liegt bei ${formatNumber(measuredValue, "de")} gegenüber dem Ziel ${formatNumber(targetValue, "de")}.`
+              ? `${goalText}: Es liegt ein quantitativer Zielvergleich vor, zugleich verweist eine ergänzende qualitative bzw. codierte Datengrundlage auf zusätzliche Signalrichtungen, die wegen der epistemischen Schutzregel nicht zu demselben Outcome-Claim verdichtet wurden. Der gemessene Wert liegt bei ${formatNumber(measuredValue, "de")} gegenüber dem Ziel ${formatNumber(targetValue, "de")}.`
+              : `${goalText}: Es liegen sowohl ein quantitativer Zielvergleich als auch eine ergänzende qualitative bzw. codierte Datengrundlage vor. Der gemessene Wert liegt bei ${formatNumber(measuredValue, "de")} gegenüber dem Ziel ${formatNumber(targetValue, "de")}.`
             : `${goalText}: Gemessener Wert ${formatNumber(measuredValue, "de")} bei Ziel ${formatNumber(targetValue, "de")}. Dieses Ziel ist ${result.achieved ? "erreicht" : "nicht erreicht"}.`
           : mixedEvidence
             ? evidenceTensionFlag
@@ -376,7 +376,7 @@ function buildGoalFindingText(input: {
       assessmentStatus: "qualitative_evidence_only",
       findingText:
         input.language === "de"
-          ? `${goalText}: Für dieses Ziel liegt derzeit nur qualitative oder codierte Evidenz ohne direkten numerischen Zielvergleich vor. ${rationale}`.trim()
+          ? `${goalText}: Für dieses Ziel liegt derzeit nur eine qualitative oder codierte Datengrundlage ohne direkten numerischen Zielvergleich vor. ${rationale}`.trim()
           : `${goalText}: This goal is currently grounded only by qualitative or coded evidence without a direct numeric target comparison. ${rationale}`.trim(),
       evidenceTensionFlag: false,
       measuredValue: null,
@@ -392,7 +392,7 @@ function buildGoalFindingText(input: {
     assessmentStatus: "evidence_compiled",
     findingText:
       input.language === "de"
-        ? `${goalText}: Für dieses Ziel wurden deterministische Evidenzprüfungen ausgeführt, aber noch kein direkter Zielvergleich abgeleitet.`
+        ? `${goalText}: Für dieses Ziel wurden deterministische Prüfungen der Datengrundlage ausgeführt, aber noch kein direkter Zielvergleich abgeleitet.`
         : `${goalText}: Deterministic evidence checks were executed for this goal, but no direct target comparison was derived yet.`,
     evidenceTensionFlag: false,
     measuredValue: null,

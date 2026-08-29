@@ -371,10 +371,10 @@ test("planProjectImpactStoryChart uses its own dedicated background-job timeout 
 test("planActivityAnalysisV2 accepts clarificationQuestions using the epistemicRole question codes", async (t) => {
   // Regression test: the planner's InterpretationQuestionDraft schema
   // (Python) and contracts.ts's interpretationQuestionCodeValues both
-  // include epistemic_role_clarification/validated_scale_confirmation,
-  // but this client's Zod schema was hand-duplicated and never updated to
-  // match — a real plan response carrying either code was rejected as
-  // malformed even though it was perfectly valid.
+  // include epistemic_role_clarification/cohort_tag, but this client's Zod
+  // schema was hand-duplicated and never updated to match — a real plan
+  // response carrying either code was rejected as malformed even though it
+  // was perfectly valid.
   t.mock.method(AbortSignal, "timeout", () => new AbortController().signal);
   t.mock.method(globalThis, "fetch", async () =>
     jsonResponse({
@@ -383,16 +383,16 @@ test("planActivityAnalysisV2 accepts clarificationQuestions using the epistemicR
       clarificationQuestions: [
         {
           goalId: null,
-          prompt: "Ist 'confidence_code' eine validierte Skala?",
+          prompt: "Welche Kohorte betrifft diese Tabelle?",
           kind: "single_choice",
           questionDomain: "preparation",
-          options: ["Ja", "Nein"],
+          options: ["Jugendliche", "Mentor:innen"],
           recommendedOption: null,
           recommendedConfidence: null,
           isBlocking: true,
-          questionCode: "validated_scale_confirmation",
+          questionCode: "cohort_tag",
           targetTableName: "mentor_feedback",
-          targetColumnName: "confidence_code",
+          targetColumnName: null,
         },
         {
           goalId: null,
@@ -445,14 +445,114 @@ test("planActivityAnalysisV2 accepts clarificationQuestions using the epistemicR
 
   assert.equal(result.validation.status, "passed");
   assert.equal(result.clarificationQuestions?.length, 2);
-  assert.equal(
-    result.clarificationQuestions?.[0]?.questionCode,
-    "validated_scale_confirmation",
-  );
+  assert.equal(result.clarificationQuestions?.[0]?.questionCode, "cohort_tag");
   assert.equal(
     result.clarificationQuestions?.[1]?.questionCode,
     "epistemic_role_clarification",
   );
+});
+
+test("planActivityAnalysisV2 accepts coded clarificationQuestions with prompt null", async (t) => {
+  // Regression test: Python's InterpretationQuestionDraft explicitly allows
+  // prompt=null for closed questionCode values because ia_backend renders the
+  // final wording locally. The client schema used to require a string here,
+  // rejecting valid planner responses as malformed.
+  t.mock.method(AbortSignal, "timeout", () => new AbortController().signal);
+  t.mock.method(globalThis, "fetch", async () =>
+    jsonResponse({
+      goalPlans: [],
+      toolRequests: [],
+      clarificationQuestions: [
+        {
+          goalId: "output_1",
+          prompt: null,
+          kind: "single_choice",
+          questionDomain: "interpretation",
+          options: ["Bewilligt", "Abgelehnt"],
+          recommendedOption: null,
+          recommendedConfidence: null,
+          isBlocking: true,
+          questionCode: "positive_status_values",
+          targetTableName: "applications",
+          targetColumnName: "status",
+        },
+      ],
+      limitations: [],
+      validation: {
+        status: "passed",
+        issues: [],
+      },
+    }),
+  );
+
+  const client = new PythonProcessingClient(
+    "https://python.example",
+    "secret",
+    30_000,
+    120_000,
+  );
+
+  const result = await client.planActivityAnalysisV2({
+    activityId: "activity-1",
+    activityName: "Bewerbungsbegleitung",
+    language: "de",
+    goals: [],
+    evidenceTables: [],
+    runLimits: {
+      maxToolCalls: 8,
+      maxLlmIterations: 2,
+      timeoutMs: 30_000,
+      maxEvidenceItems: 10,
+    },
+    planningTimeBudgetMs: 270_000,
+  });
+
+  assert.equal(result.clarificationQuestions?.length, 1);
+  assert.equal(result.clarificationQuestions?.[0]?.prompt, "");
+  assert.equal(
+    result.clarificationQuestions?.[0]?.questionCode,
+    "positive_status_values",
+  );
+});
+
+test("planActivityAnalysisV2 normalizes null clarificationQuestions to an empty list", async (t) => {
+  t.mock.method(AbortSignal, "timeout", () => new AbortController().signal);
+  t.mock.method(globalThis, "fetch", async () =>
+    jsonResponse({
+      goalPlans: [],
+      toolRequests: [],
+      clarificationQuestions: null,
+      limitations: [],
+      validation: {
+        status: "passed",
+        issues: [],
+      },
+    }),
+  );
+
+  const client = new PythonProcessingClient(
+    "https://python.example",
+    "secret",
+    30_000,
+    120_000,
+  );
+
+  const result = await client.planActivityAnalysisV2({
+    activityId: "activity-1",
+    activityName: "Bewerbungsbegleitung",
+    language: "de",
+    goals: [],
+    evidenceTables: [],
+    runLimits: {
+      maxToolCalls: 8,
+      maxLlmIterations: 2,
+      timeoutMs: 30_000,
+      maxEvidenceItems: 10,
+    },
+    planningTimeBudgetMs: 270_000,
+  });
+
+  assert.deepEqual(result.clarificationQuestions, []);
 });
 
 test("planActivityAnalysisV2 rejects a malformed plan response instead of trusting it", async (t) => {

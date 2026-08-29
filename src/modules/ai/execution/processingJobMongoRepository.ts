@@ -257,6 +257,30 @@ export class MongoProcessingJobRepository implements ProcessingJobRepository {
     return toPlainProcessingJob(document);
   }
 
+  // The read half of the trigger endpoint's create-or-return-existing
+  // guard (see ProjectImpactStoryController.triggerProjectAnalyticsRun) —
+  // also used by the frontend on mount to resume tracking a run that's
+  // still in flight after a remount (e.g. switching in-app tabs and back),
+  // since activeJobId otherwise only ever lived in that component's own
+  // state and had no way to rediscover a job it didn't personally create
+  // this mount.
+  async findActiveByProjectAndType(
+    projectId: string,
+    jobType: ProcessingJobPersistenceRecord["jobType"],
+    session: DatabaseSession,
+  ): Promise<ProcessingJobPersistenceRecord | null> {
+    const document = await applyMongoSession(
+      ProcessingJobMongoModel.findOne({
+        projectId,
+        jobType,
+        status: { $in: [...activeProcessingJobStatusValues] },
+      }).sort({ createdAt: -1 }),
+      session,
+    ).exec();
+
+    return toPlainProcessingJob(document);
+  }
+
   async deleteByProject(
     projectId: string,
     session: DatabaseSession,

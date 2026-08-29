@@ -10,10 +10,7 @@ export type ProjectStatus = (typeof projectStatusValues)[number];
 export const activityStatusValues = ["active", "completed"] as const;
 export type ActivityStatus = (typeof activityStatusValues)[number];
 
-export const activitySystemTypeValues = [
-  "baseline",
-  "impact_measurement",
-] as const;
+export const activitySystemTypeValues = ["outcome_evidence"] as const;
 export type ActivitySystemType = (typeof activitySystemTypeValues)[number];
 
 // cross-evidence-linkage-design.md §11. Computed fresh on every request
@@ -202,6 +199,10 @@ export interface ActivitySummary {
   endDate: string | null;
   targetAudience: string | null;
   objectives: string | null;
+  // Serialized activity output goals. The authoring UI edits these as
+  // separate rows; they are persisted and transported as newline-delimited
+  // plain text so downstream analysis can derive one goal per line without
+  // requiring a storage migration.
   output: string | null;
   // Free text, in the activity author's own words, describing what a
   // narrow safeguarding/concern-tagging pass over this activity's
@@ -551,11 +552,7 @@ export const interpretationQuestionCodeValues = [
   "positive_status_values",
   "primary_date_field",
   "epistemic_role_clarification",
-  "validated_scale_confirmation",
   "cohort_tag",
-  "pairing_group_key",
-  "pairing_group_role",
-  "declared_scale_bounds",
   // Stage-9 filter-value grounding: the V2 planner asks which of a
   // column's real observedValues represent the condition a goal needs,
   // when nothing else grounds the filter value. See
@@ -888,11 +885,13 @@ export interface InterpretationQuestion {
   answeredValue: string | null;
   answeredById: string | null;
   answeredAt: string | null;
-  // Set only for validated_scale_confirmation/declared_scale_bounds questions
-  // where the deterministic pipeline detected this column is one half of a
-  // baseline/endline pair of the same instrument (see
-  // interpretation_pipeline.py's column-group matching). Null for every
-  // other question — grouping is additive, never assumed.
+  // Always null now: this grouped questions belonging to the same
+  // instrument's baseline/endline pair, but the two question codes that
+  // used it (validated_scale_confirmation, declared_scale_bounds) were
+  // removed in the outcome-evidence merge (see OUTCOME_EVIDENCE_MERGE_PLAN.md
+  // Phase 6). Kept on the contract rather than deleted since removing it
+  // would also require updating every mapper/consumer for no behavior
+  // change — nothing currently populates a non-null value.
   preparationGroupId: string | null;
   preparationGroupColumns: InterpretationQuestionTargetColumnRef[] | null;
 }
@@ -1029,11 +1028,7 @@ export interface DatasetPreparationDecisionSummary {
   positiveStatusDefinitions: DatasetPreparationDecisionSelection[];
   primaryDateFields: DatasetPreparationDecisionSelection[];
   epistemicRoleClarifications: DatasetPreparationDecisionSelection[];
-  validatedScaleConfirmations: DatasetPreparationDecisionSelection[];
   cohortTags: DatasetPreparationDecisionSelection[];
-  pairingGroupKeys: DatasetPreparationDecisionSelection[];
-  pairingGroupRoles: DatasetPreparationDecisionSelection[];
-  declaredScaleBounds: DatasetPreparationDecisionSelection[];
 }
 
 export const preparedDatasetColumnRoleValues = [
@@ -1089,33 +1084,18 @@ export interface PreparedDatasetColumn {
   // QUALITATIVE_MIXED_EVIDENCE_PLAN.md).
   epistemicRole: EpistemicRole | null;
   // Observed numeric bounds, carried over from DatasetProfileColumn.numericSummary
-  // (min/max) — used to reject an outcome-evidence pairing between two
-  // validated_scale columns whose scales don't actually match (e.g. a 1-5
-  // baseline instrument vs. a 0-10 endline one), see
-  // outcomeEvidencePairingCandidateMatcher.ts. Optional so every other
-  // existing PreparedDatasetColumn construction site is unaffected.
+  // (min/max). Optional so every other existing PreparedDatasetColumn
+  // construction site is unaffected.
   minValue?: number | null;
   maxValue?: number | null;
-  // Declared instrument bounds, answered via declared_scale_bounds — the
-  // scale's real possible range (e.g. 1..5) regardless of what values
-  // actually appear in the data. This, not minValue/maxValue, is the
-  // authoritative bound for pairing compatibility: two observed ranges can
-  // differ just because nobody happened to answer the extremes (see
-  // outcomeEvidencePairingCandidateMatcher.ts's hasCompatibleScaleBounds).
-  // Only ever set when epistemicRole resolves to "validated_scale".
-  // Optional so every other existing PreparedDatasetColumn construction
-  // site is unaffected.
-  scaleMin?: number | null;
-  scaleMax?: number | null;
-  // Human-declared, answered via pairing_group_key/pairing_group_role —
-  // only ever set when epistemicRole resolves to "validated_scale". Two
-  // columns (in the same or different tables) with the same normalized
-  // pairingGroupKey and opposite roles are the sole source of a
-  // paired_delta outcome-evidence candidate — see
-  // outcomeEvidencePairingCandidateMatcher.ts. Optional so every other
-  // existing PreparedDatasetColumn construction site is unaffected.
-  pairingGroupKey?: string | null;
-  pairingGroupRole?: "before" | "after" | null;
+  // scaleMin/scaleMax (declared instrument bounds) and pairingGroupKey/
+  // pairingGroupRole (declared pairing identity) — answered via
+  // declared_scale_bounds/pairing_group_key/pairing_group_role — were
+  // removed in OUTCOME_EVIDENCE_MERGE_PLAN.md Phase 6 along with those
+  // clarification questions and outcomeEvidencePairingCandidateMatcher.ts's
+  // declared-pairing detection they existed solely to feed. The new
+  // outcome-evidence recommendation flow (outcomeEvidenceRecommendationService.ts)
+  // proposes pairing without a pre-declared tag.
   metricKind?: PreparedDatasetMetricKind | null;
   valueScope?: PreparedDatasetValueScope | null;
 }
@@ -1454,153 +1434,6 @@ export interface ActivityEvidenceLinkageProposalDecisionRecord {
   proposalId: string;
   decision: ActivityEvidenceLinkageProposalDecision;
   decidedAt: string;
-}
-
-// Outcome-evidence linkage: a candidate pairing/distribution is proposed
-// mechanically (shared column-name stem or Activity.systemType role +
-// matching epistemicRole), but which declared ProjectOutcomeStatement it
-// belongs to is always a human-confirmed, closed-list pick — never
-// inferred. See IMPACT_STORY_OUTCOME_EXTENSION_PLAN.md §4.
-export type OutcomeEvidencePairingShape =
-  "paired_delta" | "single_distribution";
-
-// An LLM-proposed pre-fill for the human's outcome pick, computed once per
-// proposalId and cached on the persisted record — never a decision by
-// itself. `outcomeId: null` means the LLM was asked and wasn't confident
-// (a real, final answer); the proposal's own `suggestedOutcome` field being
-// `null` (not this type) means "not yet attempted." The backend
-// independently re-validates `outcomeId` against the project's actual
-// ProjectOutcomeStatement ids before ever persisting or displaying it —
-// this field must never be trusted as-is.
-export interface OutcomeEvidencePairingSuggestedOutcome {
-  outcomeId: string | null;
-  rationale: string;
-}
-
-export interface OutcomeEvidencePairingProposalPairedDelta {
-  proposalId: string;
-  shape: "paired_delta";
-  activityIdBefore: string;
-  activityIdAfter: string;
-  beforeUploadMetadataId: string;
-  beforeTableName: string;
-  beforeColumnName: string;
-  afterUploadMetadataId: string;
-  afterTableName: string;
-  afterColumnName: string;
-  matchKey: string;
-  // The human-declared instrument label from pairing_group_key — the
-  // reason this pair was proposed at all. Carried through for display
-  // (see projectImpactStoryImpactCatalog.ts's buildPairLabelDe).
-  pairingGroupKey: string;
-  suggestedOutcome: OutcomeEvidencePairingSuggestedOutcome | null;
-}
-
-export interface OutcomeEvidencePairingProposalSingleDistribution {
-  proposalId: string;
-  shape: "single_distribution";
-  activityId: string;
-  uploadMetadataId: string;
-  tableName: string;
-  categoryColumnName: string;
-  suggestedOutcome: OutcomeEvidencePairingSuggestedOutcome | null;
-}
-
-export type OutcomeEvidencePairingProposal =
-  | OutcomeEvidencePairingProposalPairedDelta
-  | OutcomeEvidencePairingProposalSingleDistribution;
-
-export type OutcomeEvidencePairingProposalDecision = "assign" | "reject";
-
-export interface OutcomeEvidencePairingProposalDecisionRecord {
-  proposalId: string;
-  decision: OutcomeEvidencePairingProposalDecision;
-  // Required when decision is "assign", absent when "reject" — enforced at
-  // the service layer, not the type layer, so a malformed decision fails
-  // with a clear validation error rather than a silent undefined.
-  outcomeId: string | null;
-  decidedById: string;
-  decidedAt: string;
-}
-
-export type OutcomeEvidencePairingReviewStatus = "needs_review" | "resolved";
-
-export type OutcomeEvidencePairingDiagnosticsTrigger = "propose" | "refresh";
-
-export type OutcomeEvidencePairingActivityDiagnosticStatus =
-  "no_uploads" | "already_ready" | "jobs_started" | "blocked";
-
-export type OutcomeEvidencePairingDiagnosticReasonCode =
-  | "no_ready_tables"
-  | "jobs_started"
-  | "no_shared_identifier"
-  | "no_matching_scale_columns"
-  | "no_categorical_columns"
-  | "duplicate_identifier_values"
-  | "scale_bounds_mismatch"
-  | "scale_bounds_not_declared"
-  | "no_declared_pairing_groups";
-
-export interface OutcomeEvidencePairingDiagnosticReason {
-  code: OutcomeEvidencePairingDiagnosticReasonCode;
-}
-
-export interface OutcomeEvidencePairingActivityUploadState {
-  uploadMetadataId: string;
-  originalFileName: string;
-  reason:
-    | "active_job"
-    | "already_interpreted"
-    | "ready_to_interpret"
-    | "privacy_safe_representation_missing"
-    | "unsupported_modality";
-  latestJobStatus: ProcessingJobStatus | null;
-  latestJobType: ProcessingJobType | null;
-  evidenceModality: string | null;
-}
-
-export interface OutcomeEvidencePairingActivityDiagnostic {
-  activityId: string;
-  activityName: string;
-  systemType: ActivitySystemType | null;
-  uploadCount: number;
-  interpretedUploadCount: number;
-  readyTableCount: number;
-  status: OutcomeEvidencePairingActivityDiagnosticStatus;
-  startedCount: number;
-  skippedCount: number;
-  startedJobIds: string[];
-  uploadStates: OutcomeEvidencePairingActivityUploadState[];
-}
-
-export interface OutcomeEvidencePairingDiagnostics {
-  trigger: OutcomeEvidencePairingDiagnosticsTrigger;
-  activityCount: number;
-  candidateCount: number;
-  readyTableCount: number;
-  activityDiagnostics: OutcomeEvidencePairingActivityDiagnostic[];
-  reasons: OutcomeEvidencePairingDiagnosticReason[];
-}
-
-export interface OutcomeEvidencePairingResultRecord {
-  id: string;
-  organizationId: string;
-  projectId: string;
-  status: OutcomeEvidencePairingReviewStatus;
-  proposals: OutcomeEvidencePairingProposal[];
-  eligibleEvidenceOptions: OutcomeEvidencePairingProposal[];
-  proposalDecisions: OutcomeEvidencePairingProposalDecisionRecord[];
-  outcomeSections: OutcomeEvidencePairingOutcomeSection[];
-  unassignedProposals: OutcomeEvidencePairingProposal[];
-  diagnostics: OutcomeEvidencePairingDiagnostics;
-  createdAt: string;
-  updatedAt: string;
-}
-
-export interface OutcomeEvidencePairingOutcomeSection {
-  outcomeStatement: ProjectOutcomeStatement;
-  confirmedLinks: OutcomeEvidenceLink[];
-  recommendedProposals: OutcomeEvidencePairingProposal[];
 }
 
 export interface OutcomeEvidenceLinkPairedDelta {
@@ -2030,6 +1863,7 @@ export interface ActivityAnalysisV2Diagnostics {
 export interface ActivityAnalysisRunV2GoalsSnapshot {
   activityType: string | null;
   objectives: string | null;
+  // Newline-delimited snapshot of the activity's output goals at run time.
   output: string | null;
 }
 
@@ -2190,9 +2024,20 @@ export type ProjectImpactStoryStatus = "completed" | "failed";
 export type ProjectImpactStoryNarrativeStatus =
   // The LLM narrative passed grounding (on the first attempt or a retry).
   | "generated"
-  // Grounding never passed after retries; narrativeSummary is the Python
-  // service's own deterministic, non-LLM templated summary — still real
-  // and readable, just not model-written prose.
+  // Grounding still hadn't passed once the narrative call's retry budget
+  // ran out, but narrativeSummary is still the model's own real prose (its
+  // last attempt) — not the non-LLM template. Kept low-retry deliberately
+  // (this call resends the project's whole evidence catalog as context on
+  // every attempt, unlike the service's other grounded-generation calls),
+  // so this is expected to happen sometimes; it just means a detail in the
+  // text couldn't be automatically confirmed against the data, not that
+  // the text is templated or fabricated wholesale.
+  | "generated_unverified"
+  // Grounding never passed and no real model draft was ever produced (see
+  // ia_python_service's narrative.py on_exhausted — the one case that
+  // still falls back this way); narrativeSummary is the Python service's
+  // own deterministic, non-LLM templated summary — still real and
+  // readable, just not model-written prose.
   | "deterministic_fallback"
   // The call to the Python service itself failed (network error, timeout,
   // 5xx) before any grounding could even be attempted; narrativeSummary is

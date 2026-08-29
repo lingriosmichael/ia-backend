@@ -80,13 +80,6 @@ const DEFERRED_TO_ACTIVITY_ANALYSIS_V2_QUESTION_CODES =
 
 const interpretationWarningSeverities: readonly InterpretationWarningSeverity[] =
   ["info", "warning"];
-const CLARIFICATION_AUTO_RESOLUTION_CONFIDENCE_THRESHOLD = 0.8;
-const AUTO_RESOLVABLE_PREPARATION_QUESTION_CODES =
-  new Set<InterpretationQuestionCode>([
-    "cohort_tag",
-    "pairing_group_key",
-    "pairing_group_role",
-  ]);
 // cohort_tag's template previously lived here (COHORT_TAG_QUESTION_TEMPLATES)
 // — relocated to clarificationQuestionCopy.ts, the single backend-owned
 // wording module, per CLARIFICATION_QUESTION_WORDING_PLAN.md.
@@ -129,90 +122,6 @@ function readJobLanguage(
   payload: Record<string, unknown> | null | undefined,
 ): "de" | "en" {
   return payload?.language === "en" ? "en" : "de";
-}
-
-function suggestCohortTagFromTableName(tableName: string): {
-  recommendedOption: string | null;
-  recommendedConfidence: number | null;
-} {
-  const normalized = tableName.trim().toLowerCase();
-
-  if (
-    normalized.includes("jugend") ||
-    normalized.includes("schueler") ||
-    normalized.includes("schüler")
-  ) {
-    return {
-      recommendedOption: "Jugendliche",
-      recommendedConfidence: 0.92,
-    };
-  }
-
-  if (normalized.includes("mentor")) {
-    return {
-      recommendedOption: "Mentor:innen",
-      recommendedConfidence: 0.92,
-    };
-  }
-
-  return {
-    recommendedOption: null,
-    recommendedConfidence: null,
-  };
-}
-
-function resolveAutoAnsweredQuestionValue(
-  question: InterpretationQuestionCreateInput,
-): string | null {
-  if (
-    question.questionDomain !== "preparation" ||
-    !question.questionCode ||
-    !AUTO_RESOLVABLE_PREPARATION_QUESTION_CODES.has(question.questionCode)
-  ) {
-    return null;
-  }
-
-  const recommendedOption = question.recommendedOption?.trim() ?? "";
-  if (!recommendedOption) {
-    return null;
-  }
-
-  if (
-    typeof question.recommendedConfidence !== "number" ||
-    question.recommendedConfidence <
-      CLARIFICATION_AUTO_RESOLUTION_CONFIDENCE_THRESHOLD
-  ) {
-    return null;
-  }
-
-  if (!question.userFacingOptions?.length) {
-    return recommendedOption;
-  }
-
-  return (
-    question.userFacingOptions.find(
-      (option) => option.value.trim() === recommendedOption,
-    )?.value ?? null
-  );
-}
-
-function applyAutoResolvedPreparationQuestions(
-  questions: InterpretationQuestionCreateInput[],
-): InterpretationQuestionCreateInput[] {
-  return questions.map((question) => {
-    const answeredValue = resolveAutoAnsweredQuestionValue(question);
-    if (!answeredValue) {
-      return question;
-    }
-
-    return {
-      ...question,
-      status: "answered",
-      answeredValue,
-      answeredById: null,
-      answeredAt: new Date(),
-    };
-  });
 }
 
 function readInterpretationLlmUsage(
@@ -823,8 +732,8 @@ function mapQuestions(
 // Synthesized here, not in ia_python_service: the dataset-profiling stage
 // there operates purely per-upload with no notion of which activity (or
 // system activity type) an upload belongs to, and it shouldn't need to —
-// asking "which cohort is this?" only makes sense for the baseline/
-// impact_measurement system activities that outcome-evidence pairing
+// asking "which cohort is this?" only makes sense for the merged
+// "outcome_evidence" system activity that outcome-evidence recommendation
 // actually cares about (see outcomeEvidencePairingEvidenceLoader.ts), and
 // that scoping knowledge already lives here in ia_backend. Free text rather
 // than a closed choice from Project.targetGroups: threading project context
@@ -836,16 +745,17 @@ function buildCohortTagQuestions(
   activitySystemType: ActivitySystemType | null,
   language: "de" | "en",
 ): InterpretationQuestionCreateInput[] {
-  if (
-    !datasetProfile ||
-    (activitySystemType !== "baseline" &&
-      activitySystemType !== "impact_measurement")
-  ) {
+  if (!datasetProfile || activitySystemType !== "outcome_evidence") {
     return [];
   }
 
   return datasetProfile.tables.map((table) => {
-    const recommendation = suggestCohortTagFromTableName(table.name);
+    // No recommendedOption/recommendedConfidence here: cohort_tag is
+    // answered by dragging files into named groups
+    // (InterpretationCohortGroupingBoard in ia_webapp), not by picking a
+    // per-table suggestion — a hardcoded name-pattern guess used to live
+    // here but was removed as dead weight once the grouping UI replaced
+    // free-text answering entirely.
     const rendered = renderClarificationQuestion({
       questionCode: "cohort_tag",
       targetTableName: table.name,
@@ -860,8 +770,8 @@ function buildCohortTagQuestions(
       questionDomain: "preparation",
       userFacingPrompt: rendered.userFacingPrompt,
       userFacingOptions: rendered.userFacingOptions,
-      recommendedOption: recommendation.recommendedOption,
-      recommendedConfidence: recommendation.recommendedConfidence,
+      recommendedOption: null,
+      recommendedConfidence: null,
       isBlocking: true,
       questionCode: "cohort_tag",
       targetTableName: table.name,
@@ -991,14 +901,14 @@ export class InterpretationArtifactService {
         supportingQuotes: supportingQuotes.map(
           ({ quoteKey: _quoteKey, ...quote }) => quote,
         ),
-        questions: applyAutoResolvedPreparationQuestions([
+        questions: [
           ...mapQuestions(interpretation.questions, language),
           ...buildCohortTagQuestions(
             datasetProfile,
             activity?.systemType ?? null,
             language,
           ),
-        ]),
+        ],
         warnings: mapWarnings(interpretation.warnings),
         goalAlignment: mapGoalAlignment(
           interpretation.goalAlignment,

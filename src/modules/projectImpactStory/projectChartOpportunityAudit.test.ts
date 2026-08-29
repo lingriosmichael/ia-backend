@@ -83,7 +83,7 @@ test("flags an activity with no current V2 run as blocked_by_missing_data", () =
 
 test("does not flag an activity with no current V2 run as blocked when it already has confirmed outcome evidence", () => {
   const audit = buildProjectChartOpportunityAudit(
-    [{ id: "activity-1", name: "Baseline" }],
+    [{ id: "activity-1", name: "Ausgangslage" }],
     [],
     [buildUpload("upload-activity-1", "activity-1")],
     new Set(["activity-1"]),

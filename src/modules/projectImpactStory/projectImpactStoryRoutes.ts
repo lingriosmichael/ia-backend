@@ -22,6 +22,12 @@ export async function registerProjectImpactStoryRoutes(
     controller.getLatestProjectAnalytics.bind(controller),
   );
 
+  app.get(
+    "/projects/:projectId/analytics/active-job",
+    { preHandler: authenticate },
+    controller.getActiveProjectAnalyticsRun.bind(controller),
+  );
+
   app.post(
     "/projects/:projectId/impact-story",
     {

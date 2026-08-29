@@ -154,7 +154,7 @@ test("normalization_merge interpolates {field}/{variants} and keeps fixed merge_
   ]);
 });
 
-test("cohort_tag renders the previously ia_backend-owned template unchanged", () => {
+test("cohort_tag renders a general cohort description, not the retired free-text mechanism's wording", () => {
   const rendered = renderClarificationQuestion(
     baseInput({
       questionCode: "cohort_tag",
@@ -164,9 +164,8 @@ test("cohort_tag renders the previously ia_backend-owned template unchanged", ()
   );
   assert.equal(
     rendered.userFacingPrompt,
-    `Who is the table 'baseline' about? For example "young people" or "mentors". ` +
-      `This helps compare only the right baseline and endline data with each other. ` +
-      `Answer "not applicable" if this project only has a single cohort.`,
+    `Which cohort does the table 'baseline' concern? This helps compare only ` +
+      `the right baseline and endline data with each other.`,
   );
 });
 

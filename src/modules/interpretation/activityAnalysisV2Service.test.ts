@@ -1842,8 +1842,65 @@ test("previewActivityAnalysis normalizes percentage goals to decimal targets bef
     ? (plannerRequests[0]?.goals as Array<Record<string, unknown>>)
     : [];
   assert.equal(goals.length, 2);
+  assert.equal(goals[0]?.goalText, "65 Mentor:innen schulen");
+  assert.equal(
+    goals[1]?.goalText,
+    "Mindestens 80 % Teilnahmequote an beiden Schulungstagen",
+  );
   assert.equal(goals[0]?.targetNumber, 65);
   assert.equal(goals[1]?.targetNumber, 0.8);
+});
+
+test("previewActivityAnalysis preserves newline-delimited output goals in the run snapshot", async () => {
+  const activityOutput =
+    "65 Mentor:innen schulen\nMindestens 80 % Teilnahmequote an beiden Schulungstagen";
+  const fixture = createServiceFixture({
+    activityOutput,
+    plannerResponse: {
+      goalPlans: [
+        {
+          goalId: "output_1",
+          goalType: "output",
+          goalText: "65 Mentor:innen schulen",
+          evaluationMode: "numeric_target",
+          status: "requires_capability",
+          rationale: "Not relevant for this serialization regression.",
+          plannedToolNames: [],
+          missingCapabilities: [],
+        },
+        {
+          goalId: "output_2",
+          goalType: "output",
+          goalText: "Mindestens 80 % Teilnahmequote an beiden Schulungstagen",
+          evaluationMode: "numeric_target",
+          status: "requires_capability",
+          rationale: "Not relevant for this serialization regression.",
+          plannedToolNames: [],
+          missingCapabilities: [],
+        },
+      ],
+      toolRequests: [],
+      limitations: [],
+      validation: {
+        status: "passed",
+        issues: [],
+      },
+    },
+  });
+
+  const record = await fixture.service.previewActivityAnalysis(
+    "user-1",
+    "activity-1",
+  );
+
+  assert.equal(record.goalsSnapshot.output, activityOutput);
+  assert.deepEqual(
+    record.assessment?.goalAssessments.map((assessment) => assessment.goalText),
+    [
+      "65 Mentor:innen schulen",
+      "Mindestens 80 % Teilnahmequote an beiden Schulungstagen",
+    ],
+  );
 });
 
 test("previewActivityAnalysis fails when the Python planner is unavailable", async () => {

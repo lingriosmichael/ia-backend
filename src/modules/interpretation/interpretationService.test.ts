@@ -327,22 +327,26 @@ function createDependencies(options: {
       );
       return result ? normalizeResultForMapper(result) : null;
     },
-    answerQuestion: async (
+    answerQuestions: async (
       interpretationResultId: string,
-      questionId: string,
-      input: { answeredValue: string; answeredById: string; answeredAt: Date },
+      answers: Array<{ questionId: string; answeredValue: string }>,
     ) => {
       const result = results.find(
         (candidate) => candidate.id === interpretationResultId,
       );
-      const question = result?.questions?.find(
-        (candidate) => candidate.id === questionId,
-      );
-      if (!result || !question) {
+      if (!result) {
         return null;
       }
-      question.status = "answered";
-      question.answeredValue = input.answeredValue;
+      for (const answer of answers) {
+        const question = result.questions?.find(
+          (candidate) => candidate.id === answer.questionId,
+        );
+        if (!question) {
+          return null;
+        }
+        question.status = "answered";
+        question.answeredValue = answer.answeredValue;
+      }
       return normalizeResultForMapper(result);
     },
   } as unknown as InterpretationResultRepository;
@@ -625,74 +629,6 @@ function createDependencies(options: {
     createdJobs,
   };
 }
-
-test("acknowledging an activity triggers a Project Knowledge Model rebuild for its project", async () => {
-  let buildCallCount = 0;
-  let builtProjectId: string | null = null;
-  const deps = createDependencies({ buildForProject: async () => ({}) });
-  deps.projectKnowledgeBuilderService.buildForProject = async (
-    projectId: string,
-  ) => {
-    buildCallCount += 1;
-    builtProjectId = projectId;
-    return {} as never;
-  };
-
-  const service = new InterpretationService(
-    deps.uploadMetadataRepository,
-    deps.privacySafeRepresentationRepository,
-    deps.qualitativeCodingReviewRepository,
-    deps.interpretationResultRepository,
-    deps.processingJobRepository,
-    deps.activityRepository,
-    deps.authorizationService,
-    deps.pythonProcessingClient,
-    deps.logger,
-    deps.datasetPreparationService,
-    deps.deterministicAnalysisService,
-    deps.quantitativeInterpretationSynthesisService,
-    deps.projectKnowledgeBuilderService,
-    deps.projectLlmTokenLedgerService,
-    deps.evidenceLinkageReconciliationService,
-    deps.activityEvidenceLinkageResultRepository,
-  );
-
-  await service.acknowledgeReview("user-1", "activity-1");
-
-  assert.equal(buildCallCount, 1);
-  assert.equal(builtProjectId, "project-1");
-});
-
-test("a rebuild failure never prevents the acknowledgment from succeeding", async () => {
-  const deps = createDependencies({
-    buildForProject: async () => {
-      throw new Error("Mongo unavailable.");
-    },
-  });
-
-  const service = new InterpretationService(
-    deps.uploadMetadataRepository,
-    deps.privacySafeRepresentationRepository,
-    deps.qualitativeCodingReviewRepository,
-    deps.interpretationResultRepository,
-    deps.processingJobRepository,
-    deps.activityRepository,
-    deps.authorizationService,
-    deps.pythonProcessingClient,
-    deps.logger,
-    deps.datasetPreparationService,
-    deps.deterministicAnalysisService,
-    deps.quantitativeInterpretationSynthesisService,
-    deps.projectKnowledgeBuilderService,
-    deps.projectLlmTokenLedgerService,
-    deps.evidenceLinkageReconciliationService,
-    deps.activityEvidenceLinkageResultRepository,
-  );
-
-  const activity = await service.acknowledgeReview("user-1", "activity-1");
-
-  assert.equal(activity.id, "activity-1");
-});
 
 test("activity interpretation starts from the latest completed evidence job even if an older job is still marked active", async () => {
   const deps = createDependencies({

@@ -309,3 +309,52 @@ test("a link whose evidence can no longer be resolved is skipped, not thrown, so
 
   assert.equal(items.length, 0);
 });
+
+test("a paired_delta link whose paired_change result is missing is skipped instead of materializing zeroed values", async () => {
+  const executor = {
+    async execute() {
+      return {
+        toolCallTrace: [],
+        qualitativeFindings: [],
+        calculations: [
+          calculation("count_rows", 42, {}),
+          calculation("join_tables", 12, {}),
+        ],
+      };
+    },
+  } as unknown as ActivityAnalysisV2ToolExecutor;
+
+  const brokenLink: OutcomeEvidenceLinkPersistenceRecord = {
+    linkId: "link-broken-paired",
+    organizationId: "org-1",
+    projectId: "project-1",
+    outcomeId: "outcome-1",
+    shape: "paired_delta",
+    activityIdBefore: "activity-baseline",
+    activityIdAfter: "activity-impact-measurement",
+    beforeUploadMetadataId: "upload-before",
+    beforeTableName: "wirkungsmessung_baseline",
+    beforeColumnName: "selbstwirksamkeit_baseline_1_5",
+    afterUploadMetadataId: "upload-after",
+    afterTableName: "wirkungsmessung_abschluss",
+    afterColumnName: "selbstwirksamkeit_abschluss_1_5",
+    matchKey: "teilnehmer_id",
+    pairingGroupKey: "Selbstwirksamkeit",
+    confirmedById: "user-1",
+    confirmedAt: NOW.toISOString(),
+    createdAt: NOW,
+    updatedAt: NOW,
+  };
+
+  const items = await buildProjectImpactStoryImpactCatalog(
+    {
+      currentActivityEvidenceLoader: buildEvidenceLoader(),
+      activityAnalysisV2ToolExecutor: executor,
+      logger: noopLogger,
+    },
+    [buildOutcome()],
+    [brokenLink],
+  );
+
+  assert.equal(items.length, 0);
+});

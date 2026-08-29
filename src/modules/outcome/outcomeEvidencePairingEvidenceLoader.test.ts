@@ -1,16 +1,18 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
-  loadProjectEvidenceTablesForOutcomePairing,
   loadProjectEvidenceTablesForStoryPairing,
   type OutcomeEvidencePairingEvidenceLoaderDependencies,
 } from "./outcomeEvidencePairingEvidenceLoader.js";
 
-// Two activities: one a system activity (baseline), one an ordinary
-// activity (e.g. a single workshop with its own before/after feedback
-// form) — the exact case loadProjectEvidenceTablesForStoryPairing exists
-// for, since loadProjectEvidenceTablesForOutcomePairing's system-activity-
-// only scope would never see it.
+// The system-activity-scoped variant of this loader
+// (loadProjectEvidenceTablesForOutcomePairing) was removed in
+// OUTCOME_EVIDENCE_MERGE_PLAN.md Phase 6 — outcome-evidence pairing now
+// loads via outcomeEvidenceCandidateCatalogBuilder.ts's single-activity
+// loader instead. loadProjectEvidenceTablesForStoryPairing survives solely
+// for the exploratory paired-story-delta chart lane
+// (projectImpactStoryPairedStoryDeltaCatalog.ts), which needs every
+// activity in the project, not just system ones.
 function buildDeps(): OutcomeEvidencePairingEvidenceLoaderDependencies {
   const activities = [
     { id: "activity-baseline", systemType: "baseline" as const },
@@ -92,18 +94,6 @@ function buildDeps(): OutcomeEvidencePairingEvidenceLoaderDependencies {
   } as unknown as OutcomeEvidencePairingEvidenceLoaderDependencies;
 }
 
-test("loadProjectEvidenceTablesForOutcomePairing only includes system activities", async () => {
-  const tables = await loadProjectEvidenceTablesForOutcomePairing(
-    buildDeps(),
-    "project-1",
-  );
-
-  assert.deepEqual(
-    tables.map((table) => table.tableName),
-    ["baseline"],
-  );
-});
-
 test("loadProjectEvidenceTablesForStoryPairing includes every activity, including an ordinary one", async () => {
   const tables = await loadProjectEvidenceTablesForStoryPairing(
     buildDeps(),
@@ -114,4 +104,90 @@ test("loadProjectEvidenceTablesForStoryPairing includes every activity, includin
     "baseline",
     "workshop_feedback",
   ]);
+});
+
+test("computes columnDistinctValueCounts by scanning the privacy-safe representation's rows once, alongside hasDuplicateIdentifierValues", async () => {
+  const deps = {
+    activityRepository: {
+      listByProject: async () => [
+        { id: "activity-workshop", systemType: null },
+      ],
+    },
+    uploadMetadataRepository: {
+      listByActivityIds: async () => [
+        { id: "upload-workshop", activityId: "activity-workshop" },
+      ],
+    },
+    interpretationResultRepository: {
+      findLatestByUploadMetadataIds: async () => [
+        { id: "result-workshop", uploadMetadataId: "upload-workshop" },
+      ],
+    },
+    datasetPreparationRepository: {
+      findByInterpretationResultIds: async () => [
+        {
+          interpretationResultId: "result-workshop",
+          status: "ready_for_analysis",
+          preparedDataset: {
+            isReadyForDeterministicAnalysis: true,
+            tables: [
+              {
+                name: "workshop_feedback",
+                identifierColumn: "teilnehmer_id",
+                cohortTag: null,
+                columns: [
+                  { name: "teilnehmer_id" },
+                  { name: "kontakt_haeufigkeit" },
+                  { name: "kontakte_anzahl" },
+                ],
+              },
+            ],
+          },
+        },
+      ],
+    },
+    privacySafeRepresentationRepository: {
+      findLatestByUploadMetadataIds: async () => [
+        {
+          uploadMetadataId: "upload-workshop",
+          payload: {
+            tables: [
+              {
+                name: "workshop_feedback",
+                rows: [
+                  {
+                    teilnehmer_id: "t1",
+                    kontakt_haeufigkeit: "3",
+                    kontakte_anzahl: "5",
+                  },
+                  {
+                    teilnehmer_id: "t2",
+                    kontakt_haeufigkeit: "3",
+                    kontakte_anzahl: "12",
+                  },
+                  {
+                    teilnehmer_id: "t1",
+                    kontakt_haeufigkeit: "4",
+                    kontakte_anzahl: "1",
+                  },
+                ],
+              },
+            ],
+          },
+        },
+      ],
+    },
+  } as unknown as OutcomeEvidencePairingEvidenceLoaderDependencies;
+
+  const [table] = await loadProjectEvidenceTablesForStoryPairing(
+    deps,
+    "project-1",
+  );
+
+  assert.equal(table?.hasDuplicateIdentifierValues, true);
+  assert.deepEqual(table?.columnDistinctValueCounts, {
+    teilnehmer_id: 2,
+    kontakt_haeufigkeit: 2,
+    kontakte_anzahl: 3,
+  });
 });

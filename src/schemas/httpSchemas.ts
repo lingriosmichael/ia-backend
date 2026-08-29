@@ -5,6 +5,7 @@ import {
 } from "../shared/contracts.js";
 import { z } from "zod";
 import { normalizeMonthValue } from "../shared/utils/monthValue.js";
+import { joinNonEmptyTrimmedLines } from "../shared/utils/text.js";
 
 const jsonPayloadSchema = z.record(z.string(), z.unknown());
 const monthValueSchema = z
@@ -42,6 +43,30 @@ const privacyReviewDecisionValueSchema = z.enum([
   "restrict",
 ]);
 const projectIntendedChangesMaxItems = 6;
+const activityOutputItemSchema = z
+  .string()
+  .trim()
+  .max(500)
+  .refine((value) => !/\r|\n/.test(value), {
+    message: "Output rows cannot contain line breaks.",
+  });
+const activityOutputValueSchema = z
+  .union([
+    z.string().trim().max(2000),
+    z.array(activityOutputItemSchema).max(25),
+  ])
+  .superRefine((value, context) => {
+    const normalizedValue = Array.isArray(value)
+      ? joinNonEmptyTrimmedLines(value)
+      : value.trim();
+
+    if (normalizedValue.length > 2000) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Output must be 2000 characters or fewer.",
+      });
+    }
+  });
 
 export const idParamSchema = z.object({
   organizationId: z.string().min(1).optional(),
@@ -101,6 +126,52 @@ export const outcomeEvidencePairingProposalDecisionSchema = z
     message: "outcomeId is required when decision is 'assign'.",
     path: ["outcomeId"],
   });
+
+// Replaces two already-confirmed single_distribution links (the review
+// panel's display-only "these look like the same question, before and
+// after" grouping) with the real paired_delta link that a fixed naming
+// heuristic previously prevented from ever being proposed. linkIds travel
+// in the body, same reasoning as proposalId above; order doesn't matter —
+// the service matches each one against the candidate's before/after side
+// itself rather than trusting caller-supplied ordering.
+export const outcomeEvidencePairingMergeIntoPairedDeltaSchema = z.object({
+  pairedDeltaProposalId: z.string().min(1),
+  singleDistributionLinkIdA: z.string().min(1),
+  singleDistributionLinkIdB: z.string().min(1),
+});
+
+// Request body for approving one OutcomeEvidenceRecommendation
+// (OUTCOME_EVIDENCE_MERGE_PLAN.md §4.3/§4.4). There is no server-side cache
+// of recommendations yet (an open question the plan explicitly defers to
+// Phase 4 — see §8), so the client echoes back the exact column references
+// it was given by the recommend call rather than a synthetic id the
+// backend would have to look up.
+const outcomeEvidenceRecommendationColumnReferenceSchema = z.object({
+  uploadMetadataId: z.string().min(1),
+  tableName: z.string().min(1),
+  columnName: z.string().min(1),
+  label: z.string().min(1),
+  cohortTag: z.string().nullable(),
+});
+
+export const outcomeEvidenceRecommendationApprovalSchema = z.discriminatedUnion(
+  "shape",
+  [
+    z.object({
+      shape: z.literal("paired_delta"),
+      before: outcomeEvidenceRecommendationColumnReferenceSchema,
+      after: outcomeEvidenceRecommendationColumnReferenceSchema,
+      outcomeId: z.string().min(1).nullable(),
+      rationale: z.string(),
+    }),
+    z.object({
+      shape: z.literal("single_distribution"),
+      column: outcomeEvidenceRecommendationColumnReferenceSchema,
+      outcomeId: z.string().min(1).nullable(),
+      rationale: z.string(),
+    }),
+  ],
+);
 
 export const registerSchema = z.object({
   fullName: z.string().trim().min(2).max(120),
@@ -224,7 +295,7 @@ export const createActivitySchema = z.object({
   endDate: dateValueSchema,
   targetAudience: z.string().trim().max(2000).optional(),
   objectives: z.string().trim().max(2000).optional(),
-  output: z.string().trim().max(2000).optional(),
+  output: activityOutputValueSchema.optional(),
   concernTaggingInstruction: z.string().trim().max(2000).optional(),
   status: z.enum(activityStatusValues).optional(),
 });
@@ -237,7 +308,7 @@ export const updateActivitySchema = z.object({
   endDate: z.string().datetime({ offset: true }).nullable().optional(),
   targetAudience: z.string().trim().max(2000).nullable().optional(),
   objectives: z.string().trim().max(2000).nullable().optional(),
-  output: z.string().trim().max(2000).nullable().optional(),
+  output: activityOutputValueSchema.nullable().optional(),
   concernTaggingInstruction: z.string().trim().max(2000).nullable().optional(),
   status: z.enum(activityStatusValues).optional(),
 });

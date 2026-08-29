@@ -3,6 +3,7 @@ import test from "node:test";
 import {
   answerActivityAnalysisV2QuestionsSchema,
   approvePrivacyReviewSchema,
+  updateActivitySchema,
 } from "./httpSchemas.js";
 
 test("approvePrivacyReviewSchema accepts keep acknowledgement", () => {
@@ -120,4 +121,24 @@ test("answerActivityAnalysisV2QuestionsSchema rejects an empty answeredValue", (
       answers: [{ questionId: "q1", answeredValue: "" }],
     }),
   );
+});
+
+test("updateActivitySchema rejects an output row containing a line break", () => {
+  // Rows are later joined with "\n" and re-split into one goal per line
+  // (see CURRENT_ANALYSIS_PIPELINE.md, Stage 8). A row that already
+  // contains a line break would silently become two goals downstream, so
+  // reject it at the request boundary instead.
+  assert.throws(() =>
+    updateActivitySchema.parse({
+      output: ["Line one\nLine two"],
+    }),
+  );
+});
+
+test("updateActivitySchema accepts output rows without line breaks", () => {
+  const parsed = updateActivitySchema.parse({
+    output: ["Row one", "Row two"],
+  });
+
+  assert.deepEqual(parsed.output, ["Row one", "Row two"]);
 });

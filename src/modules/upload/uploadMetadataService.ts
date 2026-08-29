@@ -215,7 +215,6 @@ export class UploadMetadataService {
       await this.processingResourceCleanupService.deleteByUploadMetadataId(
         replacedRecord.id,
         databaseSession,
-        { projectId: replacedRecord.projectId },
       );
       await this.processingJobRepository.deleteByUploadMetadataId(
         replacedRecord.id,
@@ -529,7 +528,6 @@ export class UploadMetadataService {
       await this.processingResourceCleanupService.deleteByUploadMetadataId(
         uploadMetadataId,
         session,
-        { projectId: record.projectId },
       );
       await this.processingJobRepository.deleteByUploadMetadataId(
         uploadMetadataId,
@@ -631,7 +629,6 @@ export class UploadMetadataService {
         await this.processingResourceCleanupService.deleteByUploadMetadataId(
           derivedUpload.id,
           session,
-          { projectId: derivedUpload.projectId },
         );
         await this.processingJobRepository.deleteByUploadMetadataId(
           derivedUpload.id,

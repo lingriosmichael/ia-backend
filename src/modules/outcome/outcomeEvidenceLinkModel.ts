@@ -8,6 +8,16 @@ const outcomeEvidenceLinkSchema = new Schema(
     organizationId: { type: String, required: true, index: true },
     projectId: { type: String, required: true, index: true },
     outcomeId: { type: String, required: true, index: true },
+    // Deterministic identity of the confirmed column pairing/column itself
+    // (see buildPairedDeltaProposalId/buildSingleDistributionProposalId in
+    // outcomeEvidenceApprovalSafetyCheck.ts) — NOT scoped by outcomeId,
+    // matching assertNotAlreadyConfirmed's existing "this pairing is
+    // already confirmed for the project" semantics. Backed by the unique
+    // index below so that two concurrent approve requests for the same
+    // recommendation can no longer both pass the application-level
+    // read-then-write check and persist duplicate links: the second
+    // insert now fails at the database with a duplicate-key error instead.
+    proposalId: { type: String, required: true },
     shape: {
       type: String,
       required: true,
@@ -26,6 +36,7 @@ const outcomeEvidenceLinkSchema = new Schema(
     afterTableName: { type: String, default: null },
     afterColumnName: { type: String, default: null },
     matchKey: { type: String, default: null },
+    matchDiagnostics: { type: Schema.Types.Mixed, default: null },
     pairingGroupKey: { type: String, default: null },
     // single_distribution only:
     activityId: { type: String, default: null },
@@ -42,6 +53,10 @@ const outcomeEvidenceLinkSchema = new Schema(
 );
 
 outcomeEvidenceLinkSchema.index({ projectId: 1, outcomeId: 1 });
+outcomeEvidenceLinkSchema.index(
+  { projectId: 1, proposalId: 1 },
+  { unique: true },
+);
 
 export type OutcomeEvidenceLinkMongoDocument = InferSchemaType<
   typeof outcomeEvidenceLinkSchema

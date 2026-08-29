@@ -51,6 +51,11 @@ export interface ProcessingJobRepository {
     uploadMetadataId: string,
     session: DatabaseSession,
   ): Promise<ProcessingJobPersistenceRecord | null>;
+  findActiveByProjectAndType(
+    projectId: string,
+    jobType: ProcessingJobPersistenceRecord["jobType"],
+    session: DatabaseSession,
+  ): Promise<ProcessingJobPersistenceRecord | null>;
   deleteByProject(projectId: string, session: DatabaseSession): Promise<number>;
   deleteByActivity(
     activityId: string,

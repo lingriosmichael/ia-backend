@@ -76,7 +76,7 @@ export function buildProjectChartOpportunityAudit(
   activityAnalysisRuns: ActivityAnalysisRunV2PersistenceRecord[],
   uploads: ProjectChartOpportunityAuditInputUpload[],
   // An activity with no completed ActivityAnalystV2 run (e.g.
-  // Baseline/Wirkungsmessung, whose only role is supplying the before/after
+  // Ausgangslage/Wirkungsdaten, whose only role is supplying the before/after
   // columns a confirmed paired_delta OutcomeEvidenceLink measures) isn't
   // actually blocked from this audit's point of view once it's in use that
   // way — its data already reached the story through impactCatalog, a

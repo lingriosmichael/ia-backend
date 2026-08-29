@@ -1,6 +1,6 @@
 import type { DatabaseSession } from "../../shared/database/databaseClient.js";
 import type {
-  InterpretationQuestionAnswerInput,
+  InterpretationQuestionBatchAnswerInput,
   InterpretationResultCreateInput,
   InterpretationResultPersistenceRecord,
   InterpretationResultSynthesisFailureInput,
@@ -48,13 +48,17 @@ export interface InterpretationResultRepository {
     session: DatabaseSession,
   ): Promise<InterpretationResultPersistenceRecord[]>;
   /**
-   * Creates or updates a question answer by question id. Returns null if
-   * the result or question was not found.
+   * Answers one or more questions on a single InterpretationResult in one
+   * atomic update — every answer in `answers` is a $set on the same
+   * document, so this either applies all of them or none of them; a
+   * caller must never assume a partial batch can be persisted. Returns
+   * null if the result was not found.
    */
-  answerQuestion(
+  answerQuestions(
     interpretationResultId: string,
-    questionId: string,
-    input: InterpretationQuestionAnswerInput,
+    answers: InterpretationQuestionBatchAnswerInput[],
+    answeredById: string,
+    answeredAt: Date,
     session: DatabaseSession,
   ): Promise<InterpretationResultPersistenceRecord | null>;
   deleteByProjectId(

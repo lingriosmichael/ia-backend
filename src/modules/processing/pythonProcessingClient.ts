@@ -393,7 +393,7 @@ export interface ActivityAnalysisV2PlanContextCandidateDiagnostics {
 export interface ActivityAnalysisV2PlanResponse {
   goalPlans: ActivityAnalysisV2GoalPlan[];
   toolRequests: ActivityAnalysisV2PlanToolRequest[];
-  clarificationQuestions?: ActivityAnalysisV2ClarificationQuestionDraft[];
+  clarificationQuestions: ActivityAnalysisV2ClarificationQuestionDraft[];
   limitations: string[];
   validation: ActivityAnalysisV2PlanValidation;
   contextCandidates?: ActivityAnalysisV2PlanContextCandidate[];
@@ -468,6 +468,7 @@ export interface ProjectImpactStoryNarrativeRequest {
   projectPeriod?: string | null;
   targetGroup?: string | null;
   region?: string | null;
+  initialSituation?: string | null;
   outputFacts: ProjectImpactStoryNarrativeOutputFactRequest[];
   catalog: ProjectImpactStoryNarrativeCatalogEntryRequest[];
 }
@@ -567,6 +568,42 @@ export interface OutcomeEvidencePairingSuggestionResponse {
   llmUsage?: LlmUsageSummary | null;
 }
 
+// Replaces the suggestion request/response pair above for the merged
+// "Ausgangslage & Wirkungsdaten" activity (OUTCOME_EVIDENCE_MERGE_PLAN.md
+// §4.3): the model is given every eligible column on the activity (no
+// pre-detected candidates) and proposes both the column pairing and the
+// outcome match in one call.
+export interface OutcomeEvidencePairingRecommendationCandidateRequest {
+  columnId: string;
+  label: string;
+  epistemicRole?: string | null;
+  inferredType?: string | null;
+  distinctValueCount?: number | null;
+  cohortTag?: string | null;
+}
+
+export interface OutcomeEvidencePairingRecommendationRequest {
+  projectId: string;
+  language: "de" | "en";
+  outcomeStatements: OutcomeEvidencePairingSuggestionOutcomeStatementRequest[];
+  candidates: OutcomeEvidencePairingRecommendationCandidateRequest[];
+}
+
+export interface OutcomeEvidencePairingRecommendationEntry {
+  shape: "paired_delta" | "single_distribution";
+  beforeColumnId?: string | null;
+  afterColumnId?: string | null;
+  columnId?: string | null;
+  outcomeId: string | null;
+  rationale: string;
+}
+
+export interface OutcomeEvidencePairingRecommendationResponse {
+  recommendations: OutcomeEvidencePairingRecommendationEntry[];
+  groundingStatus: "PASSED" | "FAILED";
+  llmUsage?: LlmUsageSummary | null;
+}
+
 // Runtime validation of the Python service's V2 plan response. TypeScript
 // types alone are a compile-time hint about the *sender's* code, not a
 // guarantee about what's actually on the wire — this is the boundary check
@@ -649,7 +686,16 @@ const activityAnalysisV2PlanToolRequestSchema = z.object({
 
 const activityAnalysisV2ClarificationQuestionDraftSchema = z.object({
   goalId: z.string().nullable().optional(),
-  prompt: z.string().optional().default(""),
+  // The Python planner intentionally leaves prompt null for closed
+  // questionCode values because ia_backend renders userFacingPrompt from
+  // questionCode + questionData instead. Normalize null to "" here so the
+  // parsed TS type stays string-based for the one open-ended exception and
+  // existing downstream code does not need to widen to string | null.
+  prompt: z
+    .string()
+    .nullable()
+    .optional()
+    .transform((value) => value ?? ""),
   kind: z.enum(["single_choice", "free_text", "merge_confirmation"]),
   questionDomain: z.enum(["preparation", "interpretation"]),
   options: z.array(z.string()).nullable(),
@@ -687,9 +733,14 @@ const activityAnalysisV2PlanContextCandidateDiagnosticsSchema = z.object({
 const activityAnalysisV2PlanResponseSchema = z.object({
   goalPlans: z.array(activityAnalysisV2GoalPlanSchema),
   toolRequests: z.array(activityAnalysisV2PlanToolRequestSchema),
+  // Upstream should always send a list here (Python's response model uses a
+  // default_factory list), but normalize null/missing to [] at the boundary
+  // so "no clarification needed" is represented consistently even if an older
+  // or drifting build serializes this field loosely.
   clarificationQuestions: z
     .array(activityAnalysisV2ClarificationQuestionDraftSchema)
-    .optional(),
+    .nullish()
+    .transform((value) => value ?? []),
   limitations: z.array(z.string()),
   validation: z.object({
     status: z.enum(["passed", "failed"]),
@@ -754,6 +805,27 @@ const outcomeEvidencePairingSuggestionEntrySchema = z.object({
 
 const outcomeEvidencePairingSuggestionResponseSchema = z.object({
   suggestions: z.array(outcomeEvidencePairingSuggestionEntrySchema),
+  groundingStatus: z.enum(["PASSED", "FAILED"]),
+  llmUsage: z.unknown().nullable().optional(),
+});
+
+// columnId/outcomeId are intentionally z.string() here, not validated
+// against a closed list at this layer — the caller
+// (outcomeEvidenceRecommendationService.ts) re-validates every reference
+// against the real candidate catalog and the project's real
+// ProjectOutcomeStatement ids, which is the real trust boundary. This
+// schema only confirms the response is well-formed JSON of the right shape.
+const outcomeEvidencePairingRecommendationEntrySchema = z.object({
+  shape: z.enum(["paired_delta", "single_distribution"]),
+  beforeColumnId: z.string().nullable().optional(),
+  afterColumnId: z.string().nullable().optional(),
+  columnId: z.string().nullable().optional(),
+  outcomeId: z.string().nullable(),
+  rationale: z.string(),
+});
+
+const outcomeEvidencePairingRecommendationResponseSchema = z.object({
+  recommendations: z.array(outcomeEvidencePairingRecommendationEntrySchema),
   groundingStatus: z.enum(["PASSED", "FAILED"]),
   llmUsage: z.unknown().nullable().optional(),
 });
@@ -1564,5 +1636,40 @@ export class PythonProcessingClient {
     }
 
     return parsed.data as OutcomeEvidencePairingSuggestionResponse;
+  }
+
+  async recommendOutcomeEvidencePairings(
+    input: OutcomeEvidencePairingRecommendationRequest,
+  ): Promise<OutcomeEvidencePairingRecommendationResponse> {
+    const response = await this.request(
+      "/internal/outcome-evidence-pairing/recommend",
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          ...this.authHeaders(),
+        },
+        body: JSON.stringify(input),
+      },
+      "The Python processing service could not recommend outcome-evidence pairings.",
+      "python_processing_outcome_evidence_pairing_recommendation_unavailable",
+      "The Python processing service timed out while recommending outcome-evidence pairings.",
+      "python_processing_outcome_evidence_pairing_recommendation_timeout",
+      this.llmTimeoutMs,
+    );
+
+    const payload = await response.json();
+    const parsed =
+      outcomeEvidencePairingRecommendationResponseSchema.safeParse(payload);
+    if (!parsed.success) {
+      throw new AppError(
+        "The Python processing service returned a malformed outcome-evidence pairing recommendation.",
+        502,
+        "python_processing_outcome_evidence_pairing_recommendation_malformed",
+        parsed.error.flatten(),
+      );
+    }
+
+    return parsed.data as OutcomeEvidencePairingRecommendationResponse;
   }
 }

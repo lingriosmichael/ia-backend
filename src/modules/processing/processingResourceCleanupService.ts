@@ -11,7 +11,6 @@ import type { KnowledgeIndicatorRepository } from "../knowledge/knowledgeIndicat
 import type { ProjectKnowledgeModelRepository } from "../knowledge/projectKnowledgeModelRepository.js";
 import type { ActivityEvidenceLinkageResultRepository } from "../linkage/activityEvidenceLinkageResultRepository.js";
 import type { OutcomeEvidenceLinkRepository } from "../outcome/outcomeEvidenceLinkRepository.js";
-import type { OutcomeEvidencePairingResultRepository } from "../outcome/outcomeEvidencePairingResultRepository.js";
 import type { ProjectOutcomeStatementRepository } from "../outcome/projectOutcomeStatementRepository.js";
 import type { ParsedRepresentationRepository } from "./parsedRepresentationRepository.js";
 import type { QualitativeCodingReviewRepository } from "./qualitativeCodingReviewRepository.js";
@@ -42,7 +41,6 @@ export class ProcessingResourceCleanupService {
     private readonly projectAnalyticsSnapshotRepository: ProjectAnalyticsSnapshotRepository,
     private readonly projectImpactStoryRepository: ProjectImpactStoryRepository,
     private readonly outcomeEvidenceLinkRepository: OutcomeEvidenceLinkRepository,
-    private readonly outcomeEvidencePairingResultRepository: OutcomeEvidencePairingResultRepository,
     private readonly projectOutcomeStatementRepository: ProjectOutcomeStatementRepository,
   ) {}
 
@@ -106,10 +104,6 @@ export class ProcessingResourceCleanupService {
       ),
       this.projectImpactStoryRepository.deleteByProjectId(projectId, session),
       this.outcomeEvidenceLinkRepository.deleteByProjectId(projectId, session),
-      this.outcomeEvidencePairingResultRepository.deleteByProjectId(
-        projectId,
-        session,
-      ),
       this.projectOutcomeStatementRepository.deleteByProjectId(
         projectId,
         session,
@@ -117,18 +111,7 @@ export class ProcessingResourceCleanupService {
     ]);
   }
 
-  async resetOutcomeEvidencePairingByProjectId(
-    projectId: string,
-    session: DatabaseSession,
-  ): Promise<void> {
-    await this.outcomeEvidencePairingResultRepository.deleteByProjectId(
-      projectId,
-      session,
-    );
-  }
-
   async deleteByOutcomeStatementIds(
-    projectId: string,
     outcomeStatementIds: string[],
     session: DatabaseSession,
   ): Promise<void> {
@@ -136,24 +119,17 @@ export class ProcessingResourceCleanupService {
       return;
     }
 
-    await Promise.all([
-      this.outcomeEvidenceLinkRepository.deleteByOutcomeIds(
-        outcomeStatementIds,
-        session,
-      ),
-      this.outcomeEvidencePairingResultRepository.deleteByProjectId(
-        projectId,
-        session,
-      ),
-    ]);
+    await this.outcomeEvidenceLinkRepository.deleteByOutcomeIds(
+      outcomeStatementIds,
+      session,
+    );
   }
 
   async deleteByActivityId(
     activityId: string,
     session: DatabaseSession,
-    options?: { projectId?: string },
   ): Promise<void> {
-    const work: Array<Promise<unknown>> = [
+    await Promise.all([
       this.parsedRepresentationRepository.deleteByActivityId(
         activityId,
         session,
@@ -189,16 +165,7 @@ export class ProcessingResourceCleanupService {
         activityId,
         session,
       ),
-    ];
-    if (options?.projectId) {
-      work.push(
-        this.outcomeEvidencePairingResultRepository.deleteByProjectId(
-          options.projectId,
-          session,
-        ),
-      );
-    }
-    await Promise.all(work);
+    ]);
   }
 
   async deleteActivityAggregateStateByActivityId(
@@ -220,9 +187,8 @@ export class ProcessingResourceCleanupService {
   async deleteByUploadMetadataId(
     uploadMetadataId: string,
     session: DatabaseSession,
-    options?: { projectId?: string },
   ): Promise<void> {
-    const work: Array<Promise<unknown>> = [
+    await Promise.all([
       this.parsedRepresentationRepository.deleteByUploadMetadataId(
         uploadMetadataId,
         session,
@@ -255,15 +221,6 @@ export class ProcessingResourceCleanupService {
         uploadMetadataId,
         session,
       ),
-    ];
-    if (options?.projectId) {
-      work.push(
-        this.outcomeEvidencePairingResultRepository.deleteByProjectId(
-          options.projectId,
-          session,
-        ),
-      );
-    }
-    await Promise.all(work);
+    ]);
   }
 }

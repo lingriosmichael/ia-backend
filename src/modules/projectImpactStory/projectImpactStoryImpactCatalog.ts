@@ -161,6 +161,16 @@ export async function computePairedDeltaMeasurement(
   const pairedChangeResult = execution.calculations.find(
     (c) => c.toolName === "paired_change",
   )?.result;
+  if (
+    !pairedChangeResult ||
+    typeof pairedChangeResult.pairedCount !== "number" ||
+    typeof pairedChangeResult.meanPre !== "number" ||
+    typeof pairedChangeResult.meanPost !== "number"
+  ) {
+    throw new Error(
+      `paired_change did not return a usable result for ${pair.beforeTableName} -> ${pair.afterTableName} on ${pair.matchKey}`,
+    );
+  }
 
   return {
     // meanPre/meanPost are a raw division (sum of Likert-scale responses /
@@ -176,9 +186,9 @@ export async function computePairedDeltaMeasurement(
     // time it becomes "the real value" here, one decimal place matching
     // both the chart's own display precision and the deterministic
     // fallback narrative's formatFallbackDecimal.
-    beforeValue: roundToOneDecimal(Number(pairedChangeResult?.meanPre ?? 0)),
-    afterValue: roundToOneDecimal(Number(pairedChangeResult?.meanPost ?? 0)),
-    nMatched: Number(pairedChangeResult?.pairedCount ?? 0),
+    beforeValue: roundToOneDecimal(pairedChangeResult.meanPre),
+    afterValue: roundToOneDecimal(pairedChangeResult.meanPost),
+    nMatched: pairedChangeResult.pairedCount,
     nBaseline,
   };
 }

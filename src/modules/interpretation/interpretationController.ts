@@ -241,15 +241,4 @@ export class InterpretationController {
     );
     return successResponse(response);
   }
-
-  async acknowledgeReview(request: FastifyRequest) {
-    const auth = requireAuthenticatedUser(request);
-
-    const params = idParamSchema.parse(request.params);
-    const response = await this.interpretationService.acknowledgeReview(
-      auth.userId,
-      requireParam(params, "activityId"),
-    );
-    return successResponse(response);
-  }
 }

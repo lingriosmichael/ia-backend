@@ -17,7 +17,7 @@ import {
 } from "./interpretationResultModel.js";
 import type { InterpretationResultRepository } from "./interpretationResultRepository.js";
 import type {
-  InterpretationQuestionAnswerInput,
+  InterpretationQuestionBatchAnswerInput,
   InterpretationResultCreateInput,
   InterpretationResultPersistenceRecord,
   InterpretationResultSynthesisFailureInput,
@@ -334,29 +334,44 @@ export class MongoInterpretationResultRepository implements InterpretationResult
       );
   }
 
-  async answerQuestion(
+  async answerQuestions(
     interpretationResultId: string,
-    questionId: string,
-    input: InterpretationQuestionAnswerInput,
+    answers: InterpretationQuestionBatchAnswerInput[],
+    answeredById: string,
+    answeredAt: Date,
     session: DatabaseSession,
   ): Promise<InterpretationResultPersistenceRecord | null> {
+    // A single findOneAndUpdate covering every answer in the batch, rather
+    // than one update call per answer — MongoDB guarantees atomicity only
+    // within one update to one document, so persisting the batch as N
+    // separate calls could leave earlier answers written and later ones
+    // not if something failed mid-loop. Each answer gets its own named
+    // arrayFilters identifier (Mongo supports multiple distinct `$[name]`
+    // placeholders in one update) because $set on a single `$[question]`
+    // filter would apply the same answeredValue to every matched element,
+    // which is wrong when questions in the batch have different answers.
+    const setFields: Record<string, unknown> = {};
+    const arrayFilters: Record<string, unknown>[] = [];
+    answers.forEach((answer, index) => {
+      const filterName = `question${index}`;
+      setFields[`questions.$[${filterName}].status`] = "answered";
+      setFields[`questions.$[${filterName}].answeredValue`] =
+        answer.answeredValue;
+      setFields[`questions.$[${filterName}].answeredById`] = answeredById;
+      setFields[`questions.$[${filterName}].answeredAt`] = answeredAt;
+      arrayFilters.push({ [`${filterName}._id`]: answer.questionId });
+    });
+
     const document = await applyMongoSession(
       InterpretationResultMongoModel.findOneAndUpdate(
         {
           _id: interpretationResultId,
-          "questions._id": questionId,
+          "questions._id": { $in: answers.map((answer) => answer.questionId) },
         },
-        {
-          $set: {
-            "questions.$[question].status": "answered",
-            "questions.$[question].answeredValue": input.answeredValue,
-            "questions.$[question].answeredById": input.answeredById,
-            "questions.$[question].answeredAt": input.answeredAt,
-          },
-        },
+        { $set: setFields },
         {
           returnDocument: "after",
-          arrayFilters: [{ "question._id": questionId }],
+          arrayFilters,
         },
       ),
       session,
