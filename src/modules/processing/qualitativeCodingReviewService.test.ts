@@ -248,7 +248,7 @@ function createService(overrides?: {
             { rowIndex: 1, assignedCode: "preparedness" },
             { rowIndex: 2, assignedCode: null },
           ],
-          sourceCodebookUploadMetadataId: null,
+          sourceCodebookFrom: null,
           sourceCodebookOriginalFileName: null,
         },
       ],
@@ -313,10 +313,311 @@ test("generate persists the qualitative coding review proposal", async () => {
         { rowIndex: 1, assignedCode: "preparedness" },
         { rowIndex: 2, assignedCode: null },
       ],
-      sourceCodebookUploadMetadataId: null,
+      sourceCodebookFrom: null,
       sourceCodebookOriginalFileName: null,
     },
   ]);
+});
+
+test("generate reuses an explicitly selected approved source finding's codebook for the matching target finding", async () => {
+  type CapturedPythonRequest = {
+    sourceCodebookSelections?: Array<{
+      targetFindingKey: string;
+      sourceCodebookFrom: {
+        uploadMetadataId: string;
+        findingKey: string;
+      };
+      sourceCodebookCodes: Array<{
+        code: string;
+        label: string;
+        description: string;
+        exampleExcerpts: string[];
+      }>;
+      sourceCodebookOriginalFileName?: string | null;
+    }>;
+  };
+  let pythonRequest: CapturedPythonRequest | null = null;
+  const service = createService({
+    uploadMetadataRepository: {
+      listByActivityIds: async () => [
+        {
+          id: "upload-1",
+          organizationId: "org-1",
+          projectId: "project-1",
+          activityId: "activity-1",
+          sourceWorkbookUploadMetadataId: null,
+          derivedSheetName: null,
+          derivedSheetIndex: null,
+          logicalEvidenceId: "logical-1",
+          versionNumber: 1,
+          replacesUploadMetadataId: null,
+          supersededAt: null,
+          originalFileName: "reflection.csv",
+          contentType: "text/csv",
+          sizeBytes: 123,
+          storageKey: "files/reflection.csv",
+          originalFileDeletedAt: null,
+          status: "uploaded",
+          datasetRole: null,
+          uploadedById: "user-1",
+          uploadedByName: "User",
+          createdAt: new Date("2026-08-11T10:00:00.000Z"),
+          updatedAt: new Date("2026-08-11T10:00:00.000Z"),
+        },
+        {
+          id: "upload-source",
+          organizationId: "org-1",
+          projectId: "project-1",
+          activityId: "activity-1",
+          sourceWorkbookUploadMetadataId: null,
+          derivedSheetName: null,
+          derivedSheetIndex: null,
+          logicalEvidenceId: "logical-2",
+          versionNumber: 1,
+          replacesUploadMetadataId: null,
+          supersededAt: null,
+          originalFileName: "baseline-reflection.csv",
+          contentType: "text/csv",
+          sizeBytes: 123,
+          storageKey: "files/baseline-reflection.csv",
+          originalFileDeletedAt: null,
+          status: "uploaded",
+          datasetRole: null,
+          uploadedById: "user-1",
+          uploadedByName: "User",
+          createdAt: new Date("2026-08-10T10:00:00.000Z"),
+          updatedAt: new Date("2026-08-10T10:00:00.000Z"),
+        },
+      ],
+    },
+    qualitativeCodingReviewRepository: {
+      findByUploadMetadataId: async () => null,
+      findByUploadMetadataIds: async () => [
+        {
+          id: "review-source",
+          organizationId: "org-1",
+          projectId: "project-1",
+          activityId: "activity-1",
+          uploadMetadataId: "upload-source",
+          privacySafeRepresentationId: "psr-source",
+          interpretationResultId: "interpretation-source",
+          status: "approved",
+          findings: {
+            summary: [
+              {
+                findingKey: "feedback::baseline_note",
+                tableName: "feedback",
+                textColumnName: "baseline_note",
+                syntheticCodeColumnName: "baseline_note_coded",
+                rowCount: 3,
+                nonEmptyRowCount: 3,
+                sampleExcerpts: ["I felt more prepared."],
+                existingCodeColumnNames: [],
+                proposedCodes: [
+                  {
+                    code: "preparedness",
+                    label: "Preparedness",
+                    description: "Statements about feeling more prepared.",
+                    exampleExcerpts: ["I felt more prepared."],
+                  },
+                ],
+                proposedAssignments: [
+                  { rowIndex: 0, assignedCode: "preparedness" },
+                ],
+                sourceCodebookFrom: null,
+                sourceCodebookOriginalFileName: null,
+              },
+            ],
+          },
+          decisions: {
+            columnDecisions: [
+              {
+                findingKey: "feedback::baseline_note",
+                decision: "approve_as_proposed",
+                decidedById: "user-1",
+                decidedAt: "2026-08-11T10:00:00.000Z",
+              },
+            ],
+          },
+          approvedById: "user-1",
+          approvedAt: new Date("2026-08-11T10:00:00.000Z"),
+          createdAt: new Date("2026-08-11T10:00:00.000Z"),
+          updatedAt: new Date("2026-08-11T10:00:00.000Z"),
+        },
+      ],
+    },
+    pythonProcessingClient: {
+      proposeQualitativeCodingReview: async (input) => {
+        pythonRequest = input;
+        return { findings: [], llmUsage: null };
+      },
+    },
+  });
+
+  await service.generate("user-1", "upload-1", "de", {
+    sourceCodebookSelections: [
+      {
+        targetFindingKey: "feedback::reflection_note",
+        sourceCodebookFrom: {
+          uploadMetadataId: "upload-source",
+          findingKey: "feedback::baseline_note",
+        },
+      },
+    ],
+  });
+
+  assert.ok(pythonRequest, "Expected the Python request to be captured.");
+  const capturedPythonRequest = pythonRequest as CapturedPythonRequest;
+  assert.deepEqual(capturedPythonRequest.sourceCodebookSelections, [
+    {
+      targetFindingKey: "feedback::reflection_note",
+      sourceCodebookFrom: {
+        uploadMetadataId: "upload-source",
+        findingKey: "feedback::baseline_note",
+      },
+      sourceCodebookCodes: [
+        {
+          code: "preparedness",
+          label: "Preparedness",
+          description: "Statements about feeling more prepared.",
+          exampleExcerpts: ["I felt more prepared."],
+        },
+      ],
+      sourceCodebookOriginalFileName: "baseline-reflection.csv",
+    },
+  ]);
+});
+
+test("generate rejects a source codebook selection whose finding is not approved for reuse", async () => {
+  const service = createService({
+    uploadMetadataRepository: {
+      listByActivityIds: async () => [
+        {
+          id: "upload-1",
+          organizationId: "org-1",
+          projectId: "project-1",
+          activityId: "activity-1",
+          sourceWorkbookUploadMetadataId: null,
+          derivedSheetName: null,
+          derivedSheetIndex: null,
+          logicalEvidenceId: "logical-1",
+          versionNumber: 1,
+          replacesUploadMetadataId: null,
+          supersededAt: null,
+          originalFileName: "reflection.csv",
+          contentType: "text/csv",
+          sizeBytes: 123,
+          storageKey: "files/reflection.csv",
+          originalFileDeletedAt: null,
+          status: "uploaded",
+          datasetRole: null,
+          uploadedById: "user-1",
+          uploadedByName: "User",
+          createdAt: new Date("2026-08-11T10:00:00.000Z"),
+          updatedAt: new Date("2026-08-11T10:00:00.000Z"),
+        },
+        {
+          id: "upload-source",
+          organizationId: "org-1",
+          projectId: "project-1",
+          activityId: "activity-1",
+          sourceWorkbookUploadMetadataId: null,
+          derivedSheetName: null,
+          derivedSheetIndex: null,
+          logicalEvidenceId: "logical-2",
+          versionNumber: 1,
+          replacesUploadMetadataId: null,
+          supersededAt: null,
+          originalFileName: "baseline-reflection.csv",
+          contentType: "text/csv",
+          sizeBytes: 123,
+          storageKey: "files/baseline-reflection.csv",
+          originalFileDeletedAt: null,
+          status: "uploaded",
+          datasetRole: null,
+          uploadedById: "user-1",
+          uploadedByName: "User",
+          createdAt: new Date("2026-08-10T10:00:00.000Z"),
+          updatedAt: new Date("2026-08-10T10:00:00.000Z"),
+        },
+      ],
+    },
+    qualitativeCodingReviewRepository: {
+      findByUploadMetadataId: async () => null,
+      findByUploadMetadataIds: async () => [
+        {
+          id: "review-source",
+          organizationId: "org-1",
+          projectId: "project-1",
+          activityId: "activity-1",
+          uploadMetadataId: "upload-source",
+          privacySafeRepresentationId: "psr-source",
+          interpretationResultId: "interpretation-source",
+          status: "approved",
+          findings: {
+            summary: [
+              {
+                findingKey: "feedback::baseline_note",
+                tableName: "feedback",
+                textColumnName: "baseline_note",
+                syntheticCodeColumnName: "baseline_note_coded",
+                rowCount: 3,
+                nonEmptyRowCount: 3,
+                sampleExcerpts: ["I felt more prepared."],
+                existingCodeColumnNames: [],
+                proposedCodes: [
+                  {
+                    code: "preparedness",
+                    label: "Preparedness",
+                    description: "Statements about feeling more prepared.",
+                    exampleExcerpts: ["I felt more prepared."],
+                  },
+                ],
+                proposedAssignments: [
+                  { rowIndex: 0, assignedCode: "preparedness" },
+                ],
+                sourceCodebookFrom: null,
+                sourceCodebookOriginalFileName: null,
+              },
+            ],
+          },
+          decisions: {
+            columnDecisions: [
+              {
+                findingKey: "feedback::baseline_note",
+                decision: "reject_for_now",
+                decidedById: "user-1",
+                decidedAt: "2026-08-11T10:00:00.000Z",
+              },
+            ],
+          },
+          approvedById: "user-1",
+          approvedAt: new Date("2026-08-11T10:00:00.000Z"),
+          createdAt: new Date("2026-08-11T10:00:00.000Z"),
+          updatedAt: new Date("2026-08-11T10:00:00.000Z"),
+        },
+      ],
+    },
+  });
+
+  await assert.rejects(
+    service.generate("user-1", "upload-1", "de", {
+      sourceCodebookSelections: [
+        {
+          targetFindingKey: "feedback::reflection_note",
+          sourceCodebookFrom: {
+            uploadMetadataId: "upload-source",
+            findingKey: "feedback::baseline_note",
+          },
+        },
+      ],
+    }),
+    (error: unknown) =>
+      error instanceof AppError &&
+      error.statusCode === 409 &&
+      error.code ===
+        "qualitative_coding_review_source_codebook_finding_not_approved",
+  );
 });
 
 test("assertReadyToGenerate rejects when another job is already generating a review for this upload", async () => {
@@ -406,12 +707,9 @@ test("generate's own defensive re-check does not reject itself against the job i
     },
   });
 
-  const review = await service.generate(
-    "user-1",
-    "upload-1",
-    "de",
-    "job-current",
-  );
+  const review = await service.generate("user-1", "upload-1", "de", {
+    currentJobId: "job-current",
+  });
 
   assert.equal(review.status, "pending");
 });

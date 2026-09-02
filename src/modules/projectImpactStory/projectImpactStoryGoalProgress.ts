@@ -28,6 +28,7 @@ function computeGoalProgressPercent(
 // paired-delta group chart from impactCatalog.
 export function buildProjectImpactStoryGoalProgressEntries(
   catalog: ProjectImpactStoryCatalogEntry[],
+  goalDisplayLabelsByGoalText: Map<string, string> = new Map(),
 ): ProjectImpactStoryGoalProgressEntry[] {
   const entries: ProjectImpactStoryGoalProgressEntry[] = [];
 
@@ -63,6 +64,8 @@ export function buildProjectImpactStoryGoalProgressEntries(
     entries.push({
       entryId: entry.entryId,
       label: entry.goalText,
+      displayLabel:
+        goalDisplayLabelsByGoalText.get(entry.goalText) ?? entry.goalText,
       activityName: entry.activityName,
       progressPercent: computeGoalProgressPercent(
         entry.measuredValue,

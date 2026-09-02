@@ -72,6 +72,7 @@ function makePreparation(
       primaryDateFields: [],
       epistemicRoleClarifications: [],
       cohortTags: [],
+      scaleDirections: [],
     },
     preparedDataset: {
       evidenceModality: "structured_quantitative",

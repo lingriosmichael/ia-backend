@@ -2,9 +2,12 @@ import type { FastifyBaseLogger } from "fastify";
 import type {
   ApproveQualitativeCodingReviewResponse,
   GenerateQualitativeCodingReviewResponse,
+  QualitativeCodingReviewFindingRecord,
   QualitativeCodingReviewDecisions,
   QualitativeCodingReviewDecisionsInput,
   QualitativeCodingReviewRecord,
+  QualitativeCodingReviewSourceCodebookSelectionInput,
+  QualitativeCodingReviewSuggestedCode,
 } from "../../shared/contracts.js";
 import { AuthorizationService } from "../../shared/auth/authorizationService.js";
 import { databaseSession } from "../../shared/database/databaseClient.js";
@@ -31,11 +34,6 @@ function readFindingsSummary(
     : [];
 }
 
-function stripExtension(fileName: string): string {
-  const index = fileName.lastIndexOf(".");
-  return index >= 0 ? fileName.slice(0, index) : fileName;
-}
-
 function readString(value: unknown): string | null {
   return typeof value === "string" ? value.trim() : null;
 }
@@ -44,19 +42,14 @@ function readRecordArray(value: unknown): Record<string, unknown>[] {
   return Array.isArray(value) ? value.filter(isRecord) : [];
 }
 
-function codebookTargetFileName(fileName: string): string {
-  return `${stripExtension(fileName)}_codebook.csv`.toLowerCase();
-}
-
 type SourceCodebook = {
+  sourceCodebookFrom: {
+    uploadMetadataId: string;
+    findingKey: string;
+  };
   uploadMetadataId: string;
   originalFileName: string;
-  codes: Array<{
-    code: string;
-    label: string;
-    description: string;
-    exampleExcerpts: string[];
-  }>;
+  codes: QualitativeCodingReviewSuggestedCode[];
 };
 
 type QualitativeCodingRequestSummary = {
@@ -73,11 +66,13 @@ type QualitativeCodingRequestSummary = {
       epistemicRole: string | null;
     }>;
   }>;
-  sourceCodebook: {
-    uploadMetadataId: string;
-    originalFileName: string;
+  sourceCodebookSelections: Array<{
+    targetFindingKey: string;
+    sourceUploadMetadataId: string;
+    sourceFindingKey: string;
+    sourceOriginalFileName: string;
     codeCount: number;
-  } | null;
+  }>;
 };
 
 function summarizePayloadTables(payload: Record<string, unknown>) {
@@ -127,48 +122,125 @@ function summarizeProposalFindings(findings: Array<Record<string, unknown>>) {
     proposedAssignmentCount: Array.isArray(finding.proposedAssignments)
       ? finding.proposedAssignments.length
       : 0,
+    sourceCodebookFrom:
+      isRecord(finding.sourceCodebookFrom) &&
+      typeof finding.sourceCodebookFrom.uploadMetadataId === "string" &&
+      typeof finding.sourceCodebookFrom.findingKey === "string"
+        ? {
+            uploadMetadataId: finding.sourceCodebookFrom.uploadMetadataId,
+            findingKey: finding.sourceCodebookFrom.findingKey,
+          }
+        : null,
   }));
 }
 
-function parseSourceCodebookCodes(
-  payload: Record<string, unknown>,
-): SourceCodebook["codes"] {
-  const firstTable = readRecordArray(payload.tables)[0] ?? null;
-  if (!firstTable) {
-    return [];
+function readFindingRecord(
+  finding: Record<string, unknown>,
+): QualitativeCodingReviewFindingRecord | null {
+  const findingKey = readString(finding.findingKey);
+  const tableName = readString(finding.tableName);
+  const textColumnName = readString(finding.textColumnName);
+  const syntheticCodeColumnName = readString(finding.syntheticCodeColumnName);
+  const rowCount =
+    typeof finding.rowCount === "number" ? finding.rowCount : null;
+  const nonEmptyRowCount =
+    typeof finding.nonEmptyRowCount === "number"
+      ? finding.nonEmptyRowCount
+      : null;
+  if (
+    !findingKey ||
+    !tableName ||
+    !textColumnName ||
+    !syntheticCodeColumnName ||
+    rowCount === null ||
+    nonEmptyRowCount === null
+  ) {
+    return null;
   }
 
-  const rows = readRecordArray(firstTable.rows);
-  return rows
-    .map((row) => {
-      const code =
-        readString(row.code) ??
-        readString(row.theme) ??
-        readString(row.category) ??
-        null;
-      const label =
-        readString(row.label) ??
-        readString(row.name) ??
-        readString(row.title) ??
-        code;
-      const description =
-        readString(row.description) ??
-        readString(row.definition) ??
-        readString(row.meaning) ??
-        label;
-      if (!code || !label || !description) {
-        return null;
-      }
-      return {
-        code,
-        label,
-        description,
-        exampleExcerpts: [],
-      };
-    })
-    .filter((entry): entry is NonNullable<typeof entry> =>
-      Boolean(entry && entry.code && entry.label && entry.description),
-    );
+  const sourceCodebookFrom =
+    isRecord(finding.sourceCodebookFrom) &&
+    typeof finding.sourceCodebookFrom.uploadMetadataId === "string" &&
+    typeof finding.sourceCodebookFrom.findingKey === "string"
+      ? {
+          uploadMetadataId: finding.sourceCodebookFrom.uploadMetadataId,
+          findingKey: finding.sourceCodebookFrom.findingKey,
+        }
+      : null;
+
+  return {
+    findingKey,
+    tableName,
+    textColumnName,
+    syntheticCodeColumnName,
+    rowCount,
+    nonEmptyRowCount,
+    sampleExcerpts: Array.isArray(finding.sampleExcerpts)
+      ? finding.sampleExcerpts.filter(
+          (excerpt): excerpt is string => typeof excerpt === "string",
+        )
+      : [],
+    existingCodeColumnNames: Array.isArray(finding.existingCodeColumnNames)
+      ? finding.existingCodeColumnNames.filter(
+          (columnName): columnName is string => typeof columnName === "string",
+        )
+      : [],
+    proposedCodes: readRecordArray(finding.proposedCodes)
+      .map((code) => {
+        const parsedCode = readString(code.code);
+        const label = readString(code.label);
+        const description = readString(code.description);
+        if (!parsedCode || !label || !description) {
+          return null;
+        }
+        return {
+          code: parsedCode,
+          label,
+          description,
+          exampleExcerpts: Array.isArray(code.exampleExcerpts)
+            ? code.exampleExcerpts.filter(
+                (excerpt): excerpt is string => typeof excerpt === "string",
+              )
+            : [],
+        } satisfies QualitativeCodingReviewSuggestedCode;
+      })
+      .filter(
+        (code): code is QualitativeCodingReviewSuggestedCode => code !== null,
+      ),
+    proposedAssignments: readRecordArray(finding.proposedAssignments)
+      .map((assignment) => {
+        if (typeof assignment.rowIndex !== "number") {
+          return null;
+        }
+        return {
+          rowIndex: assignment.rowIndex,
+          assignedCode:
+            typeof assignment.assignedCode === "string"
+              ? assignment.assignedCode
+              : null,
+        };
+      })
+      .filter(
+        (
+          assignment,
+        ): assignment is QualitativeCodingReviewFindingRecord["proposedAssignments"][number] =>
+          assignment !== null,
+      ),
+    sourceCodebookFrom,
+    sourceCodebookOriginalFileName: readString(
+      finding.sourceCodebookOriginalFileName,
+    ),
+  };
+}
+
+function approvedDecisionKeys(review: {
+  decisions: QualitativeCodingReviewDecisions | null;
+}): Set<string> {
+  return new Set(
+    (review.decisions?.columnDecisions ?? [])
+      .filter((decision) => decision.decision === "approve_as_proposed")
+      .map((decision) => decision.findingKey),
+  );
 }
 
 export class QualitativeCodingReviewService {
@@ -324,64 +396,145 @@ export class QualitativeCodingReviewService {
     return { upload, privacySafeRepresentation, interpretationResult };
   }
 
+  private async resolveSourceCodebookSelections(
+    targetUploadMetadataId: string,
+    activityId: string | null,
+    selections: QualitativeCodingReviewSourceCodebookSelectionInput[],
+  ): Promise<
+    Array<
+      SourceCodebook & {
+        targetFindingKey: string;
+      }
+    >
+  > {
+    if (selections.length === 0) {
+      return [];
+    }
+    if (!activityId) {
+      throw new AppError(
+        "A source codebook can only be reused within the same activity.",
+        400,
+        "qualitative_coding_review_source_codebook_activity_required",
+      );
+    }
+
+    const activityUploads =
+      await this.uploadMetadataRepository.listByActivityIds(
+        [activityId],
+        databaseSession,
+      );
+    const activityUploadById = new Map(
+      activityUploads.map((upload) => [upload.id, upload]),
+    );
+    const sourceUploadIds = [
+      ...new Set(
+        selections.map(
+          (selection) => selection.sourceCodebookFrom.uploadMetadataId,
+        ),
+      ),
+    ];
+    const sourceReviews =
+      await this.qualitativeCodingReviewRepository.findByUploadMetadataIds(
+        sourceUploadIds,
+        databaseSession,
+      );
+    const sourceReviewByUploadId = new Map(
+      sourceReviews.map((review) => [review.uploadMetadataId, review]),
+    );
+
+    return selections.map((selection) => {
+      const sourceUpload = activityUploadById.get(
+        selection.sourceCodebookFrom.uploadMetadataId,
+      );
+      if (!sourceUpload || sourceUpload.id === targetUploadMetadataId) {
+        throw new AppError(
+          "The selected source codebook must come from another upload in the same activity.",
+          400,
+          "qualitative_coding_review_source_codebook_not_found",
+        );
+      }
+
+      const sourceReview = sourceReviewByUploadId.get(sourceUpload.id);
+      if (!sourceReview || sourceReview.status !== "approved") {
+        throw new AppError(
+          "The selected source codebook is not available because its qualitative coding review is not approved.",
+          409,
+          "qualitative_coding_review_source_codebook_not_approved",
+        );
+      }
+
+      const approvedKeys = approvedDecisionKeys(sourceReview);
+      const sourceFinding =
+        readFindingsSummary(sourceReview.findings)
+          .map(readFindingRecord)
+          .find(
+            (finding) =>
+              finding !== null &&
+              finding.findingKey === selection.sourceCodebookFrom.findingKey,
+          ) ?? null;
+      if (!sourceFinding || !approvedKeys.has(sourceFinding.findingKey)) {
+        throw new AppError(
+          "The selected source codebook finding is not approved for reuse.",
+          409,
+          "qualitative_coding_review_source_codebook_finding_not_approved",
+        );
+      }
+      if (sourceFinding.proposedCodes.length === 0) {
+        throw new AppError(
+          "The selected source codebook finding has no reusable codes.",
+          409,
+          "qualitative_coding_review_source_codebook_empty",
+        );
+      }
+
+      return {
+        targetFindingKey: selection.targetFindingKey,
+        sourceCodebookFrom: selection.sourceCodebookFrom,
+        uploadMetadataId: sourceUpload.id,
+        originalFileName: sourceUpload.originalFileName,
+        codes: sourceFinding.proposedCodes,
+      };
+    });
+  }
+
   async generate(
     userId: string,
     uploadMetadataId: string,
     language: "de" | "en",
-    // The id of the qualitative_coding_review job currently executing this
-    // call (activityAnalysisWorker.ts passes its own job.id) — excluded
-    // from the active-job check inside assertReadyToGenerate, since this
-    // job is itself "active" by the time it reaches this defensive
-    // re-check. Left undefined only by tests that call generate() directly.
-    currentJobId?: string,
+    options?: {
+      sourceCodebookSelections?: QualitativeCodingReviewSourceCodebookSelectionInput[];
+      // The id of the qualitative_coding_review job currently executing this
+      // call (activityAnalysisWorker.ts passes its own job.id) — excluded
+      // from the active-job check inside assertReadyToGenerate, since this
+      // job is itself "active" by the time it reaches this defensive
+      // re-check. Left undefined only by tests that call generate() directly.
+      currentJobId?: string;
+    },
   ): Promise<GenerateQualitativeCodingReviewResponse["review"]> {
     const { upload, privacySafeRepresentation, interpretationResult } =
-      await this.assertReadyToGenerate(userId, uploadMetadataId, currentJobId);
+      await this.assertReadyToGenerate(
+        userId,
+        uploadMetadataId,
+        options?.currentJobId,
+      );
 
-    let sourceCodebook: SourceCodebook | null = null;
-    if (upload.activityId) {
-      const siblingUploads =
-        await this.uploadMetadataRepository.listByActivityIds(
-          [upload.activityId],
-          databaseSession,
-        );
-      const matchingCodebookUpload =
-        siblingUploads.find(
-          (candidate) =>
-            candidate.id !== upload.id &&
-            candidate.originalFileName.toLowerCase() ===
-              codebookTargetFileName(upload.originalFileName),
-        ) ?? null;
-
-      if (matchingCodebookUpload) {
-        const codebookRepresentation =
-          await this.privacySafeRepresentationRepository.findLatestByUploadMetadataId(
-            matchingCodebookUpload.id,
-            databaseSession,
-          );
-        if (codebookRepresentation) {
-          const parsedCodes = parseSourceCodebookCodes(
-            codebookRepresentation.payload,
-          );
-          if (parsedCodes.length > 0) {
-            sourceCodebook = {
-              uploadMetadataId: matchingCodebookUpload.id,
-              originalFileName: matchingCodebookUpload.originalFileName,
-              codes: parsedCodes,
-            };
-          }
-        }
-      }
-    }
+    const sourceCodebookSelections = await this.resolveSourceCodebookSelections(
+      upload.id,
+      upload.activityId,
+      options?.sourceCodebookSelections ?? [],
+    );
 
     const pythonRequest = {
       uploadMetadataId,
       originalFileName: upload.originalFileName,
       language,
       privacySafePayload: privacySafeRepresentation.payload,
-      sourceCodebookCodes: sourceCodebook?.codes ?? [],
-      sourceCodebookUploadMetadataId: sourceCodebook?.uploadMetadataId ?? null,
-      sourceCodebookOriginalFileName: sourceCodebook?.originalFileName ?? null,
+      sourceCodebookSelections: sourceCodebookSelections.map((selection) => ({
+        targetFindingKey: selection.targetFindingKey,
+        sourceCodebookFrom: selection.sourceCodebookFrom,
+        sourceCodebookCodes: selection.codes,
+        sourceCodebookOriginalFileName: selection.originalFileName,
+      })),
       datasetProfileTables: (
         interpretationResult.datasetProfile?.tables ?? []
       ).map((table) => ({
@@ -398,13 +551,13 @@ export class QualitativeCodingReviewService {
         privacySafeRepresentation.payload,
       ),
       datasetProfileTables: summarizeDatasetProfileTables(interpretationResult),
-      sourceCodebook: sourceCodebook
-        ? {
-            uploadMetadataId: sourceCodebook.uploadMetadataId,
-            originalFileName: sourceCodebook.originalFileName,
-            codeCount: sourceCodebook.codes.length,
-          }
-        : null,
+      sourceCodebookSelections: sourceCodebookSelections.map((selection) => ({
+        targetFindingKey: selection.targetFindingKey,
+        sourceUploadMetadataId: selection.uploadMetadataId,
+        sourceFindingKey: selection.sourceCodebookFrom.findingKey,
+        sourceOriginalFileName: selection.originalFileName,
+        codeCount: selection.codes.length,
+      })),
     };
 
     this.logger.info(

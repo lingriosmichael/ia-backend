@@ -4,6 +4,7 @@ import type {
   ImpactCatalogEntry,
   ImpactCatalogItem,
   OutcomeDistributionEntry,
+  PairedCategoricalShiftEntry,
 } from "../../shared/contracts.js";
 import { ActivityAnalysisV2ToolExecutor } from "../interpretation/activityAnalysisV2ToolExecutor.js";
 import type { ActivityAnalysisV2ToolRequest } from "../interpretation/activityAnalysisV2ToolTypes.js";
@@ -13,8 +14,12 @@ import {
   type CurrentActivityEvidenceSnapshot,
 } from "../interpretation/currentActivityEvidenceLoader.js";
 import { humanizeColumnName } from "../interpretation/activityAnalysisV2Service.js";
+import type { InterpretationResultRepository } from "../interpretation/interpretationResultRepository.js";
+import type { DatasetPreparationRepository } from "../interpretation/datasetPreparationRepository.js";
+import type { DatasetPreparationPersistenceRecord } from "../interpretation/datasetPreparationPersistence.js";
 import type { OutcomeEvidenceLinkPersistenceRecord } from "../outcome/outcomeEvidenceLinkPersistence.js";
 import type { ProjectOutcomeStatementPersistenceRecord } from "../outcome/projectOutcomeStatementPersistence.js";
+import { databaseSession } from "../../shared/database/databaseClient.js";
 
 // A single small, fixed-cost tool-executor call per pair — never an
 // LLM-planned batch, so a generous maxToolCalls headroom is unnecessary.
@@ -28,6 +33,17 @@ const PAIRED_DELTA_MEASUREMENT_RUN_LIMITS: ActivityAnalysisRunV2RunLimits = {
   timeoutMs: 30_000,
   maxEvidenceItems: 200,
 };
+
+// Distinguishes "the join/measurement genuinely produced no usable pairing"
+// (e.g. a candidate matchKey that doesn't actually match respondents, or a
+// confirmed link whose evidence changed shape since confirmation) from any
+// other failure (a broken tool-executor call, a network error). Callers
+// that try multiple candidate keys — see
+// outcomeEvidenceRecommendationApprovalService.ts's
+// selectBestMatchKeyOrThrow/selectBestCategoricalShiftMatchKeyOrThrow — need
+// this distinction to know a caught error means "try the next candidate"
+// rather than "abort, something is actually broken."
+export class PairedMeasurementNoUsableResultError extends Error {}
 
 // pairingGroupKey is the human-authored instrument label (e.g. "Wellbeing
 // scale") declared via the pairing_group_key question — a better label
@@ -58,6 +74,13 @@ export interface PairedDeltaPairingShape {
 export interface PairedDeltaMeasurement {
   beforeValue: number;
   afterValue: number;
+  nMatched: number;
+  nBaseline: number;
+}
+
+export interface PairedCategoricalShiftMeasurement {
+  beforeShares: { labelDe: string; count: number }[];
+  afterShares: { labelDe: string; count: number }[];
   nMatched: number;
   nBaseline: number;
 }
@@ -167,7 +190,7 @@ export async function computePairedDeltaMeasurement(
     typeof pairedChangeResult.meanPre !== "number" ||
     typeof pairedChangeResult.meanPost !== "number"
   ) {
-    throw new Error(
+    throw new PairedMeasurementNoUsableResultError(
       `paired_change did not return a usable result for ${pair.beforeTableName} -> ${pair.afterTableName} on ${pair.matchKey}`,
     );
   }
@@ -193,13 +216,257 @@ export async function computePairedDeltaMeasurement(
   };
 }
 
+export async function computePairedCategoricalShiftMeasurement(
+  currentActivityEvidenceLoader: CurrentActivityEvidenceLoader,
+  activityAnalysisV2ToolExecutor: ActivityAnalysisV2ToolExecutor,
+  pair: PairedDeltaPairingShape,
+): Promise<PairedCategoricalShiftMeasurement> {
+  const snapshot = await loadCombinedEvidenceSnapshot(
+    currentActivityEvidenceLoader,
+    [pair.activityIdBefore, pair.activityIdAfter],
+  );
+
+  const requests: ActivityAnalysisV2ToolRequest[] = [
+    {
+      toolName: "count_rows",
+      arguments: {
+        uploadMetadataId: pair.beforeUploadMetadataId,
+        tableName: pair.beforeTableName,
+      },
+    },
+    {
+      toolName: "join_tables",
+      alias: "joined",
+      arguments: {
+        left: {
+          uploadMetadataId: pair.beforeUploadMetadataId,
+          tableName: pair.beforeTableName,
+        },
+        right: {
+          uploadMetadataId: pair.afterUploadMetadataId,
+          tableName: pair.afterTableName,
+        },
+        keys: [
+          { leftColumnName: pair.matchKey, rightColumnName: pair.matchKey },
+        ],
+        leftPrefix: "before",
+        rightPrefix: "after",
+      },
+    },
+    {
+      toolName: "paired_category_shift",
+      alias: "shift",
+      arguments: {
+        resultAlias: "joined",
+        entityColumnName: pair.matchKey,
+        beforeCategoryColumnName: `before_${pair.beforeColumnName}`,
+        afterCategoryColumnName: `after_${pair.afterColumnName}`,
+      },
+    },
+  ];
+
+  const execution = await activityAnalysisV2ToolExecutor.execute(
+    requests,
+    snapshot,
+    PAIRED_DELTA_MEASUREMENT_RUN_LIMITS,
+    Date.now(),
+  );
+
+  const nBaseline = Number(
+    execution.calculations.find((c) => c.toolName === "count_rows")?.value ?? 0,
+  );
+  const pairedShiftResult = execution.calculations.find(
+    (c) => c.toolName === "paired_category_shift",
+  )?.result as
+    | {
+        pairedCount?: number;
+        beforeCounts?: Array<{ label?: string; count?: number }>;
+        afterCounts?: Array<{ label?: string; count?: number }>;
+      }
+    | undefined;
+  if (
+    !pairedShiftResult ||
+    typeof pairedShiftResult.pairedCount !== "number" ||
+    pairedShiftResult.pairedCount === 0 ||
+    !Array.isArray(pairedShiftResult.beforeCounts) ||
+    !Array.isArray(pairedShiftResult.afterCounts)
+  ) {
+    // pairedCount === 0 is checked explicitly (unlike computePairedDeltaMeasurement's
+    // sibling check above) because an empty join here still produces a
+    // type-valid result — pairedCount: 0 and beforeCounts/afterCounts: []
+    // both pass the type checks alone, which would otherwise let a failed
+    // join silently resolve as a zero-evidence entry instead of erroring.
+    throw new PairedMeasurementNoUsableResultError(
+      `paired_category_shift did not return a usable result for ${pair.beforeTableName} -> ${pair.afterTableName} on ${pair.matchKey}`,
+    );
+  }
+
+  const normalizeCounts = (counts: Array<{ label?: string; count?: number }>) =>
+    counts
+      .filter(
+        (group): group is { label: string; count: number } =>
+          typeof group.label === "string" && typeof group.count === "number",
+      )
+      .map((group) => ({ labelDe: group.label, count: group.count }));
+
+  return {
+    beforeShares: normalizeCounts(pairedShiftResult.beforeCounts),
+    afterShares: normalizeCounts(pairedShiftResult.afterCounts),
+    nMatched: pairedShiftResult.pairedCount,
+    nBaseline,
+  };
+}
+
 function roundToOneDecimal(value: number): number {
   return Math.round(value * 10) / 10;
 }
 
+// IMPACT_STORY_CHART_IMPROVEMENT_PLAN.md §3 — a bare table name is
+// frequently the raw upload filename stem (evidence_parser.py derives
+// sheet_name from it for single-sheet uploads), never a human
+// description. There is no richer field to look up (UploadMetadata has
+// none), so this pairs the table name with its owning activity's real,
+// human-authored name instead — strictly more context than a bare table
+// name, with no schema change. The table name itself is still shown, just
+// run through the same humanizeColumnName underscore/casing cleanup this
+// module already uses for column names — real improvement on a messy
+// filename stem, but not a substitute for an actual human-authored label,
+// which would need a genuine UploadMetadata field, not a formatting trick.
+// Falls back to the bare table name if the activity can't be resolved
+// (never throws over cosmetic metadata).
+function buildSingleTableSourceCaptionDe(
+  activityNameById: Map<string, string>,
+  activityId: string,
+  tableName: string,
+): string {
+  const activityName = activityNameById.get(activityId);
+  const humanizedTableName = humanizeColumnName(tableName);
+  return activityName
+    ? `Quelle: ${activityName} — ${humanizedTableName}`
+    : `Quelle: ${humanizedTableName}`;
+}
+
+// Same rationale as buildSingleTableSourceCaptionDe, for a before/after
+// pair. Names the activity once, not twice, when both sides belong to the
+// same activity (the common case post-outcome-evidence-merge, where
+// before/after live on one merged system activity) — repeating an
+// identical activity name on both sides of the arrow would be noise, not
+// context.
+function buildPairedSourceCaptionDe(
+  activityNameById: Map<string, string>,
+  beforeActivityId: string,
+  beforeTableName: string,
+  afterActivityId: string,
+  afterTableName: string,
+): string {
+  const beforeActivityName = activityNameById.get(beforeActivityId);
+  const afterActivityName = activityNameById.get(afterActivityId);
+  const humanizedBeforeTableName = humanizeColumnName(beforeTableName);
+  const humanizedAfterTableName = humanizeColumnName(afterTableName);
+  const beforeLabel = beforeActivityName
+    ? `${beforeActivityName} — ${humanizedBeforeTableName}`
+    : humanizedBeforeTableName;
+  const afterLabel =
+    afterActivityName && afterActivityName !== beforeActivityName
+      ? `${afterActivityName} — ${humanizedAfterTableName}`
+      : humanizedAfterTableName;
+  return `Quelle: ${beforeLabel} → ${afterLabel}`;
+}
+
+function findPreparedScaleDirection(
+  preparation: DatasetPreparationPersistenceRecord | undefined,
+  tableName: string,
+  columnName: string,
+): "higher_is_better" | "lower_is_better" | null {
+  const table = preparation?.preparedDataset?.tables.find(
+    (candidate) => candidate.name === tableName,
+  );
+  const column = table?.columns.find(
+    (candidate) => candidate.name === columnName,
+  );
+  return column?.scaleDirection ?? null;
+}
+
+// IMPACT_STORY_CHART_IMPROVEMENT_PLAN.md §4 consumer 1. Conservative by
+// design: either column declaring "lower_is_better" is enough to mark the
+// whole pair reverse-scored, even if the other column disagrees or was
+// never answered — a false "exclude from the shared chart" costs nothing
+// but a slightly smaller group chart; a false "include" would misrepresent
+// a reverse-scored measurement as if higher were better, the exact failure
+// this consumer exists to prevent. Never throws — any lookup failure
+// (evidence re-uploaded since confirmation, question never asked) resolves
+// to null (treated as "not reverse-scored, include") rather than failing
+// the whole pair the way computePairedDeltaMeasurement's own failures do;
+// this metadata is supplementary, not part of the core measurement.
+async function resolvePairedDeltaScaleDirection(
+  deps: {
+    interpretationResultRepository: InterpretationResultRepository;
+    datasetPreparationRepository: DatasetPreparationRepository;
+  },
+  link: Extract<
+    OutcomeEvidenceLinkPersistenceRecord,
+    { shape: "paired_delta" }
+  >,
+): Promise<"higher_is_better" | "lower_is_better" | null> {
+  try {
+    const results =
+      await deps.interpretationResultRepository.findLatestByUploadMetadataIds(
+        [link.beforeUploadMetadataId, link.afterUploadMetadataId],
+        databaseSession,
+      );
+    if (results.length === 0) {
+      return null;
+    }
+
+    const preparations =
+      await deps.datasetPreparationRepository.findByInterpretationResultIds(
+        results.map((result) => result.id),
+        databaseSession,
+      );
+    const preparationByUploadId = new Map(
+      preparations.map((preparation) => [
+        preparation.uploadMetadataId,
+        preparation,
+      ]),
+    );
+
+    const beforeDirection = findPreparedScaleDirection(
+      preparationByUploadId.get(link.beforeUploadMetadataId),
+      link.beforeTableName,
+      link.beforeColumnName,
+    );
+    const afterDirection = findPreparedScaleDirection(
+      preparationByUploadId.get(link.afterUploadMetadataId),
+      link.afterTableName,
+      link.afterColumnName,
+    );
+
+    if (
+      beforeDirection === "lower_is_better" ||
+      afterDirection === "lower_is_better"
+    ) {
+      return "lower_is_better";
+    }
+    if (
+      beforeDirection === "higher_is_better" &&
+      afterDirection === "higher_is_better"
+    ) {
+      return "higher_is_better";
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
 async function buildPairedDeltaEntry(
-  currentActivityEvidenceLoader: CurrentActivityEvidenceLoader,
-  activityAnalysisV2ToolExecutor: ActivityAnalysisV2ToolExecutor,
+  deps: {
+    currentActivityEvidenceLoader: CurrentActivityEvidenceLoader;
+    activityAnalysisV2ToolExecutor: ActivityAnalysisV2ToolExecutor;
+    interpretationResultRepository: InterpretationResultRepository;
+    datasetPreparationRepository: DatasetPreparationRepository;
+    activityNameById: Map<string, string>;
+  },
   link: Extract<
     OutcomeEvidenceLinkPersistenceRecord,
     { shape: "paired_delta" }
@@ -207,10 +474,11 @@ async function buildPairedDeltaEntry(
   outcome: ProjectOutcomeStatementPersistenceRecord,
 ): Promise<ImpactCatalogEntry> {
   const measurement = await computePairedDeltaMeasurement(
-    currentActivityEvidenceLoader,
-    activityAnalysisV2ToolExecutor,
+    deps.currentActivityEvidenceLoader,
+    deps.activityAnalysisV2ToolExecutor,
     link,
   );
+  const scaleDirection = await resolvePairedDeltaScaleDirection(deps, link);
 
   return {
     entryId: link.linkId,
@@ -220,7 +488,14 @@ async function buildPairedDeltaEntry(
     outcomeStatement: outcome.statement,
     pairLabelDe: buildPairLabelDe(link.pairingGroupKey),
     ...measurement,
-    sourceDe: `Quelle: ${link.beforeTableName} → ${link.afterTableName}`,
+    sourceDe: buildPairedSourceCaptionDe(
+      deps.activityNameById,
+      link.activityIdBefore,
+      link.beforeTableName,
+      link.activityIdAfter,
+      link.afterTableName,
+    ),
+    scaleDirection,
   };
 }
 
@@ -232,6 +507,7 @@ async function buildSingleDistributionEntry(
     { shape: "single_distribution" }
   >,
   outcome: ProjectOutcomeStatementPersistenceRecord,
+  activityNameById: Map<string, string>,
 ): Promise<OutcomeDistributionEntry> {
   const snapshot = await loadCombinedEvidenceSnapshot(
     currentActivityEvidenceLoader,
@@ -276,7 +552,45 @@ async function buildSingleDistributionEntry(
     questionLabelDe: humanizeColumnName(link.categoryColumnName),
     shares,
     n,
-    sourceDe: `Quelle: ${link.tableName}`,
+    sourceDe: buildSingleTableSourceCaptionDe(
+      activityNameById,
+      link.activityId,
+      link.tableName,
+    ),
+  };
+}
+
+async function buildPairedCategoricalShiftEntry(
+  currentActivityEvidenceLoader: CurrentActivityEvidenceLoader,
+  activityAnalysisV2ToolExecutor: ActivityAnalysisV2ToolExecutor,
+  link: Extract<
+    OutcomeEvidenceLinkPersistenceRecord,
+    { shape: "paired_categorical_shift" }
+  >,
+  outcome: ProjectOutcomeStatementPersistenceRecord,
+  activityNameById: Map<string, string>,
+): Promise<PairedCategoricalShiftEntry> {
+  const measurement = await computePairedCategoricalShiftMeasurement(
+    currentActivityEvidenceLoader,
+    activityAnalysisV2ToolExecutor,
+    link,
+  );
+
+  return {
+    entryId: link.linkId,
+    shape: "paired_categorical_shift",
+    outcomeId: outcome.id,
+    outcomeTerm: outcome.term,
+    outcomeStatement: outcome.statement,
+    pairLabelDe: humanizeColumnName(link.pairLabelColumnName),
+    ...measurement,
+    sourceDe: buildPairedSourceCaptionDe(
+      activityNameById,
+      link.activityIdBefore,
+      link.beforeTableName,
+      link.activityIdAfter,
+      link.afterTableName,
+    ),
   };
 }
 
@@ -293,6 +607,9 @@ export async function buildProjectImpactStoryImpactCatalog(
   deps: {
     currentActivityEvidenceLoader: CurrentActivityEvidenceLoader;
     activityAnalysisV2ToolExecutor: ActivityAnalysisV2ToolExecutor;
+    interpretationResultRepository: InterpretationResultRepository;
+    datasetPreparationRepository: DatasetPreparationRepository;
+    activityNameById: Map<string, string>;
     logger: FastifyBaseLogger;
   },
   outcomeStatements: ProjectOutcomeStatementPersistenceRecord[],
@@ -329,10 +646,28 @@ export async function buildProjectImpactStoryImpactCatalog(
         if (link.shape === "paired_delta") {
           items.push(
             await buildPairedDeltaEntry(
+              {
+                currentActivityEvidenceLoader:
+                  deps.currentActivityEvidenceLoader,
+                activityAnalysisV2ToolExecutor:
+                  deps.activityAnalysisV2ToolExecutor,
+                interpretationResultRepository:
+                  deps.interpretationResultRepository,
+                datasetPreparationRepository: deps.datasetPreparationRepository,
+                activityNameById: deps.activityNameById,
+              },
+              link,
+              outcomeStatement,
+            ),
+          );
+        } else if (link.shape === "paired_categorical_shift") {
+          items.push(
+            await buildPairedCategoricalShiftEntry(
               deps.currentActivityEvidenceLoader,
               deps.activityAnalysisV2ToolExecutor,
               link,
               outcomeStatement,
+              deps.activityNameById,
             ),
           );
         } else {
@@ -342,6 +677,7 @@ export async function buildProjectImpactStoryImpactCatalog(
               deps.activityAnalysisV2ToolExecutor,
               link,
               outcomeStatement,
+              deps.activityNameById,
             ),
           );
         }

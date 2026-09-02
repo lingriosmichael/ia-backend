@@ -10,6 +10,7 @@ import {
   type OutcomeEvidenceCandidateCatalogEntry,
 } from "./outcomeEvidenceCandidateCatalogBuilder.js";
 import {
+  buildPairedCategoricalShiftProposalId,
   buildPairedDeltaProposalId,
   buildProposalIdFromLink,
   buildSingleDistributionProposalId,
@@ -18,6 +19,7 @@ import type { PythonProcessingClient } from "../processing/pythonProcessingClien
 import type { OutcomeEvidenceLinkRepository } from "./outcomeEvidenceLinkRepository.js";
 import type { ProjectOutcomeStatementRepository } from "./projectOutcomeStatementRepository.js";
 import type { ProjectOutcomeStatementPersistenceRecord } from "./projectOutcomeStatementPersistence.js";
+import type { UploadDatasetRole } from "../../shared/contracts.js";
 
 export interface OutcomeEvidenceRecommendationColumnReference {
   uploadMetadataId: string;
@@ -31,11 +33,26 @@ export interface OutcomeEvidenceRecommendationColumnReference {
   // OUTCOME_EVIDENCE_MERGE_PLAN.md §4.5, instead of guessing one from a
   // filename the way the old review panel's inferAudienceFromText did.
   cohortTag: string | null;
+  // Display-only, same posture as cohortTag above: for a paired_delta /
+  // paired_categorical_shift recommendation this is always non-null and
+  // already the deterministic ground truth resolveRecommendation() below
+  // used to decide before vs after — never re-derived from anything the
+  // LLM said. Null only for a single_distribution reference (no
+  // before/after concept) or a confirmed link (not tracked on
+  // OutcomeEvidenceLink itself, matching cohortTag's existing null there).
+  datasetRole: UploadDatasetRole | null;
 }
 
 export type OutcomeEvidenceRecommendation =
   | {
       shape: "paired_delta";
+      before: OutcomeEvidenceRecommendationColumnReference;
+      after: OutcomeEvidenceRecommendationColumnReference;
+      outcomeId: string | null;
+      rationale: string;
+    }
+  | {
+      shape: "paired_categorical_shift";
       before: OutcomeEvidenceRecommendationColumnReference;
       after: OutcomeEvidenceRecommendationColumnReference;
       outcomeId: string | null;
@@ -58,6 +75,14 @@ export type OutcomeEvidenceConfirmedLink =
   | {
       linkId: string;
       shape: "paired_delta";
+      before: OutcomeEvidenceRecommendationColumnReference;
+      after: OutcomeEvidenceRecommendationColumnReference;
+      outcomeId: string;
+      confirmedAt: string;
+    }
+  | {
+      linkId: string;
+      shape: "paired_categorical_shift";
       before: OutcomeEvidenceRecommendationColumnReference;
       after: OutcomeEvidenceRecommendationColumnReference;
       outcomeId: string;
@@ -194,6 +219,7 @@ export class OutcomeEvidenceRecommendationService {
             inferredType: entry.inferredType,
             distinctValueCount: entry.distinctValueCount,
             cohortTag: entry.cohortTag,
+            datasetRole: entry.datasetRole,
           })),
         });
 
@@ -267,10 +293,13 @@ export class OutcomeEvidenceRecommendationService {
     );
 
     return links.map((link): OutcomeEvidenceConfirmedLink => {
-      if (link.shape === "paired_delta") {
+      if (
+        link.shape === "paired_delta" ||
+        link.shape === "paired_categorical_shift"
+      ) {
         return {
           linkId: link.linkId,
-          shape: "paired_delta",
+          shape: link.shape,
           outcomeId: link.outcomeId,
           confirmedAt: link.confirmedAt,
           before: {
@@ -279,6 +308,7 @@ export class OutcomeEvidenceRecommendationService {
             columnName: link.beforeColumnName,
             label: humanizeColumnName(link.beforeColumnName),
             cohortTag: null,
+            datasetRole: null,
           },
           after: {
             uploadMetadataId: link.afterUploadMetadataId,
@@ -286,6 +316,7 @@ export class OutcomeEvidenceRecommendationService {
             columnName: link.afterColumnName,
             label: humanizeColumnName(link.afterColumnName),
             cohortTag: null,
+            datasetRole: null,
           },
         };
       }
@@ -301,6 +332,7 @@ export class OutcomeEvidenceRecommendationService {
           columnName: link.categoryColumnName,
           label: humanizeColumnName(link.categoryColumnName),
           cohortTag: null,
+          datasetRole: null,
         },
       };
     });
@@ -358,7 +390,8 @@ export class OutcomeEvidenceRecommendationService {
 
   private resolveRecommendation(
     entry: {
-      shape: "paired_delta" | "single_distribution";
+      shape:
+        "paired_delta" | "paired_categorical_shift" | "single_distribution";
       beforeColumnId?: string | null;
       afterColumnId?: string | null;
       columnId?: string | null;
@@ -367,26 +400,59 @@ export class OutcomeEvidenceRecommendationService {
     catalogByColumnId: Map<string, OutcomeEvidenceCandidateCatalogEntry>,
     outcomeId: string | null,
   ): OutcomeEvidenceRecommendation | null {
-    if (entry.shape === "paired_delta") {
-      const before = entry.beforeColumnId
+    if (
+      entry.shape === "paired_delta" ||
+      entry.shape === "paired_categorical_shift"
+    ) {
+      const columnA = entry.beforeColumnId
         ? catalogByColumnId.get(entry.beforeColumnId)
         : undefined;
-      const after = entry.afterColumnId
+      const columnB = entry.afterColumnId
         ? catalogByColumnId.get(entry.afterColumnId)
         : undefined;
-      if (!before || !after || before.columnId === after.columnId) {
+      if (!columnA || !columnB || columnA.columnId === columnB.columnId) {
         this.logger.error(
           {
             beforeColumnId: entry.beforeColumnId,
             afterColumnId: entry.afterColumnId,
           },
-          "outcome evidence pairing recommendation referenced an invalid paired_delta column pair; dropping it",
+          `outcome evidence pairing recommendation referenced an invalid ${entry.shape} column pair; dropping it`,
+        );
+        return null;
+      }
+
+      // Direction is never taken from which field the LLM put an id in —
+      // deterministically re-derived here from each column's human-set
+      // datasetRole instead (OUTCOME_EVIDENCE_MERGE_PLAN.md's pre/post
+      // inversion fix). A pair missing a role on either side, or sharing
+      // the same role, is dropped rather than guessed.
+      const before =
+        columnA.datasetRole === "baseline"
+          ? columnA
+          : columnB.datasetRole === "baseline"
+            ? columnB
+            : null;
+      const after =
+        columnA.datasetRole === "followup"
+          ? columnA
+          : columnB.datasetRole === "followup"
+            ? columnB
+            : null;
+      if (!before || !after) {
+        this.logger.error(
+          {
+            columnA: columnA.columnId,
+            columnADatasetRole: columnA.datasetRole,
+            columnB: columnB.columnId,
+            columnBDatasetRole: columnB.datasetRole,
+          },
+          `outcome evidence pairing recommendation's two columns are not one baseline upload + one follow-up upload; dropping it`,
         );
         return null;
       }
 
       return {
-        shape: "paired_delta",
+        shape: entry.shape,
         before: toColumnReference(before),
         after: toColumnReference(after),
         outcomeId,
@@ -423,7 +489,12 @@ export class OutcomeEvidenceRecommendationService {
             recommendation.before,
             recommendation.after,
           )
-        : buildSingleDistributionProposalId(recommendation.column);
+        : recommendation.shape === "paired_categorical_shift"
+          ? buildPairedCategoricalShiftProposalId(
+              recommendation.before,
+              recommendation.after,
+            )
+          : buildSingleDistributionProposalId(recommendation.column);
     return confirmedProposalIds.has(proposalId);
   }
 }
@@ -437,5 +508,6 @@ function toColumnReference(
     columnName: entry.columnName,
     label: entry.label,
     cohortTag: entry.cohortTag,
+    datasetRole: entry.datasetRole,
   };
 }

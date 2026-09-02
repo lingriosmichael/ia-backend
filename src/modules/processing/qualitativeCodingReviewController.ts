@@ -4,6 +4,7 @@ import { successResponse } from "../../shared/http/apiResponse.js";
 import { resolveRequestLanguage } from "../../shared/http/resolveRequestLanguage.js";
 import {
   approveQualitativeCodingReviewSchema,
+  generateQualitativeCodingReviewSchema,
   idParamSchema,
 } from "../../schemas/httpSchemas.js";
 import { ProcessingJobService } from "../ai/execution/processingJobService.js";
@@ -31,6 +32,9 @@ export class QualitativeCodingReviewController {
     const auth = requireAuthenticatedUser(request);
     const params = idParamSchema.parse(request.params);
     const language = resolveRequestLanguage(request.headers["accept-language"]);
+    const payload = generateQualitativeCodingReviewSchema.parse(
+      request.body ?? {},
+    );
     // Synchronous pre-flight gate (upload/privacy-safe-representation/
     // interpretation-result existence) so the caller gets an immediate 4xx
     // instead of a queued job that only fails once claimed. The actual
@@ -47,7 +51,10 @@ export class QualitativeCodingReviewController {
       {
         uploadMetadataId: requireParam(params, "uploadMetadataId"),
         jobType: "qualitative_coding_review",
-        payload: { language },
+        payload: {
+          language,
+          sourceCodebookSelections: payload.sourceCodebookSelections ?? [],
+        },
       },
     );
     return successResponse(job);

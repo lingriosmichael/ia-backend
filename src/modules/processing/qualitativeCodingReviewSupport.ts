@@ -2,6 +2,7 @@ import type {
   DatasetProfile,
   EpistemicRole,
   PreparedDatasetTable,
+  QualitativeCodingSourceCodebookReference,
 } from "../../shared/contracts.js";
 import type { QualitativeCodingReviewDecisions } from "../../shared/contracts.js";
 
@@ -24,14 +25,30 @@ function readNullableString(value: unknown): string | null {
   return typeof value === "string" && value.length > 0 ? value : null;
 }
 
+function readSourceCodebookReference(
+  value: unknown,
+): QualitativeCodingSourceCodebookReference | null {
+  if (!isRecord(value)) {
+    return null;
+  }
+  const uploadMetadataId = readNullableString(value.uploadMetadataId);
+  const findingKey = readNullableString(value.findingKey);
+  if (!uploadMetadataId || !findingKey) {
+    return null;
+  }
+  return { uploadMetadataId, findingKey };
+}
+
 function readNumber(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
 export type ApprovedQualitativeCodingOverlay = {
+  findingKey: string;
   tableName: string;
   textColumnName: string;
   syntheticCodeColumnName: string;
+  sourceCodebookFrom: QualitativeCodingSourceCodebookReference | null;
   assignments: Array<{
     rowIndex: number;
     assignedCode: string | null;
@@ -43,6 +60,8 @@ export type SyntheticQualitativeCodeColumnMetadata = {
   sourceTextColumnName: string;
   epistemicRole: Extract<EpistemicRole, "subjective_code">;
   inferredType: "categorical";
+  findingKey: string | null;
+  sourceCodebookFrom: QualitativeCodingSourceCodebookReference | null;
 };
 
 function readFindingsSummary(
@@ -81,10 +100,14 @@ export function extractApprovedQualitativeCodingOverlays(
       return Boolean(findingKey && approvedKeys.has(findingKey));
     })
     .map((finding) => ({
+      findingKey: readString(finding.findingKey) ?? "finding",
       tableName: readString(finding.tableName) ?? "table",
       textColumnName: readString(finding.textColumnName) ?? "text",
       syntheticCodeColumnName:
         readString(finding.syntheticCodeColumnName) ?? "coded_column",
+      sourceCodebookFrom: readSourceCodebookReference(
+        finding.sourceCodebookFrom,
+      ),
       assignments: readRecordArray(finding.proposedAssignments).map(
         (assignment) => ({
           rowIndex: readNumber(assignment.rowIndex) ?? -1,
@@ -95,6 +118,73 @@ export function extractApprovedQualitativeCodingOverlays(
     .filter((overlay) =>
       overlay.assignments.every((entry) => entry.rowIndex >= 0),
     );
+}
+
+// Deterministic code→label lookup for approved coded-qualitative columns.
+// The merged synthetic column's cell values are the raw `code` slug
+// (assignedCode, e.g. "empathy_expressed"), not the human-chosen `label`
+// the reviewer picked for it (e.g. "Empathy expressed") — this resolves
+// one back to the other so a context-distribution chart built over such a
+// column (see activityAnalysisV2Service.ts's buildContextCatalogEntries)
+// can show the real label instead of a raw slug. Takes every review in
+// scope (one per uploadMetadataId a caller batch-fetched) and merges them
+// into one lookup keyed by syntheticCodeColumnName — a caller with a
+// column name collision across two different uploads is an accepted,
+// extremely unlikely edge case for a purely cosmetic label, not something
+// this guards against.
+export function buildAssignedCodeLabelsByColumn(
+  reviews: (QualitativeCodingReviewLike | null)[],
+): Map<string, Map<string, string>> {
+  const result = new Map<string, Map<string, string>>();
+  for (const review of reviews) {
+    if (!review || review.status !== "approved") {
+      continue;
+    }
+    const approvedKeys = approvedDecisionKeys(review);
+    for (const finding of readFindingsSummary(review.findings)) {
+      const findingKey = readString(finding.findingKey);
+      if (!findingKey || !approvedKeys.has(findingKey)) {
+        continue;
+      }
+      const syntheticCodeColumnName = readString(
+        finding.syntheticCodeColumnName,
+      );
+      if (!syntheticCodeColumnName) {
+        continue;
+      }
+      const codeLabels =
+        result.get(syntheticCodeColumnName) ?? new Map<string, string>();
+      for (const proposedCode of readRecordArray(finding.proposedCodes)) {
+        const code = readString(proposedCode.code);
+        const label = readString(proposedCode.label);
+        if (code && label) {
+          codeLabels.set(code, label);
+        }
+      }
+      result.set(syntheticCodeColumnName, codeLabels);
+    }
+  }
+  return result;
+}
+
+export type ApprovedSubjectiveCodeColumnProvenance = {
+  findingKey: string;
+  tableName: string;
+  textColumnName: string;
+  syntheticCodeColumnName: string;
+  sourceCodebookFrom: QualitativeCodingSourceCodebookReference | null;
+};
+
+export function extractApprovedSubjectiveCodeColumnProvenance(
+  review: QualitativeCodingReviewLike | null,
+): ApprovedSubjectiveCodeColumnProvenance[] {
+  return extractApprovedQualitativeCodingOverlays(review).map((overlay) => ({
+    findingKey: overlay.findingKey,
+    tableName: overlay.tableName,
+    textColumnName: overlay.textColumnName,
+    syntheticCodeColumnName: overlay.syntheticCodeColumnName,
+    sourceCodebookFrom: overlay.sourceCodebookFrom,
+  }));
 }
 
 export function augmentPrivacySafePayloadWithApprovedQualitativeCodingReview(
@@ -143,6 +233,8 @@ export function augmentPrivacySafePayloadWithApprovedQualitativeCodingReview(
         sourceTextColumnName: overlay.textColumnName,
         epistemicRole: "subjective_code",
         inferredType: "categorical",
+        findingKey: overlay.findingKey,
+        sourceCodebookFrom: overlay.sourceCodebookFrom,
       });
     }
 
@@ -176,6 +268,10 @@ export function extractSyntheticQualitativeCodeColumnMetadata(
         sourceTextColumnName,
         epistemicRole: "subjective_code" as const,
         inferredType: "categorical" as const,
+        findingKey: readNullableString(entry.findingKey),
+        sourceCodebookFrom: readSourceCodebookReference(
+          entry.sourceCodebookFrom,
+        ),
       };
     })
     .filter((entry): entry is SyntheticQualitativeCodeColumnMetadata =>
@@ -216,12 +312,15 @@ export function preparedDatasetTableWithSyntheticColumns(
 export type QualitativeCodingReviewRequirementStatus =
   "not_required" | "required_pending" | "required_approved";
 
+// DatasetProfileColumn carries nullPercentage (0-100, see contracts.ts),
+// not a direct non-null row count — derive the approximation from that
+// real, typed field instead of reading a field that was never actually on
+// the type.
 function readApproximateNonEmptyRowCount(
   column: DatasetProfile["tables"][number]["columns"][number],
   table: DatasetProfile["tables"][number],
 ): number {
-  const runtimeColumn = column as unknown as Record<string, unknown>;
-  return readNumber(runtimeColumn.nonNullCount) ?? table.rowCount;
+  return Math.round(table.rowCount * (1 - column.nullPercentage / 100));
 }
 
 export function requiresQualitativeCodingReview(

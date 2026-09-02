@@ -6,6 +6,17 @@ export interface OutcomeEvidenceLinkMatchDiagnostics {
   comparisonCount: number;
   matchedRatio: number;
   candidateKeysConsidered: string[];
+  compatibilityCheck?: {
+    strategy: "observed_value_domain" | "shared_codebook_provenance";
+    beforeEpistemicRole: string | null;
+    afterEpistemicRole: string | null;
+    beforeNormalizedValues?: string[];
+    afterNormalizedValues?: string[];
+    beforeSourceCodebookUploadMetadataId?: string | null;
+    beforeSourceCodebookFindingKey?: string | null;
+    afterSourceCodebookUploadMetadataId?: string | null;
+    afterSourceCodebookFindingKey?: string | null;
+  } | null;
 }
 
 // A plain `Omit<Union, K>` does not distribute over a discriminated union —

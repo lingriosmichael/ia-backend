@@ -21,6 +21,7 @@ import type {
   ActivityAnalysisV2TableContext,
   ActivityAnalysisV2ToolExecutionResult,
   ActivityAnalysisV2ToolRequest,
+  ActivityAnalysisV2ColumnLineage,
 } from "./activityAnalysisV2ToolTypes.js";
 import {
   buildToolCallId,
@@ -51,6 +52,7 @@ import {
   executeDateDifference,
   executeDaysSinceLastEvent,
   executeEventGap,
+  executePairedCategoryShift,
   executePairedChange,
   executePeriodChange,
 } from "./activityAnalysisV2TemporalTools.js";
@@ -74,7 +76,10 @@ import {
   executeCalculateSumOrProduct,
   executeCompareTarget,
 } from "./activityAnalysisV2ScalarMathTools.js";
-import { buildEpistemicRoleGateDowngradeMessage } from "./activityAnalysisV2EpistemicRoleGate.js";
+import {
+  buildEpistemicRoleGateDowngradeMessage,
+  buildEpistemicRoleGateDowngradeReasonMessage,
+} from "./activityAnalysisV2EpistemicRoleGate.js";
 import { buildFilterValueGateRejectionMessage } from "./activityAnalysisV2FilterValueGate.js";
 
 const OUTCOME_CLAIM_BLOCKED_EPISTEMIC_ROLES = new Set<EpistemicRole>([
@@ -161,15 +166,55 @@ export class ActivityAnalysisV2ToolExecutor {
         const tableName = typeof table.name === "string" ? table.name : "table";
         const syntheticColumns =
           extractSyntheticQualitativeCodeColumnMetadata(table);
+        const rows = readRowRecords(table.rows);
+        const preparedTable = preparedDatasetTableWithSyntheticColumns(
+          preparedTablesByName.get(tableName) ?? null,
+          syntheticColumns,
+        );
+        const syntheticColumnByName = new Map(
+          syntheticColumns.map((column) => [column.name, column]),
+        );
+        const columnNames = new Set<string>([
+          ...Object.keys(rows[0] ?? {}),
+          ...syntheticColumns.map((column) => column.name),
+          ...((preparedTable?.columns ?? []).map((column) => column.name) ??
+            []),
+        ]);
+        const columnLineageByName = Object.fromEntries(
+          Array.from(columnNames).map((columnName) => {
+            const preparedColumn =
+              preparedTable?.columns.find(
+                (candidate) => candidate.name === columnName,
+              ) ?? null;
+            const syntheticColumn =
+              syntheticColumnByName.get(columnName) ?? null;
+            return [
+              columnName,
+              {
+                uploadMetadataId: evidence.uploadMetadataId,
+                tableName,
+                columnName,
+                epistemicRole:
+                  syntheticColumn?.epistemicRole ??
+                  preparedColumn?.epistemicRole ??
+                  null,
+                subjectiveCodeProvenance: syntheticColumn
+                  ? {
+                      findingKey: syntheticColumn.findingKey,
+                      sourceCodebookFrom: syntheticColumn.sourceCodebookFrom,
+                    }
+                  : null,
+              },
+            ] satisfies [string, ActivityAnalysisV2ColumnLineage];
+          }),
+        );
         tables.push({
           uploadMetadataId: evidence.uploadMetadataId,
           privacySafeRepresentationId: evidence.privacySafeRepresentationId,
           tableName,
-          rows: readRowRecords(table.rows),
-          preparedTable: preparedDatasetTableWithSyntheticColumns(
-            preparedTablesByName.get(tableName) ?? null,
-            syntheticColumns,
-          ),
+          rows,
+          preparedTable,
+          columnLineageByName,
         });
       }
     }
@@ -287,6 +332,57 @@ export class ActivityAnalysisV2ToolExecutor {
     }
 
     return roleEntries;
+  }
+
+  private resolveColumnLineageFromReference(
+    tables: ActivityAnalysisV2TableContext[],
+    rowAliases: Map<string, ActivityAnalysisV2RowAliasValue>,
+    reference: ActivityAnalysisV2ToolRequest["arguments"],
+    columnName: string,
+  ): ActivityAnalysisV2ColumnLineage | null {
+    try {
+      const source = resolveSourceRows(
+        tables,
+        rowAliases,
+        reference as ActivityAnalysisV2ToolRequest["arguments"] & {
+          uploadMetadataId?: string;
+          tableName?: string;
+          cohortAlias?: string;
+          resultAlias?: string;
+        },
+      );
+      return source.columnLineageByName[columnName] ?? null;
+    } catch {
+      return null;
+    }
+  }
+
+  private hasSharedSubjectiveCodeProvenance(
+    before: ActivityAnalysisV2ColumnLineage,
+    after: ActivityAnalysisV2ColumnLineage,
+  ): boolean {
+    const beforeProvenance = before.subjectiveCodeProvenance;
+    const afterProvenance = after.subjectiveCodeProvenance;
+    if (
+      !beforeProvenance?.findingKey ||
+      !afterProvenance?.findingKey ||
+      (!beforeProvenance.sourceCodebookFrom &&
+        !afterProvenance.sourceCodebookFrom)
+    ) {
+      return false;
+    }
+
+    const afterPointsToBefore =
+      afterProvenance.sourceCodebookFrom?.uploadMetadataId ===
+        before.uploadMetadataId &&
+      afterProvenance.sourceCodebookFrom.findingKey ===
+        beforeProvenance.findingKey;
+    const beforePointsToAfter =
+      beforeProvenance.sourceCodebookFrom?.uploadMetadataId ===
+        after.uploadMetadataId &&
+      beforeProvenance.sourceCodebookFrom.findingKey ===
+        afterProvenance.findingKey;
+    return afterPointsToBefore || beforePointsToAfter;
   }
 
   private collectCalculationEpistemicRoles(
@@ -639,6 +735,14 @@ export class ActivityAnalysisV2ToolExecutor {
       ]);
     }
 
+    if (request.toolName === "paired_category_shift") {
+      return collectFromReference(request.arguments, [
+        request.arguments.entityColumnName,
+        request.arguments.beforeCategoryColumnName,
+        request.arguments.afterCategoryColumnName,
+      ]);
+    }
+
     return [];
   }
 
@@ -739,6 +843,47 @@ export class ActivityAnalysisV2ToolExecutor {
             toolName: request.toolName,
             role: blockedRole,
             columnName,
+          });
+        }
+      }
+    }
+
+    if (request.toolName === "paired_category_shift") {
+      const beforeLineage = this.resolveColumnLineageFromReference(
+        tables,
+        rowAliases,
+        request.arguments,
+        request.arguments.beforeCategoryColumnName,
+      );
+      const afterLineage = this.resolveColumnLineageFromReference(
+        tables,
+        rowAliases,
+        request.arguments,
+        request.arguments.afterCategoryColumnName,
+      );
+      const beforeRole = beforeLineage?.epistemicRole ?? null;
+      const afterRole = afterLineage?.epistemicRole ?? null;
+
+      if (beforeRole === "subjective_code" || afterRole === "subjective_code") {
+        if (
+          beforeRole !== "subjective_code" ||
+          afterRole !== "subjective_code"
+        ) {
+          return buildEpistemicRoleGateDowngradeReasonMessage({
+            toolName: request.toolName,
+            reason:
+              "cannot compare a coded qualitative column against a non-coded categorical column as one before/after shift",
+          });
+        }
+        if (
+          !beforeLineage ||
+          !afterLineage ||
+          !this.hasSharedSubjectiveCodeProvenance(beforeLineage, afterLineage)
+        ) {
+          return buildEpistemicRoleGateDowngradeReasonMessage({
+            toolName: request.toolName,
+            reason:
+              "may only compare coded qualitative before/after columns when one approved code column explicitly reuses the other's codebook provenance",
           });
         }
       }
@@ -1297,6 +1442,26 @@ export class ActivityAnalysisV2ToolExecutor {
           );
           toolCalculations = pairedChangeResult.calculations;
           rowAliases.set(request.alias, pairedChangeResult.resultAlias);
+        } else if (request.toolName === "paired_category_shift") {
+          if (!request.alias) {
+            throw new Error(
+              "paired_category_shift requires an alias for the reusable result.",
+            );
+          }
+          const source = resolveSourceRows(
+            tables,
+            rowAliases,
+            request.arguments,
+          );
+          const pairedCategoryShiftResult = executePairedCategoryShift(
+            request.alias,
+            source,
+            request.arguments.entityColumnName,
+            request.arguments.beforeCategoryColumnName,
+            request.arguments.afterCategoryColumnName,
+          );
+          toolCalculations = pairedCategoryShiftResult.calculations;
+          rowAliases.set(request.alias, pairedCategoryShiftResult.resultAlias);
         } else if (request.toolName === "aggregate_numeric") {
           const source = resolveSourceRows(
             tables,

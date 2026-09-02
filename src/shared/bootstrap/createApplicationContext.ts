@@ -28,6 +28,8 @@ import { ActivityAnalysisV2ToolExecutor } from "../../modules/interpretation/act
 import { InterpretationController } from "../../modules/interpretation/interpretationController.js";
 import { MongoProjectAnalyticsSnapshotRepository } from "../../modules/projectImpactStory/projectAnalyticsSnapshotMongoRepository.js";
 import { MongoProjectImpactStoryRepository } from "../../modules/projectImpactStory/projectImpactStoryMongoRepository.js";
+import { MongoDisplayLabelRepository } from "../../modules/projectImpactStory/displayLabelMongoRepository.js";
+import { DisplayLabelService } from "../../modules/projectImpactStory/displayLabelService.js";
 import { ProjectImpactStoryService } from "../../modules/projectImpactStory/projectImpactStoryService.js";
 import { MongoProjectOutcomeStatementRepository } from "../../modules/outcome/projectOutcomeStatementMongoRepository.js";
 import { ProjectOutcomeStatementService } from "../../modules/outcome/projectOutcomeStatementService.js";
@@ -215,6 +217,7 @@ export function createApplicationContext(
     processingJobRepository,
     processingResourceCleanupService,
     projectDerivedStateInvalidationService,
+    privacySafeRepresentationRepository,
     logger,
   );
   const pythonProcessingClient = new PythonProcessingClient(
@@ -222,6 +225,7 @@ export function createApplicationContext(
     config.PYTHON_SERVICE_SHARED_SECRET,
     config.PYTHON_SERVICE_TIMEOUT_MS,
     config.PYTHON_LLM_TIMEOUT_MS,
+    logger,
   );
   const evidenceProcessingArtifactService =
     new EvidenceProcessingArtifactService(
@@ -355,6 +359,12 @@ export function createApplicationContext(
     activityLlmTokenLedgerService,
     logger,
   );
+  const displayLabelRepository = new MongoDisplayLabelRepository();
+  const displayLabelService = new DisplayLabelService({
+    displayLabelRepository,
+    pythonProcessingClient,
+    logger,
+  });
   const projectImpactStoryService = new ProjectImpactStoryService(
     authorizationService,
     activityRepository,
@@ -371,6 +381,7 @@ export function createApplicationContext(
     interpretationResultRepository,
     datasetPreparationRepository,
     privacySafeRepresentationRepository,
+    displayLabelService,
     logger,
   );
   const projectOutcomeStatementService = new ProjectOutcomeStatementService(
@@ -384,6 +395,7 @@ export function createApplicationContext(
     interpretationResultRepository,
     datasetPreparationRepository,
     privacySafeRepresentationRepository,
+    qualitativeCodingReviewRepository,
   };
   const outcomeEvidenceRecommendationService =
     new OutcomeEvidenceRecommendationService(

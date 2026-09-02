@@ -86,6 +86,9 @@ function buildDeps(): OutcomeEvidenceCandidateCatalogDependencies {
           uploadMetadataIds.includes(representation.uploadMetadataId),
         ),
     },
+    qualitativeCodingReviewRepository: {
+      findByUploadMetadataIds: async () => [],
+    },
   } as unknown as OutcomeEvidenceCandidateCatalogDependencies;
 }
 
@@ -174,4 +177,133 @@ test("loadOutcomeEvidenceActivityTables surfaces hasDuplicateIdentifierValues at
   assert.ok(table);
   assert.equal(table?.hasDuplicateIdentifierValues, false);
   assert.equal(table?.identifierColumn, "teilnehmer_id");
+});
+
+test("approved qualitative coding overlays surface synthetic subjective_code columns in the catalog", async () => {
+  const uploads = [{ id: "upload-1", activityId: "activity-merged" }];
+  const results = [{ id: "result-1", uploadMetadataId: "upload-1" }];
+  const preparations = [
+    {
+      interpretationResultId: "result-1",
+      status: "ready_for_analysis",
+      preparedDataset: {
+        isReadyForDeterministicAnalysis: true,
+        tables: [
+          {
+            name: "wirkungsmessung",
+            identifierColumn: "teilnehmer_id",
+            cohortTag: null,
+            columns: [
+              column("teilnehmer_id", "identifier"),
+              column("freitext_feedback", "free_text"),
+            ],
+          },
+        ],
+      },
+    },
+  ];
+  const privacySafeRepresentations = [
+    {
+      uploadMetadataId: "upload-1",
+      payload: {
+        tables: [
+          {
+            name: "wirkungsmessung",
+            rows: [
+              { teilnehmer_id: "t1", freitext_feedback: "Mehr Mut" },
+              { teilnehmer_id: "t2", freitext_feedback: "Mehr Orientierung" },
+            ],
+          },
+        ],
+      },
+    },
+  ];
+
+  const deps = {
+    uploadMetadataRepository: {
+      listByActivity: async (activityId: string) =>
+        uploads.filter((upload) => upload.activityId === activityId),
+    },
+    interpretationResultRepository: {
+      findLatestByUploadMetadataIds: async (uploadMetadataIds: string[]) =>
+        results.filter((result) =>
+          uploadMetadataIds.includes(result.uploadMetadataId),
+        ),
+    },
+    datasetPreparationRepository: {
+      findByInterpretationResultIds: async (
+        interpretationResultIds: string[],
+      ) =>
+        preparations.filter((preparation) =>
+          interpretationResultIds.includes(preparation.interpretationResultId),
+        ),
+    },
+    privacySafeRepresentationRepository: {
+      findLatestByUploadMetadataIds: async (uploadMetadataIds: string[]) =>
+        privacySafeRepresentations.filter((representation) =>
+          uploadMetadataIds.includes(representation.uploadMetadataId),
+        ),
+    },
+    qualitativeCodingReviewRepository: {
+      findByUploadMetadataIds: async () => [
+        {
+          uploadMetadataId: "upload-1",
+          status: "approved",
+          findings: {
+            summary: [
+              {
+                findingKey: "wirkungsmessung::freitext_feedback",
+                tableName: "wirkungsmessung",
+                textColumnName: "freitext_feedback",
+                syntheticCodeColumnName: "freitext_feedback_coded",
+                sourceCodebookFrom: {
+                  uploadMetadataId: "upload-baseline",
+                  findingKey: "wirkungsmessung::freitext_feedback_baseline",
+                },
+                proposedAssignments: [
+                  { rowIndex: 0, assignedCode: "mut" },
+                  { rowIndex: 1, assignedCode: "orientierung" },
+                ],
+              },
+            ],
+          },
+          decisions: {
+            columnDecisions: [
+              {
+                findingKey: "wirkungsmessung::freitext_feedback",
+                decision: "approve_as_proposed",
+              },
+            ],
+          },
+        },
+      ],
+    },
+  } as unknown as OutcomeEvidenceCandidateCatalogDependencies;
+
+  const catalog = await buildOutcomeEvidenceCandidateCatalog(
+    deps,
+    "activity-merged",
+  );
+  const codedEntry = catalog.find(
+    (entry) => entry.columnName === "freitext_feedback_coded",
+  );
+
+  assert.ok(codedEntry);
+  assert.equal(codedEntry?.epistemicRole, "subjective_code");
+  assert.equal(codedEntry?.distinctValueCount, 2);
+
+  const [table] = await loadOutcomeEvidenceActivityTables(
+    deps,
+    "activity-merged",
+  );
+  assert.deepEqual(table?.subjectiveCodeProvenanceByColumnName, {
+    freitext_feedback_coded: {
+      findingKey: "wirkungsmessung::freitext_feedback",
+      textColumnName: "freitext_feedback",
+      sourceCodebookFrom: {
+        uploadMetadataId: "upload-baseline",
+        findingKey: "wirkungsmessung::freitext_feedback_baseline",
+      },
+    },
+  });
 });

@@ -184,6 +184,36 @@ test("filter_value_grounding renders the column's real observedValues as options
   ]);
 });
 
+test("scale_direction interpolates {column} and offers exactly two fixed, identity-valued options", () => {
+  const english = renderClarificationQuestion(
+    baseInput({
+      questionCode: "scale_direction",
+      targetColumnName: "days_without_contact",
+      language: "en",
+    }),
+  );
+  assert.equal(
+    english.userFacingPrompt,
+    "For the column 'days_without_contact', is a higher value better or worse?",
+  );
+  assert.deepEqual(english.userFacingOptions, [
+    { value: "A higher value is better", label: "A higher value is better" },
+    { value: "A lower value is better", label: "A lower value is better" },
+  ]);
+
+  const german = renderClarificationQuestion(
+    baseInput({
+      questionCode: "scale_direction",
+      targetColumnName: "tage_ohne_kontakt",
+      language: "de",
+    }),
+  );
+  assert.equal(
+    german.userFacingPrompt,
+    "Ist bei der Spalte 'tage_ohne_kontakt' ein höherer Wert besser oder schlechter?",
+  );
+});
+
 test("the same questionCode/table/column renders identically regardless of which pipeline stage supplied it", () => {
   // This is the concrete regression test for the bug this module exists to
   // fix: the V2 planner (activityAnalysisV2Service.ts) and the prep stage

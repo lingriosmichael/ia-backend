@@ -21,7 +21,7 @@ const outcomeEvidenceLinkSchema = new Schema(
     shape: {
       type: String,
       required: true,
-      enum: ["paired_delta", "single_distribution"],
+      enum: ["paired_delta", "paired_categorical_shift", "single_distribution"],
     },
     // Shape-specific fields below are each optional at the schema level —
     // which ones are populated depends on `shape`, enforced by the
@@ -38,6 +38,7 @@ const outcomeEvidenceLinkSchema = new Schema(
     matchKey: { type: String, default: null },
     matchDiagnostics: { type: Schema.Types.Mixed, default: null },
     pairingGroupKey: { type: String, default: null },
+    pairLabelColumnName: { type: String, default: null },
     // single_distribution only:
     activityId: { type: String, default: null },
     uploadMetadataId: { type: String, default: null },

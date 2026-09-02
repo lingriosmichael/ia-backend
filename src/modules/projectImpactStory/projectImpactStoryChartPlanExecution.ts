@@ -2,47 +2,35 @@ import type {
   ImpactIndicatorTileFormat,
   ProjectImpactStoryChartDataKind,
   ProjectImpactStoryChartDatum,
-  ProjectImpactStoryChartSpec,
   ProjectImpactStoryChartType,
   ProjectImpactStoryGoalStatus,
   ProjectImpactStoryHeadlineKpi,
 } from "../../shared/contracts.js";
-import type {
-  ProjectImpactStoryChartPlanChartCandidate,
-  ProjectImpactStoryChartPlanKpiCandidate,
-} from "../processing/pythonProcessingClient.js";
+import type { ProjectImpactStoryChartPlanKpiCandidate } from "../processing/pythonProcessingClient.js";
 import type { ProjectImpactStoryCatalogEntry } from "./projectImpactStoryCatalog.js";
 
-// Deterministic validation + execution of Python's chart-plan proposal.
-// Python only ever *selects* catalog entryIds and an aggregation/grouping
-// kind; every number and every chart datum below is computed here, purely
-// from the same catalog ia_backend already built and sent — never trusted
-// from the Python response, which carries no numeric fields to trust in the
-// first place. See CURRENT_ANALYSIS_PIPELINE.md's "Python plans, backend
-// executes" invariant (Stage 9) — this is the same split applied to the
-// project impact story chart plan.
+// Shared deterministic building blocks for turning a catalog entry (or set
+// of entries) into a rendered KPI/chart, reused by both the current
+// chart-authoring execution (projectImpactStoryChartAuthoringExecution.ts)
+// and the deterministic backlog builder (projectImpactStoryChartBacklog.ts).
+// Every number and every chart datum below is computed here, purely from
+// the same catalog ia_backend already built — an LLM only ever *selects*
+// catalog entryIds and a grouping/aggregation kind, never a value. See
+// CURRENT_ANALYSIS_PIPELINE.md's "Python plans, backend executes" invariant
+// (Stage 9) — this is the same split applied to the project impact story
+// chart plan. The file name predates the chart-authoring redesign
+// (2026-08-30), which moved the old top-level orchestration function,
+// executeProjectImpactStoryChartPlan, into
+// projectImpactStoryChartAuthoringExecution.ts's
+// executeProjectImpactStoryChartAuthoring instead — kept unrenamed since
+// every export below is still genuinely shared, not chart-plan-specific.
 
 export const PROJECT_IMPACT_STORY_ALLOWED_CHART_TYPES: ProjectImpactStoryChartType[] =
   ["bar", "pie", "line", "comparison", "distribution"];
 
 export const PROJECT_IMPACT_STORY_HEADLINE_KPI_COUNT = 4;
 
-export interface ProjectImpactStoryChartPlanExecutionResult {
-  headlineKpis: ProjectImpactStoryHeadlineKpi[];
-  chartPlan: ProjectImpactStoryChartSpec[];
-  droppedKpiCount: number;
-  droppedChartCount: number;
-  // Every catalog entryId that actually made it into a rendered KPI or
-  // chart — i.e. "selected" means visible on the page, not merely
-  // requested by Python (a requested entryId whose candidate got dropped
-  // below, e.g. an incompatible chart type, was never actually selected
-  // in any sense a reader would recognize). Feeds
-  // projectChartSelectionAudit.ts's diff against the opportunity audit's
-  // ready_now set.
-  selectedEntryIds: string[];
-}
-
-interface CalculationKpiEntry {
+export interface CalculationKpiEntry {
   entry: Extract<ProjectImpactStoryCatalogEntry, { kind: "calculation" }>;
   value: number;
 }
@@ -52,13 +40,16 @@ interface CalculationKpiEntry {
 // visually imply a category breakdown or part-to-whole relationship
 // neither exists here, and "line" would falsely suggest a real time
 // series instead of two named states.
-function isAllowedPairedStoryDeltaChartType(
+//
+// Reused as-is by projectImpactStoryChartAuthoringExecution.ts for the
+// grounded-catalog-only case.
+export function isAllowedPairedStoryDeltaChartType(
   chartType: ProjectImpactStoryChartType,
 ): boolean {
   return chartType === "comparison" || chartType === "bar";
 }
 
-function isAllowedContextDistributionChartType(
+export function isAllowedContextDistributionChartType(
   entry: Extract<
     ProjectImpactStoryCatalogEntry,
     { kind: "context_distribution" }
@@ -134,7 +125,7 @@ export function resolveContextDistributionChartType(
   return candidateChartType === "pie" ? "distribution" : candidateChartType;
 }
 
-function resolveEntries(
+export function resolveEntries(
   entryIds: string[],
   entriesById: Map<string, ProjectImpactStoryCatalogEntry>,
 ): ProjectImpactStoryCatalogEntry[] | null {
@@ -152,7 +143,7 @@ function resolveEntries(
   return resolved;
 }
 
-function asComparableCalculationKpis(
+export function asComparableCalculationKpis(
   entries: ProjectImpactStoryCatalogEntry[],
 ): CalculationKpiEntry[] | null {
   const calculationKpis: CalculationKpiEntry[] = [];
@@ -281,7 +272,7 @@ function buildGoalAssessmentKpi(
   };
 }
 
-function buildKpi(
+export function buildKpi(
   candidate: ProjectImpactStoryChartPlanKpiCandidate,
   entriesById: Map<string, ProjectImpactStoryCatalogEntry>,
   language: "de" | "en",
@@ -381,7 +372,7 @@ function buildTrendChartData(
   return { data, isRatio };
 }
 
-function buildPairedStoryDeltaLabels(language: "de" | "en"): {
+export function buildPairedStoryDeltaLabels(language: "de" | "en"): {
   beforeLabel: string;
   afterLabel: string;
 } {
@@ -390,10 +381,60 @@ function buildPairedStoryDeltaLabels(language: "de" | "en"): {
     : { beforeLabel: "Before", afterLabel: "After" };
 }
 
+// Every raw string this file might turn into a rendered bar/category label —
+// context_distribution share names, calculation category-rank buckets, and
+// calculation tile labels (only actually used for a same-activity
+// comparison chart's bars, but collected unconditionally here since which
+// branch fires depends on the chart-authoring/backlog grouping, not on the
+// catalog alone). Deliberately excludes entry.activityName: an activity's
+// name is a stable identifier shown verbatim elsewhere in the product
+// (activity list, timeline, uploads) and must never get a second,
+// AI-shortened variant that could read differently there — see
+// IMPACT_STORY_CHART_IMPROVEMENT_PLAN.md §2. Over-collection (a string that
+// ends up unused by any actual chart) is harmless — DisplayLabelService
+// only ever generates for what's actually looked up.
+export function collectChartDisplayLabelCandidates(
+  entries: ProjectImpactStoryCatalogEntry[],
+): string[] {
+  const candidates: string[] = [];
+  for (const entry of entries) {
+    if (entry.kind === "context_distribution") {
+      for (const share of entry.shares) {
+        candidates.push(share.labelDe);
+      }
+    } else if (entry.kind === "calculation") {
+      candidates.push(entry.tile.label);
+      if (entry.tile.kind === "category_rank") {
+        for (const bucket of entry.tile.buckets) {
+          candidates.push(bucket.category);
+        }
+      }
+    }
+  }
+  return candidates;
+}
+
+// Resolves a raw catalog string to its chart datum shape: `label` carries
+// whatever should actually render (the DisplayLabelService-shortened
+// version when one was resolved for this exact text, otherwise the raw
+// text unchanged), and `rawLabel` is only set when it actually differs, so
+// a renderer can show the real value on hover without every datum carrying
+// a redundant duplicate field.
+export function resolveChartLabel(
+  rawText: string,
+  displayLabelsByRawText: Map<string, string>,
+): Pick<ProjectImpactStoryChartDatum, "label" | "rawLabel"> {
+  const resolved = displayLabelsByRawText.get(rawText);
+  return resolved && resolved !== rawText
+    ? { label: resolved, rawLabel: rawText }
+    : { label: rawText };
+}
+
 export function buildChartData(
   entries: ProjectImpactStoryCatalogEntry[],
   language: "de" | "en",
   hasGoalProgressChart: boolean,
+  displayLabelsByRawText: Map<string, string> = new Map(),
 ): {
   data: ProjectImpactStoryChartDatum[];
   dataKind: ProjectImpactStoryChartDataKind;
@@ -406,7 +447,7 @@ export function buildChartData(
         dataKind: "category",
         valueFormat: "number",
         data: entry!.shares.map((share) => ({
-          label: share.labelDe,
+          ...resolveChartLabel(share.labelDe, displayLabelsByRawText),
           value: share.count,
         })),
       };
@@ -427,7 +468,7 @@ export function buildChartData(
         dataKind: "category",
         valueFormat: "number",
         data: entry!.tile.buckets.map((bucket) => ({
-          label: bucket.category,
+          ...resolveChartLabel(bucket.category, displayLabelsByRawText),
           value: bucket.count,
         })),
       };
@@ -510,7 +551,13 @@ export function buildChartData(
         dataKind: "activity",
         valueFormat: sharedUnit === "ratio" ? "percentage" : "number",
         data: calculationKpis.map(({ entry, value }) => ({
-          label: sameActivity ? entry.tile.label : entry.activityName,
+          // Only the same-activity branch (tile.label) goes through
+          // DisplayLabelService — the cross-activity branch (activityName)
+          // stays fully deterministic on purpose, see
+          // collectChartDisplayLabelCandidates's own comment above.
+          ...(sameActivity
+            ? resolveChartLabel(entry.tile.label, displayLabelsByRawText)
+            : { label: entry.activityName }),
           value,
         })),
       };
@@ -524,153 +571,6 @@ export function buildChartData(
 // visualize" — two chart candidates with the same signature show the
 // literal same underlying facts, regardless of chart type/title/subtitle,
 // and the second one adds no information the first didn't already.
-function buildChartEntryIdSetSignature(entryIds: string[]): string {
+export function buildChartEntryIdSetSignature(entryIds: string[]): string {
   return [...new Set(entryIds)].sort().join("|");
-}
-
-function buildChart(
-  candidate: ProjectImpactStoryChartPlanChartCandidate,
-  entriesById: Map<string, ProjectImpactStoryCatalogEntry>,
-  language: "de" | "en",
-  hasGoalProgressChart: boolean,
-): ProjectImpactStoryChartSpec | null {
-  if (
-    !PROJECT_IMPACT_STORY_ALLOWED_CHART_TYPES.includes(
-      candidate.chartType as ProjectImpactStoryChartType,
-    )
-  ) {
-    return null;
-  }
-
-  const entries = resolveEntries(candidate.entryIds, entriesById);
-  if (!entries || entries.length === 0) {
-    return null;
-  }
-
-  if (
-    entries.length === 1 &&
-    entries[0]!.kind === "context_distribution" &&
-    !isAllowedContextDistributionChartType(
-      entries[0]!,
-      candidate.chartType as ProjectImpactStoryChartType,
-    )
-  ) {
-    return null;
-  }
-
-  const isExploratory =
-    entries.length === 1 && entries[0]!.kind === "paired_story_delta";
-  if (
-    isExploratory &&
-    !isAllowedPairedStoryDeltaChartType(
-      candidate.chartType as ProjectImpactStoryChartType,
-    )
-  ) {
-    return null;
-  }
-
-  const built = buildChartData(entries, language, hasGoalProgressChart);
-  if (!built || built.data.length === 0) {
-    return null;
-  }
-
-  const resolvedChartType =
-    entries.length === 1 && entries[0]!.kind === "context_distribution"
-      ? resolveContextDistributionChartType(
-          entries[0]!,
-          candidate.chartType as ProjectImpactStoryChartType,
-        )
-      : (candidate.chartType as ProjectImpactStoryChartType);
-
-  return {
-    chartId: candidate.chartId,
-    chartType: resolvedChartType,
-    dataKind: built.dataKind,
-    valueFormat: built.valueFormat,
-    title: candidate.title,
-    subtitle: candidate.subtitle ?? null,
-    narrativeReason: candidate.narrativeReason,
-    data: built.data,
-    ...(isExploratory ? { isExploratory: true } : {}),
-  };
-}
-
-export function executeProjectImpactStoryChartPlan(
-  catalog: ProjectImpactStoryCatalogEntry[],
-  planResponse: {
-    headlineKpis: ProjectImpactStoryChartPlanKpiCandidate[];
-    chartPlan: ProjectImpactStoryChartPlanChartCandidate[];
-  },
-  // Defaults to "de" so existing callers/tests that only exercise
-  // language-agnostic aggregations (count/sum/average/single-calculation)
-  // are unaffected; only the goal-assessment statusCallout text below
-  // actually varies by language.
-  language: "de" | "en" = "de",
-  // Whether the deterministic goal-progress chart (see
-  // projectImpactStoryGoalProgress.ts) will render for this project —
-  // when it will, a chart-plan candidate that groups goal_assessment
-  // entries by status is dropped as a duplicate. Defaults to false so
-  // existing callers/tests that don't exercise this are unaffected.
-  hasGoalProgressChart = false,
-): ProjectImpactStoryChartPlanExecutionResult {
-  const entriesById = new Map(catalog.map((entry) => [entry.entryId, entry]));
-  const selectedEntryIds = new Set<string>();
-
-  const headlineKpis: ProjectImpactStoryHeadlineKpi[] = [];
-  let droppedKpiCount = 0;
-  for (const candidate of planResponse.headlineKpis) {
-    const kpi = buildKpi(candidate, entriesById, language);
-    if (kpi) {
-      headlineKpis.push(kpi);
-      for (const entryId of candidate.entryIds) {
-        selectedEntryIds.add(entryId);
-      }
-    } else {
-      droppedKpiCount += 1;
-    }
-  }
-
-  const chartPlan: ProjectImpactStoryChartSpec[] = [];
-  let droppedChartCount = 0;
-  // Only ever populated by an *accepted* chart's own signature (never a
-  // candidate's, before it's known to be valid) — otherwise a later,
-  // genuinely valid candidate could be wrongly dropped as "redundant" of
-  // an earlier candidate that itself never made it into chartPlan.
-  const acceptedChartEntryIdSetSignatures = new Set<string>();
-  for (const candidate of planResponse.chartPlan) {
-    const signature = buildChartEntryIdSetSignature(candidate.entryIds);
-    if (acceptedChartEntryIdSetSignatures.has(signature)) {
-      // Lightweight deterministic redundancy guard, not a second ranking
-      // engine: an earlier chart in this same plan already visualizes the
-      // identical set of catalog entries, so this one adds no information
-      // regardless of its own chart type/title — reject it rather than
-      // trust the prompt's "don't duplicate" instruction alone.
-      droppedChartCount += 1;
-      continue;
-    }
-
-    const chart = buildChart(
-      candidate,
-      entriesById,
-      language,
-      hasGoalProgressChart,
-    );
-    if (chart) {
-      chartPlan.push(chart);
-      acceptedChartEntryIdSetSignatures.add(signature);
-      for (const entryId of candidate.entryIds) {
-        selectedEntryIds.add(entryId);
-      }
-    } else {
-      droppedChartCount += 1;
-    }
-  }
-
-  return {
-    headlineKpis,
-    chartPlan,
-    droppedKpiCount,
-    droppedChartCount,
-    selectedEntryIds: [...selectedEntryIds],
-  };
 }

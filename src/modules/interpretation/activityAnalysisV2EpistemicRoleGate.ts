@@ -14,6 +14,13 @@ export function buildEpistemicRoleGateDowngradeMessage(input: {
   return `${ACTIVITY_ANALYSIS_V2_EPISTEMIC_ROLE_GATE_PREFIX} Tool '${input.toolName}' cannot use${columnDetail} with epistemicRole '${input.role}' for an outcome-style claim, so this goal was downgraded to qualitative evidence only.`;
 }
 
+export function buildEpistemicRoleGateDowngradeReasonMessage(input: {
+  toolName: string;
+  reason: string;
+}): string {
+  return `${ACTIVITY_ANALYSIS_V2_EPISTEMIC_ROLE_GATE_PREFIX} Tool '${input.toolName}' ${input.reason}, so this goal was downgraded to qualitative evidence only.`;
+}
+
 export function isEpistemicRoleGateDowngradeMessage(
   message: string | null | undefined,
 ): boolean {

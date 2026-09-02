@@ -1,4 +1,5 @@
 import { AppError } from "../../shared/errors/appError.js";
+import type { UploadDatasetRole } from "../../shared/contracts.js";
 import type { OutcomeEvidenceLinkPersistenceRecord } from "./outcomeEvidenceLinkPersistence.js";
 
 // Same normalization the old, now-removed outcomeEvidencePairingCandidateMatcher.ts
@@ -11,6 +12,7 @@ export function normalizeOutcomeEvidenceMatchValue(value: string): string {
 
 export interface OutcomeEvidencePairApprovalSafetyCheckTable {
   cohortTag?: string | null;
+  datasetRole: UploadDatasetRole | null;
 }
 
 /**
@@ -55,6 +57,28 @@ export function assertPairedDeltaApprovalIsSafe(
       "outcome_evidence_pairing_cross_cohort_pairing_blocked",
     );
   }
+
+  // The real trust boundary for pre/post direction (OUTCOME_EVIDENCE_MERGE_PLAN.md's
+  // pre/post inversion fix): OutcomeEvidenceRecommendationService already
+  // derives before/after from datasetRole for an LLM-sourced recommendation,
+  // but this call is the only enforcement point for a manually submitted
+  // pairing (see outcomeEvidenceRecommendationApprovalService.ts's manual-add
+  // path, which never runs resolveRecommendation's grounding at all) and
+  // the only one that re-checks against *current* data if a file's role
+  // was reassigned after the recommendation was generated. Reject unless
+  // the two sides are exactly one baseline upload + one follow-up upload —
+  // never inferred from either table's name or column labels.
+  const roles = new Set([
+    before.datasetRole ?? null,
+    after.datasetRole ?? null,
+  ]);
+  if (roles.has(null) || roles.size !== 2) {
+    throw new AppError(
+      "The before and after files must be exactly one classified as Ausgangslage (baseline) and one as Wirkungsdaten (follow-up) before this pairing can be confirmed.",
+      409,
+      "outcome_evidence_pairing_dataset_role_mismatch",
+    );
+  }
 }
 
 // hasCompatibleScaleBounds used to live here too (relocated, unchanged,
@@ -76,6 +100,21 @@ export function buildPairedDeltaProposalId(
 ): string {
   return [
     "paired_delta",
+    before.uploadMetadataId,
+    before.tableName,
+    before.columnName,
+    after.uploadMetadataId,
+    after.tableName,
+    after.columnName,
+  ].join("|");
+}
+
+export function buildPairedCategoricalShiftProposalId(
+  before: { uploadMetadataId: string; tableName: string; columnName: string },
+  after: { uploadMetadataId: string; tableName: string; columnName: string },
+): string {
+  return [
+    "paired_categorical_shift",
     before.uploadMetadataId,
     before.tableName,
     before.columnName,
@@ -111,6 +150,20 @@ export function buildProposalIdFromLink(
 ): string {
   if (link.shape === "paired_delta") {
     return buildPairedDeltaProposalId(
+      {
+        uploadMetadataId: link.beforeUploadMetadataId,
+        tableName: link.beforeTableName,
+        columnName: link.beforeColumnName,
+      },
+      {
+        uploadMetadataId: link.afterUploadMetadataId,
+        tableName: link.afterTableName,
+        columnName: link.afterColumnName,
+      },
+    );
+  }
+  if (link.shape === "paired_categorical_shift") {
+    return buildPairedCategoricalShiftProposalId(
       {
         uploadMetadataId: link.beforeUploadMetadataId,
         tableName: link.beforeTableName,

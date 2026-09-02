@@ -43,6 +43,7 @@ function makeUpload(id: string): UploadMetadataPersistenceRecord {
     storageKey: `storage-${id}`,
     originalFileDeletedAt: null,
     status: "uploaded",
+    datasetRole: null,
     createdAt: NOW,
     updatedAt: NOW,
   };
@@ -128,6 +129,7 @@ function makePreparation(
       primaryDateFields: [],
       epistemicRoleClarifications: [],
       cohortTags: [],
+      scaleDirections: [],
     },
     preparedDataset: {
       evidenceModality: "structured_quantitative",

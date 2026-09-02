@@ -31,26 +31,33 @@ import type { InterpretationResultRepository } from "../interpretation/interpret
 import type { DatasetPreparationRepository } from "../interpretation/datasetPreparationRepository.js";
 import type { PrivacySafeRepresentationRepository } from "../processing/privacySafeRepresentationRepository.js";
 import { normalizeMonthValue } from "../../shared/utils/monthValue.js";
+import { mergeLlmUsage } from "../../shared/utils/llmUsage.js";
 import { buildProjectImpactStoryAssembly } from "./projectImpactStoryAssembly.js";
 import { buildProjectChartOpportunityAudit } from "./projectChartOpportunityAudit.js";
 import { buildProjectChartSelectionAudit } from "./projectChartSelectionAudit.js";
 import {
   buildProjectImpactStoryCatalog,
-  toProjectImpactStoryChartPlanRequestEntries,
   type ProjectImpactStoryCatalogEntry,
 } from "./projectImpactStoryCatalog.js";
-import { buildProjectImpactStoryContextCatalog } from "./projectImpactStoryContextCatalog.js";
 import { buildProjectImpactStoryImpactCatalog } from "./projectImpactStoryImpactCatalog.js";
 import { buildProjectImpactStoryGoalProgressEntries } from "./projectImpactStoryGoalProgress.js";
+import { buildProjectImpactStoryConfirmedPairedDeltaCharts } from "./projectImpactStoryConfirmedPairedDeltaCharts.js";
 import { buildProjectImpactStoryChartBacklog } from "./projectImpactStoryChartBacklog.js";
+import { buildProjectImpactStoryNarrativeOutputFacts } from "./projectImpactStoryNarrativeOutputFacts.js";
 import { buildProjectImpactStoryPairedStoryDeltaCatalog } from "./projectImpactStoryPairedStoryDeltaCatalog.js";
 import {
-  executeProjectImpactStoryChartPlan,
+  collectChartDisplayLabelCandidates,
   PROJECT_IMPACT_STORY_ALLOWED_CHART_TYPES,
   PROJECT_IMPACT_STORY_HEADLINE_KPI_COUNT,
 } from "./projectImpactStoryChartPlanExecution.js";
+import {
+  collectConfirmedChartDisplayLabelCandidates,
+  executeProjectImpactStoryChartAuthoring,
+} from "./projectImpactStoryChartAuthoringExecution.js";
+import { toProjectImpactStoryChartAuthoringRequestEntries } from "./projectImpactStoryChartAuthoringRequestMapper.js";
 import { buildDeterministicFallbackChartPlan } from "./projectImpactStoryChartPlanFallback.js";
 import { computeProjectImpactStoryStaleness } from "./projectImpactStoryStaleness.js";
+import type { DisplayLabelService } from "./displayLabelService.js";
 import type { ProjectAnalyticsSnapshotRepository } from "./projectAnalyticsSnapshotRepository.js";
 import type { ProjectAnalyticsSnapshotPersistenceRecord } from "./projectAnalyticsSnapshotPersistence.js";
 import type { ProjectImpactStoryRepository } from "./projectImpactStoryRepository.js";
@@ -81,8 +88,8 @@ function composeProjectImpactStoryRecord(
     headlineKpis: snapshot.headlineKpis,
     chartPlan: snapshot.chartPlan,
     backlogChartPlan: snapshot.backlogChartPlan,
-    contextCharts: snapshot.contextCharts,
     goalProgressEntries: snapshot.goalProgressEntries,
+    confirmedOutcomeCharts: snapshot.confirmedOutcomeCharts,
     impactCatalog: overlay?.impactCatalog ?? [],
     narrativeSummary: overlay?.narrativeSummary ?? null,
     narrativeStatus: overlay?.narrativeStatus ?? null,
@@ -104,26 +111,6 @@ interface ProjectImpactStoryProjectContext {
   overarchingTargetGroup: string | null;
   areaOfOperation: string | null;
   initialSituation: string | null;
-}
-
-function mergeLlmUsage(
-  first: LlmUsageSummary | null,
-  second: LlmUsageSummary | null,
-): LlmUsageSummary | null {
-  if (!first) {
-    return second;
-  }
-  if (!second) {
-    return first;
-  }
-  return {
-    totalCalls: first.totalCalls + second.totalCalls,
-    totalPromptTokens: first.totalPromptTokens + second.totalPromptTokens,
-    totalCompletionTokens:
-      first.totalCompletionTokens + second.totalCompletionTokens,
-    totalTokens: first.totalTokens + second.totalTokens,
-    calls: [...first.calls, ...second.calls],
-  };
 }
 
 function formatFallbackDecimal(value: number): string {
@@ -149,6 +136,19 @@ function buildImpactCatalogFallbackSentence(
       return `For "${entry.outcomeStatement}", ${entry.nMatched} matched respondents moved from ${formatFallbackDecimal(entry.beforeValue)} to ${formatFallbackDecimal(entry.afterValue)} on "${entry.pairLabelDe}".`;
     }
     return `Für „${entry.outcomeStatement}“ veränderte sich bei ${entry.nMatched} zugeordneten Teilnehmenden „${entry.pairLabelDe}“ von ${formatFallbackDecimal(entry.beforeValue)} auf ${formatFallbackDecimal(entry.afterValue)}.`;
+  }
+
+  if (entry.shape === "paired_categorical_shift") {
+    const beforeText = entry.beforeShares
+      .map((share) => `${share.labelDe}: ${share.count}`)
+      .join(", ");
+    const afterText = entry.afterShares
+      .map((share) => `${share.labelDe}: ${share.count}`)
+      .join(", ");
+    if (language === "en") {
+      return `For "${entry.outcomeStatement}", ${entry.nMatched} matched responses to "${entry.pairLabelDe}" shifted from ${beforeText} to ${afterText}.`;
+    }
+    return `Für „${entry.outcomeStatement}“ verschoben sich bei ${entry.nMatched} zugeordneten Antworten die Muster zu „${entry.pairLabelDe}“ von ${beforeText} zu ${afterText}.`;
   }
 
   if (entry.shape === "single_distribution") {
@@ -195,6 +195,27 @@ function toProjectImpactStoryNarrativeCatalogEntryRequests(
       };
     }
 
+    if (entry.shape === "paired_categorical_shift") {
+      return {
+        entryId: entry.entryId,
+        shape: "paired_categorical_shift",
+        outcomeId: entry.outcomeId,
+        outcomeTerm: entry.outcomeTerm,
+        outcomeStatement: entry.outcomeStatement,
+        pairLabel: entry.pairLabelDe,
+        beforeShares: entry.beforeShares.map((share) => ({
+          label: share.labelDe,
+          count: share.count,
+        })),
+        afterShares: entry.afterShares.map((share) => ({
+          label: share.labelDe,
+          count: share.count,
+        })),
+        nMatched: entry.nMatched,
+        nBaseline: entry.nBaseline,
+      };
+    }
+
     if (entry.shape === "single_distribution") {
       return {
         entryId: entry.entryId,
@@ -221,19 +242,17 @@ function toProjectImpactStoryNarrativeCatalogEntryRequests(
   });
 }
 
-// "output-" prefixed so an output fact's entryId can never collide with an
-// impactCatalog entryId in the same narrative request — the two lists come
-// from independent id generators, and a collision would make a grounding
-// violation impossible to trace back to the right source.
 function toProjectImpactStoryNarrativeOutputFactRequests(
-  headlineKpis: ProjectImpactStoryHeadlineKpi[],
+  outputFacts: ProjectImpactStoryNarrativeOutputFactRequest[],
 ): ProjectImpactStoryNarrativeOutputFactRequest[] {
-  return headlineKpis.map((kpi) => ({
-    entryId: `output-${kpi.kpiId}`,
-    label: kpi.label,
-    value: kpi.value,
-    formatAs: kpi.formatAs,
-    narrativeReason: kpi.narrativeReason,
+  return outputFacts.map((fact) => ({
+    entryId: fact.entryId,
+    goalId: fact.goalId,
+    goalText: fact.goalText,
+    label: fact.label,
+    value: fact.value,
+    formatAs: fact.formatAs,
+    narrativeReason: fact.narrativeReason,
   }));
 }
 
@@ -334,6 +353,7 @@ export class ProjectImpactStoryService {
     private readonly interpretationResultRepository: InterpretationResultRepository,
     private readonly datasetPreparationRepository: DatasetPreparationRepository,
     private readonly privacySafeRepresentationRepository: PrivacySafeRepresentationRepository,
+    private readonly displayLabelService: DisplayLabelService,
     private readonly logger: FastifyBaseLogger,
   ) {}
 
@@ -401,19 +421,9 @@ export class ProjectImpactStoryService {
       );
     }
 
-    // Fallback-only deterministic descriptive charts. The primary planner
-    // catalog already includes descriptive distributions; this helper only
-    // survives so the analytics page can still show something if the chart
-    // planner returns no selected charts.
-    const fallbackContextCharts = buildProjectImpactStoryContextCatalog(
-      normalizedActivities,
-      activityAnalysisRuns,
-      normalizedUploads,
-    );
-
     // The only catalog the narrative call is allowed to see — built only
     // from human-confirmed OutcomeEvidenceLink records, entirely separate
-    // from `catalog`/`contextCharts` above. See
+    // from `catalog` above. See
     // IMPACT_STORY_OUTCOME_EXTENSION_PLAN.md §4.5/§4.6.
     const outcomeStatements =
       await this.projectOutcomeStatementRepository.listByProjectId(
@@ -438,7 +448,8 @@ export class ProjectImpactStoryService {
     // the narrative banner's footnote and the Diagnose panel.
     const activityIdsWithConfirmedOutcomeEvidence = new Set(
       confirmedLinks.flatMap((link) =>
-        link.shape === "paired_delta"
+        link.shape === "paired_delta" ||
+        link.shape === "paired_categorical_shift"
           ? [link.activityIdBefore, link.activityIdAfter]
           : [link.activityId],
       ),
@@ -457,10 +468,16 @@ export class ProjectImpactStoryService {
         },
       );
 
+    const activityNameById = new Map(
+      normalizedActivities.map((activity) => [activity.id, activity.name]),
+    );
     const impactCatalog = await buildProjectImpactStoryImpactCatalog(
       {
         currentActivityEvidenceLoader: this.currentActivityEvidenceLoader,
         activityAnalysisV2ToolExecutor: this.activityAnalysisV2ToolExecutor,
+        interpretationResultRepository: this.interpretationResultRepository,
+        datasetPreparationRepository: this.datasetPreparationRepository,
+        activityNameById,
         logger: this.logger,
       },
       outcomeStatements,
@@ -493,10 +510,12 @@ export class ProjectImpactStoryService {
       );
     const fullCatalog = [...catalog, ...pairedStoryDeltaCatalog];
 
-    // Deterministic — always computed, never subject to chart-plan
-    // selection. See projectImpactStoryGoalProgress.ts.
-    const goalProgressEntries =
-      buildProjectImpactStoryGoalProgressEntries(fullCatalog);
+    const narrativeOutputFacts = buildProjectImpactStoryNarrativeOutputFacts(
+      normalizedActivities,
+      activityAnalysisRuns,
+      normalizedUploads,
+      language,
+    );
 
     // Deterministic (no LLM) audit of every chart-worthy fact this run
     // could support — computed here, from the exact same catalog data
@@ -532,9 +551,8 @@ export class ProjectImpactStoryService {
       activityAnalysisRuns,
       assembly,
       catalog: fullCatalog,
-      contextCharts: fallbackContextCharts,
       impactCatalog,
-      goalProgressEntries,
+      narrativeOutputFacts,
       chartOpportunityAudit,
     };
   }
@@ -542,7 +560,7 @@ export class ProjectImpactStoryService {
   private async generateNarrative(
     project: ProjectImpactStoryProjectContext,
     impactCatalog: ImpactCatalogItem[],
-    headlineKpis: ProjectImpactStoryHeadlineKpi[],
+    narrativeOutputFacts: ProjectImpactStoryNarrativeOutputFactRequest[],
     language: "de" | "en",
   ): Promise<{
     narrativeSummary: string;
@@ -565,7 +583,7 @@ export class ProjectImpactStoryService {
         region: project.areaOfOperation,
         initialSituation: project.initialSituation,
         outputFacts:
-          toProjectImpactStoryNarrativeOutputFactRequests(headlineKpis),
+          toProjectImpactStoryNarrativeOutputFactRequests(narrativeOutputFacts),
         catalog:
           toProjectImpactStoryNarrativeCatalogEntryRequests(impactCatalog),
       });
@@ -592,7 +610,7 @@ export class ProjectImpactStoryService {
     const logFields = {
       projectId: project.id,
       impactCatalogCount: impactCatalog.length,
-      outputFactCount: headlineKpis.length,
+      outputFactCount: narrativeOutputFacts.length,
       groundingStatus: response.groundingStatus,
       groundingRetryCount: response.groundingRetryCount,
       narrativeLength: response.narrativeSummary.length,
@@ -628,18 +646,25 @@ export class ProjectImpactStoryService {
   private async planChartsAndKpis(
     project: ProjectImpactStoryProjectContext,
     catalog: ProjectImpactStoryCatalogEntry[],
+    impactCatalog: ImpactCatalogItem[],
     language: "de" | "en",
     hasGoalProgressChart: boolean,
+    goalDisplayLabelsByGoalText: Map<string, string>,
+    chartLabelsByRawText: Map<string, string>,
   ): Promise<{
     headlineKpis: ProjectImpactStoryHeadlineKpi[];
     chartPlan: ProjectImpactStoryChartSpec[];
     selectedEntryIds: string[];
     llmUsage: LlmUsageSummary | null;
   }> {
-    if (catalog.length === 0) {
+    // Confirmed impact-catalog evidence is now part of the same unified
+    // chart-authoring catalog (2026-08-30), so an empty grounded catalog no
+    // longer means "nothing to chart" the way it used to — a project can
+    // have zero grounded V2 facts yet real confirmed outcome evidence.
+    if (catalog.length === 0 && impactCatalog.length === 0) {
       this.logger.info(
         { projectId: project.id },
-        "project impact story chart plan skipped: no catalog candidates",
+        "project impact story chart authoring skipped: no catalog candidates",
       );
       return {
         headlineKpis: [],
@@ -651,20 +676,26 @@ export class ProjectImpactStoryService {
 
     try {
       const response =
-        await this.pythonProcessingClient.planProjectImpactStoryChart({
+        await this.pythonProcessingClient.planProjectImpactStoryChartAuthoring({
           projectId: project.id,
           projectName: project.name,
           language,
-          catalog: toProjectImpactStoryChartPlanRequestEntries(catalog),
+          catalog: toProjectImpactStoryChartAuthoringRequestEntries(
+            catalog,
+            impactCatalog,
+            goalDisplayLabelsByGoalText,
+          ),
           allowedChartTypes: PROJECT_IMPACT_STORY_ALLOWED_CHART_TYPES,
           headlineKpiCount: PROJECT_IMPACT_STORY_HEADLINE_KPI_COUNT,
         });
 
-      const executed = executeProjectImpactStoryChartPlan(
+      const executed = executeProjectImpactStoryChartAuthoring(
         catalog,
+        impactCatalog,
         response,
         language,
         hasGoalProgressChart,
+        chartLabelsByRawText,
       );
       const llmUsage = response.llmUsage ?? null;
       await this.projectLlmTokenLedgerService.recordUsage(
@@ -681,6 +712,7 @@ export class ProjectImpactStoryService {
       const logFields = {
         projectId: project.id,
         catalogCandidateCount: catalog.length,
+        confirmedEvidenceCandidateCount: impactCatalog.length,
         groundingStatus: response.groundingStatus,
         fellBackToDeterministicSelection:
           response.fellBackToDeterministicSelection,
@@ -695,12 +727,12 @@ export class ProjectImpactStoryService {
       if (response.fellBackToDeterministicSelection) {
         this.logger.warn(
           logFields,
-          "project impact story chart plan fell back to deterministic selection: grounding never passed",
+          "project impact story chart authoring fell back to deterministic selection: grounding never passed",
         );
       } else {
         this.logger.info(
           logFields,
-          "project impact story chart plan generated",
+          "project impact story chart authoring generated",
         );
       }
 
@@ -716,15 +748,31 @@ export class ProjectImpactStoryService {
           err: error,
           projectId: project.id,
           catalogCandidateCount: catalog.length,
+          confirmedEvidenceCandidateCount: impactCatalog.length,
         },
-        "project impact story chart plan failed; using deterministic fallback KPIs",
+        "project impact story chart authoring failed; using deterministic fallback",
       );
 
       const fallback = buildDeterministicFallbackChartPlan(catalog, language);
+      // Even on a total Python-call failure, confirmed evidence must not
+      // silently disappear — the old design's impactCatalog charts were
+      // always rendered as a separate, chart-plan-failure-proof tier;
+      // now that they're part of this same chartPlan array, this reuses
+      // executeProjectImpactStoryChartAuthoring's own mandatory-inclusion
+      // pass (with an empty plan response, so only that pass runs) to
+      // preserve the same guarantee through this failure path too.
+      const mandatoryInclusionOnly = executeProjectImpactStoryChartAuthoring(
+        [],
+        impactCatalog,
+        { headlineKpis: [], chartPlan: [] },
+        language,
+        hasGoalProgressChart,
+        chartLabelsByRawText,
+      );
       return {
         headlineKpis: fallback.headlineKpis,
-        chartPlan: [],
-        selectedEntryIds: [],
+        chartPlan: mandatoryInclusionOnly.chartPlan,
+        selectedEntryIds: mandatoryInclusionOnly.selectedEntryIds,
         llmUsage: null,
       };
     }
@@ -745,11 +793,62 @@ export class ProjectImpactStoryService {
       project,
       assembly,
       catalog,
-      contextCharts,
       impactCatalog,
-      goalProgressEntries,
+      narrativeOutputFacts,
       chartOpportunityAudit,
     } = await this.assertReadyForImpactStoryRun(userId, projectId, language);
+
+    // IMPACT_STORY_CHART_IMPROVEMENT_PLAN.md §2 — every goal_assessment
+    // entry's raw goalText is a full sentence, never shortened anywhere
+    // upstream (see projectImpactStoryCatalog.ts). Resolve labels only on
+    // the real generation path, not the synchronous readiness pre-check,
+    // so "can this run?" stays side-effect-free and all actual LLM cost is
+    // both generated and recorded by the job that owns the resulting story.
+    const {
+      labelsByText: goalDisplayLabelsByGoalText,
+      llmUsage: goalDisplayLabelLlmUsage,
+    } = await this.displayLabelService.resolveDisplayLabels(
+      catalog
+        .filter((entry) => entry.kind === "goal_assessment")
+        .map((entry) => entry.goalText),
+      language,
+    );
+    await this.projectLlmTokenLedgerService.recordUsage(
+      project.id,
+      goalDisplayLabelLlmUsage,
+      databaseSession,
+    );
+
+    // Same DisplayLabelService, a different set of source strings: every
+    // raw bar/category label a chart could plausibly render (context-
+    // distribution share names, calculation category-rank buckets,
+    // calculation tile labels used for a same-activity comparison, and the
+    // confirmed-evidence share names collected below) — see
+    // collectChartDisplayLabelCandidates/collectConfirmedChartDisplayLabelCandidates's
+    // own comments for exactly what is and isn't included (activity names
+    // are deliberately excluded from both).
+    const {
+      labelsByText: chartLabelsByRawText,
+      llmUsage: chartDisplayLabelLlmUsage,
+    } = await this.displayLabelService.resolveDisplayLabels(
+      [
+        ...collectChartDisplayLabelCandidates(catalog),
+        ...collectConfirmedChartDisplayLabelCandidates(impactCatalog),
+      ],
+      language,
+    );
+    await this.projectLlmTokenLedgerService.recordUsage(
+      project.id,
+      chartDisplayLabelLlmUsage,
+      databaseSession,
+    );
+
+    // Deterministic — always computed, never subject to chart-plan
+    // selection. See projectImpactStoryGoalProgress.ts.
+    const goalProgressEntries = buildProjectImpactStoryGoalProgressEntries(
+      catalog,
+      goalDisplayLabelsByGoalText,
+    );
 
     const impactCatalogByShape = impactCatalog.reduce<Record<string, number>>(
       (counts, entry) => {
@@ -769,7 +868,6 @@ export class ProjectImpactStoryService {
         projectId,
         activityCount: assembly.activityCards.length,
         chartPlanCatalogCandidateCount: catalog.length,
-        contextChartCandidateCount: contextCharts.length,
         impactCatalogCount: impactCatalog.length,
         impactCatalogByShape,
         goalProgressEntryCount: goalProgressEntries.length,
@@ -791,7 +889,6 @@ export class ProjectImpactStoryService {
           chartCount: record.chartPlan.length,
           backlogChartCount: record.backlogChartPlan.length,
           headlineKpiCount: record.headlineKpis.length,
-          contextChartCount: record.contextCharts.length,
           impactCatalogCount: record.impactCatalog.length,
           goalProgressEntryCount: record.goalProgressEntries.length,
           narrativeStatus: record.narrativeStatus,
@@ -805,17 +902,26 @@ export class ProjectImpactStoryService {
     const chartPlanResult = await this.planChartsAndKpis(
       project,
       catalog,
+      impactCatalog,
       language,
       goalProgressEntries.length > 0,
+      goalDisplayLabelsByGoalText,
+      chartLabelsByRawText,
     );
 
-    const fallbackContextCharts =
-      chartPlanResult.chartPlan.length === 0 ? contextCharts : [];
+    // Deterministic, always computed — never subject to chart-authoring
+    // LLM selection. See projectImpactStoryConfirmedPairedDeltaCharts.ts.
+    const confirmedOutcomeCharts =
+      buildProjectImpactStoryConfirmedPairedDeltaCharts(
+        impactCatalog,
+        language,
+      );
 
     const backlogChartPlan = buildProjectImpactStoryChartBacklog(
       catalog,
       new Set(chartPlanResult.selectedEntryIds),
       language,
+      chartLabelsByRawText,
     );
 
     // Computed from this exact generation's own opportunity audit and
@@ -837,14 +943,17 @@ export class ProjectImpactStoryService {
         headlineKpis: chartPlanResult.headlineKpis,
         chartPlan: chartPlanResult.chartPlan,
         backlogChartPlan,
-        contextCharts: fallbackContextCharts,
         goalProgressEntries,
+        confirmedOutcomeCharts,
         diagnostics: {
           ...assembly.diagnostics,
           chartOpportunityAudit,
           chartSelectionAudit,
         },
-        llmUsage: chartPlanResult.llmUsage,
+        llmUsage: mergeLlmUsage(
+          mergeLlmUsage(goalDisplayLabelLlmUsage, chartDisplayLabelLlmUsage),
+          chartPlanResult.llmUsage,
+        ),
         errorMessage: null,
       },
       databaseSession,
@@ -865,7 +974,7 @@ export class ProjectImpactStoryService {
       const narrative = await this.generateNarrative(
         project,
         impactCatalog,
-        chartPlanResult.headlineKpis,
+        narrativeOutputFacts,
         language,
       );
 

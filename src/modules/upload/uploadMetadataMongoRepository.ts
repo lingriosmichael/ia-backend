@@ -43,6 +43,7 @@ function toUploadMetadataRecord(
     storageKey: document.storageKey ?? null,
     originalFileDeletedAt: document.originalFileDeletedAt ?? null,
     status: document.status,
+    datasetRole: document.datasetRole ?? null,
     createdAt: document.createdAt,
     updatedAt: document.updatedAt,
   };
@@ -69,6 +70,7 @@ export class MongoUploadMetadataRepository implements UploadMetadataRepository {
           supersededAt: null,
           originalFileDeletedAt: null,
           status: "pending",
+          datasetRole: input.datasetRole ?? null,
         },
       ],
       getMongoSessionOptions(session),

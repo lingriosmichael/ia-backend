@@ -184,6 +184,20 @@ export class ProcessingResourceCleanupService {
     ]);
   }
 
+  async deleteProjectAnalyticsByProjectId(
+    projectId: string,
+    session: DatabaseSession,
+  ): Promise<void> {
+    await Promise.all([
+      this.deleteLegacyAnalyticsDocuments({ projectId }, session),
+      this.projectAnalyticsSnapshotRepository.deleteByProjectId(
+        projectId,
+        session,
+      ),
+      this.projectImpactStoryRepository.deleteByProjectId(projectId, session),
+    ]);
+  }
+
   async deleteByUploadMetadataId(
     uploadMetadataId: string,
     session: DatabaseSession,

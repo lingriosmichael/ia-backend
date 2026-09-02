@@ -299,6 +299,192 @@ function createEpistemicRoleGateFixture() {
   });
 }
 
+function createPairedCategoryShiftFixture(options?: {
+  shareCodebookProvenance?: boolean;
+}) {
+  const shareCodebookProvenance = options?.shareCodebookProvenance ?? true;
+
+  return createExecutorFixture({
+    evidence: {
+      organizationId: "org-1",
+      projectId: "project-1",
+      activityId: "activity-1",
+      evidence: [
+        {
+          uploadMetadataId: "upload-before",
+          privacySafeRepresentationId: "psr-before",
+          logicalEvidenceId: "evidence-before",
+          versionNumber: 1,
+          originalFileName: "baseline_feedback.csv",
+          evidenceModality: "structured_qualitative",
+          uploadedAt: NOW,
+          payload: {
+            tables: [
+              {
+                name: "baseline_feedback",
+                rows: [
+                  {
+                    participant_id: "P1",
+                    baseline_note: "I feel uncertain.",
+                    baseline_note_coded: "uncertain",
+                  },
+                  {
+                    participant_id: "P2",
+                    baseline_note: "I do not know where to start.",
+                    baseline_note_coded: "uncertain",
+                  },
+                ],
+                syntheticColumnMetadata: [
+                  {
+                    name: "baseline_note_coded",
+                    sourceTextColumnName: "baseline_note",
+                    epistemicRole: "subjective_code",
+                    inferredType: "categorical",
+                    findingKey: "baseline_feedback::baseline_note",
+                    sourceCodebookFrom: null,
+                  },
+                ],
+              },
+            ],
+          },
+        },
+        {
+          uploadMetadataId: "upload-after",
+          privacySafeRepresentationId: "psr-after",
+          logicalEvidenceId: "evidence-after",
+          versionNumber: 1,
+          originalFileName: "endline_feedback.csv",
+          evidenceModality: "structured_qualitative",
+          uploadedAt: NOW,
+          payload: {
+            tables: [
+              {
+                name: "endline_feedback",
+                rows: [
+                  {
+                    participant_id: "P1",
+                    endline_note: "I feel ready to lead.",
+                    endline_note_coded: "confident",
+                  },
+                  {
+                    participant_id: "P2",
+                    endline_note: "I know what to do next.",
+                    endline_note_coded: "confident",
+                  },
+                ],
+                syntheticColumnMetadata: [
+                  {
+                    name: "endline_note_coded",
+                    sourceTextColumnName: "endline_note",
+                    epistemicRole: "subjective_code",
+                    inferredType: "categorical",
+                    findingKey: "endline_feedback::endline_note",
+                    sourceCodebookFrom: shareCodebookProvenance
+                      ? {
+                          uploadMetadataId: "upload-before",
+                          findingKey: "baseline_feedback::baseline_note",
+                        }
+                      : null,
+                  },
+                ],
+              },
+            ],
+          },
+        },
+      ],
+      missingPrivacySafeUploads: [],
+    },
+    results: [
+      { id: "result-before", uploadMetadataId: "upload-before" },
+      { id: "result-after", uploadMetadataId: "upload-after" },
+    ],
+    preparedTablesByResultId: new Map([
+      [
+        "result-before",
+        {
+          evidenceModality: "structured_qualitative",
+          isReadyForDeterministicAnalysis: true,
+          unresolvedRequirements: [],
+          tables: [
+            {
+              name: "baseline_feedback",
+              rowCount: 2,
+              columnCount: 2,
+              selectedRowGrain: "participant record",
+              identifierColumn: "participant_id",
+              identifierHandling: "deduplicate_by_identifier",
+              primaryStatusColumn: null,
+              primaryDateColumn: null,
+              columns: [
+                {
+                  name: "participant_id",
+                  inferredType: "identifier",
+                  role: "identifier",
+                  epistemicRole: "identifier",
+                  positiveStatusValues: [],
+                  positiveStatusDefinitionText: null,
+                  normalizationAccepted: true,
+                },
+                {
+                  name: "baseline_note",
+                  inferredType: "free_text",
+                  role: "free_text",
+                  epistemicRole: "free_text",
+                  positiveStatusValues: [],
+                  positiveStatusDefinitionText: null,
+                  normalizationAccepted: true,
+                },
+              ],
+              notes: [],
+            },
+          ],
+        },
+      ],
+      [
+        "result-after",
+        {
+          evidenceModality: "structured_qualitative",
+          isReadyForDeterministicAnalysis: true,
+          unresolvedRequirements: [],
+          tables: [
+            {
+              name: "endline_feedback",
+              rowCount: 2,
+              columnCount: 2,
+              selectedRowGrain: "participant record",
+              identifierColumn: "participant_id",
+              identifierHandling: "deduplicate_by_identifier",
+              primaryStatusColumn: null,
+              primaryDateColumn: null,
+              columns: [
+                {
+                  name: "participant_id",
+                  inferredType: "identifier",
+                  role: "identifier",
+                  epistemicRole: "identifier",
+                  positiveStatusValues: [],
+                  positiveStatusDefinitionText: null,
+                  normalizationAccepted: true,
+                },
+                {
+                  name: "endline_note",
+                  inferredType: "free_text",
+                  role: "free_text",
+                  epistemicRole: "free_text",
+                  positiveStatusValues: [],
+                  positiveStatusDefinitionText: null,
+                  normalizationAccepted: true,
+                },
+              ],
+              notes: [],
+            },
+          ],
+        },
+      ],
+    ]),
+  });
+}
+
 test("describe_evidence reports analysis-row counts on deduplicated entity-grain tables", async () => {
   const fixture = createExecutorFixture();
 
@@ -489,6 +675,126 @@ test("paired_change is blocked when its pre/post columns are subjective_code", a
   assert.match(
     result.toolCallTrace[0]?.errorMessage ?? "",
     /epistemic_role_gate_downgrade/i,
+  );
+});
+
+test("paired_category_shift is allowed when subjective_code columns share approved codebook provenance", async () => {
+  const fixture = createPairedCategoryShiftFixture({
+    shareCodebookProvenance: true,
+  });
+
+  const result = await fixture.executor.execute(
+    [
+      {
+        goalId: "output_1",
+        toolName: "join_tables",
+        alias: "joined_feedback",
+        arguments: {
+          left: {
+            uploadMetadataId: "upload-before",
+            tableName: "baseline_feedback",
+          },
+          right: {
+            uploadMetadataId: "upload-after",
+            tableName: "endline_feedback",
+          },
+          keys: [
+            {
+              leftColumnName: "participant_id",
+              rightColumnName: "participant_id",
+            },
+          ],
+          leftPrefix: "before",
+          rightPrefix: "after",
+        },
+      },
+      {
+        goalId: "output_1",
+        toolName: "paired_category_shift",
+        alias: "coded_shift",
+        arguments: {
+          resultAlias: "joined_feedback",
+          entityColumnName: "participant_id",
+          beforeCategoryColumnName: "before_baseline_note_coded",
+          afterCategoryColumnName: "after_endline_note_coded",
+        },
+      },
+    ],
+    fixture.evidence,
+    {
+      maxToolCalls: 12,
+      maxLlmIterations: 4,
+      timeoutMs: 30_000,
+      maxEvidenceItems: 25,
+    },
+  );
+
+  assert.equal(result.toolCallTrace[0]?.status, "succeeded");
+  assert.equal(result.toolCallTrace[1]?.status, "succeeded");
+  assert.equal(
+    result.calculations.some(
+      (calculation) => calculation.toolName === "paired_category_shift",
+    ),
+    true,
+  );
+});
+
+test("paired_category_shift is blocked when subjective_code columns do not share approved codebook provenance", async () => {
+  const fixture = createPairedCategoryShiftFixture({
+    shareCodebookProvenance: false,
+  });
+
+  const result = await fixture.executor.execute(
+    [
+      {
+        goalId: "output_1",
+        toolName: "join_tables",
+        alias: "joined_feedback",
+        arguments: {
+          left: {
+            uploadMetadataId: "upload-before",
+            tableName: "baseline_feedback",
+          },
+          right: {
+            uploadMetadataId: "upload-after",
+            tableName: "endline_feedback",
+          },
+          keys: [
+            {
+              leftColumnName: "participant_id",
+              rightColumnName: "participant_id",
+            },
+          ],
+          leftPrefix: "before",
+          rightPrefix: "after",
+        },
+      },
+      {
+        goalId: "output_1",
+        toolName: "paired_category_shift",
+        alias: "coded_shift",
+        arguments: {
+          resultAlias: "joined_feedback",
+          entityColumnName: "participant_id",
+          beforeCategoryColumnName: "before_baseline_note_coded",
+          afterCategoryColumnName: "after_endline_note_coded",
+        },
+      },
+    ],
+    fixture.evidence,
+    {
+      maxToolCalls: 12,
+      maxLlmIterations: 4,
+      timeoutMs: 30_000,
+      maxEvidenceItems: 25,
+    },
+  );
+
+  assert.equal(result.toolCallTrace[0]?.status, "succeeded");
+  assert.equal(result.toolCallTrace[1]?.status, "failed");
+  assert.match(
+    result.toolCallTrace[1]?.errorMessage ?? "",
+    /codebook provenance/i,
   );
 });
 

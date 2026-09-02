@@ -1,10 +1,15 @@
+import type { FastifyBaseLogger } from "fastify";
 import { z } from "zod";
 import { AppError } from "../../shared/errors/appError.js";
-import { interpretationQuestionCodeValues } from "../../shared/contracts.js";
+import {
+  interpretationQuestionCodeValues,
+  interpretationQuestionKindValues,
+} from "../../shared/contracts.js";
 import type {
   EpistemicRole,
   ImpactIndicatorTileFormat,
   InterpretationQuestionCode,
+  InterpretationQuestionKind,
   LlmUsageSummary,
   PrivacyReviewDecisions,
   PreparedDatasetMetricKind,
@@ -95,14 +100,20 @@ export interface QualitativeCodingReviewRequestInput {
   originalFileName: string;
   language: "de" | "en";
   privacySafePayload: Record<string, unknown>;
-  sourceCodebookCodes?: Array<{
-    code: string;
-    label: string;
-    description: string;
-    exampleExcerpts: string[];
+  sourceCodebookSelections?: Array<{
+    targetFindingKey: string;
+    sourceCodebookFrom: {
+      uploadMetadataId: string;
+      findingKey: string;
+    };
+    sourceCodebookCodes: Array<{
+      code: string;
+      label: string;
+      description: string;
+      exampleExcerpts: string[];
+    }>;
+    sourceCodebookOriginalFileName?: string | null;
   }>;
-  sourceCodebookUploadMetadataId?: string | null;
-  sourceCodebookOriginalFileName?: string | null;
   datasetProfileTables: Array<{
     tableName: string;
     rowCount: number;
@@ -137,7 +148,10 @@ export interface QualitativeCodingReviewResponseOutput {
       rowIndex: number;
       assignedCode: string | null;
     }>;
-    sourceCodebookUploadMetadataId: string | null;
+    sourceCodebookFrom: {
+      uploadMetadataId: string;
+      findingKey: string;
+    } | null;
     sourceCodebookOriginalFileName: string | null;
   }>;
   llmUsage?: LlmUsageSummary | null;
@@ -189,6 +203,13 @@ export interface ActivityAnalysisV2EvidenceColumnInput {
   // getFilterValueGateRejectionMessage — so this field is grounding, not a
   // trust boundary by itself.
   observedValues?: string[] | null;
+  subjectiveCodeProvenance?: {
+    findingKey: string | null;
+    sourceCodebookFrom: {
+      uploadMetadataId: string;
+      findingKey: string;
+    } | null;
+  } | null;
 }
 
 export interface ActivityAnalysisV2EvidenceTableInput {
@@ -265,6 +286,7 @@ export interface ActivityAnalysisV2PlanToolRequest {
     | "days_since_last_event"
     | "period_change"
     | "paired_change"
+    | "paired_category_shift"
     | "time_bucket_count"
     | "calculate_ratio"
     | "calculate_difference"
@@ -318,7 +340,9 @@ export interface ActivityAnalysisV2ClarificationQuestionDraft {
   // Zod schema below when the planner omits it. Still the real, LLM-authored
   // prompt text for the one documented exception: questionCode === null.
   prompt: string;
-  kind: "single_choice" | "free_text" | "merge_confirmation";
+  // Reuses contracts.ts's InterpretationQuestionKind for the same reason
+  // questionCode below does — see that comment.
+  kind: InterpretationQuestionKind;
   questionDomain: "preparation" | "interpretation";
   options: string[] | null;
   recommendedOption: string | null;
@@ -421,6 +445,19 @@ export interface ProjectImpactStoryNarrativeCatalogPairedDeltaRequest {
   nBaseline: number;
 }
 
+export interface ProjectImpactStoryNarrativeCatalogPairedCategoricalShiftRequest {
+  entryId: string;
+  shape: "paired_categorical_shift";
+  outcomeId: string;
+  outcomeTerm: "short" | "long";
+  outcomeStatement: string;
+  pairLabel: string;
+  beforeShares: { label: string; count: number }[];
+  afterShares: { label: string; count: number }[];
+  nMatched: number;
+  nBaseline: number;
+}
+
 export interface ProjectImpactStoryNarrativeCatalogSingleDistributionRequest {
   entryId: string;
   shape: "single_distribution";
@@ -442,19 +479,19 @@ export interface ProjectImpactStoryNarrativeCatalogUnmeasuredRequest {
 
 export type ProjectImpactStoryNarrativeCatalogEntryRequest =
   | ProjectImpactStoryNarrativeCatalogPairedDeltaRequest
+  | ProjectImpactStoryNarrativeCatalogPairedCategoricalShiftRequest
   | ProjectImpactStoryNarrativeCatalogSingleDistributionRequest
   | ProjectImpactStoryNarrativeCatalogUnmeasuredRequest;
 
-// Process/reach facts — the same already-computed, already-grounded numbers
-// shown as the page's headline KPI tiles (ProjectImpactStoryHeadlineKpi),
-// resent here so the narrative can describe what the project *did* (its
-// activities and outputs), not only what confirmed outcome evidence shows
-// changed. Deliberately carries no `status`/`statusCallout` — the narrative
-// prompt bans target-completion framing ("Ziel erreicht"), and omitting
-// those fields here removes the temptation entirely rather than relying on
-// the prompt alone.
+// Deterministic, goal-linked activity/output facts built directly from the
+// current grounded V2 runs, independent of the chart-plan LLM's
+// headlineKpis selection. Each fact keeps the concrete calculation label/
+// value plus the output goal it supports, so paragraph 1 can group by goal
+// without ever needing a target-value field.
 export interface ProjectImpactStoryNarrativeOutputFactRequest {
   entryId: string;
+  goalId: string;
+  goalText: string;
   label: string;
   value: number;
   formatAs: ImpactIndicatorTileFormat;
@@ -481,32 +518,20 @@ export interface ProjectImpactStoryNarrativeResponse {
   llmUsage?: LlmUsageSummary | null;
 }
 
-export interface ProjectImpactStoryChartPlanCatalogEntryRequest {
-  entryId: string;
-  kind:
-    | "calculation"
-    | "goal_assessment"
-    | "context_distribution"
-    | "paired_story_delta";
-  activityId: string;
-  activityName: string;
-  label: string;
-  description: string | null;
-  toolName: string | null;
-  unit: string | null;
-  value: number | null;
-  goalType: "output" | null;
-  assessmentStatus: string | null;
-  achieved: boolean | null;
+// IMPACT_STORY_CHART_IMPROVEMENT_PLAN.md §2 — deliberately just `text` and
+// `language`, never a value/target/status alongside the text being
+// shortened. See displayLabelService.ts for the caching layer this call
+// sits behind. Generic across every caller (goal statements, chart
+// bar/category labels, ...) — the model never sees anything but the bare
+// string either way.
+export interface DisplayLabelRequest {
+  text: string;
+  language: "de" | "en";
 }
 
-export interface ProjectImpactStoryChartPlanRequest {
-  projectId: string;
-  projectName: string;
-  language: "de" | "en";
-  catalog: ProjectImpactStoryChartPlanCatalogEntryRequest[];
-  allowedChartTypes: string[];
-  headlineKpiCount: number;
+export interface DisplayLabelResponse {
+  displayLabel: string;
+  llmUsage?: LlmUsageSummary | null;
 }
 
 export interface ProjectImpactStoryChartPlanKpiCandidate {
@@ -517,18 +542,109 @@ export interface ProjectImpactStoryChartPlanKpiCandidate {
   narrativeReason: string;
 }
 
-export interface ProjectImpactStoryChartPlanChartCandidate {
+// See projectImpactStoryChartAuthoringRequestMapper.ts for how the catalog
+// entries below get built, and ia_python_service's
+// ProjectImpactStoryChartAuthoringRequest docstring for why this exists.
+// Field names/shapes mirror the Python Pydantic models 1:1 by design.
+// Deliberately has no "confirmed_paired_delta" variant: that shape is
+// handled entirely
+// by the deterministic projectImpactStoryConfirmedPairedDeltaCharts.ts
+// instead, never sent into this LLM-driven catalog at all — see that
+// file's own comment for why.
+export type ProjectImpactStoryChartAuthoringCatalogEntryRequest =
+  | {
+      entryId: string;
+      kind: "calculation";
+      activityId: string;
+      activityName: string;
+      label: string;
+      description: string | null;
+      toolName: string | null;
+      unit: string | null;
+      value: number | null;
+    }
+  | {
+      entryId: string;
+      kind: "goal_assessment";
+      activityId: string;
+      activityName: string;
+      label: string;
+      description: string | null;
+      goalType: "output" | null;
+      assessmentStatus: string | null;
+      achieved: boolean | null;
+    }
+  | {
+      entryId: string;
+      kind: "context_distribution";
+      activityId: string;
+      activityName: string;
+      label: string;
+      description: string | null;
+      shares: { label: string; count: number }[];
+      n: number;
+    }
+  | {
+      entryId: string;
+      kind: "paired_story_delta";
+      activityId: string;
+      activityName: string;
+      label: string;
+      description: string | null;
+      beforeValue: number;
+      afterValue: number;
+      nMatched: number;
+      nBaseline: number;
+    }
+  | {
+      entryId: string;
+      kind: "confirmed_paired_categorical_shift";
+      outcomeId: string;
+      outcomeTerm: "short" | "long";
+      outcomeStatement: string;
+      pairLabel: string;
+      beforeShares: { label: string; count: number }[];
+      afterShares: { label: string; count: number }[];
+      nMatched: number;
+      nBaseline: number;
+    }
+  | {
+      entryId: string;
+      kind: "confirmed_single_distribution";
+      outcomeId: string;
+      outcomeTerm: "short" | "long";
+      outcomeStatement: string;
+      questionLabel: string;
+      shares: { label: string; count: number }[];
+      n: number;
+    };
+
+export interface ProjectImpactStoryChartAuthoringRequest {
+  projectId: string;
+  projectName: string;
+  language: "de" | "en";
+  catalog: ProjectImpactStoryChartAuthoringCatalogEntryRequest[];
+  allowedChartTypes: string[];
+  headlineKpiCount: number;
+}
+
+export interface ProjectImpactStoryChartAuthoringComponentCandidate {
+  entryId: string;
+  shareFilter: string[] | null;
+}
+
+export interface ProjectImpactStoryChartAuthoringChartCandidate {
   chartId: string;
   chartType: string;
   title: string;
   subtitle: string | null;
-  entryIds: string[];
   narrativeReason: string;
+  components: ProjectImpactStoryChartAuthoringComponentCandidate[];
 }
 
-export interface ProjectImpactStoryChartPlanResponse {
+export interface ProjectImpactStoryChartAuthoringResponse {
   headlineKpis: ProjectImpactStoryChartPlanKpiCandidate[];
-  chartPlan: ProjectImpactStoryChartPlanChartCandidate[];
+  chartPlan: ProjectImpactStoryChartAuthoringChartCandidate[];
   groundingStatus: "PASSED" | "FAILED";
   fellBackToDeterministicSelection: boolean;
   llmUsage?: LlmUsageSummary | null;
@@ -580,6 +696,12 @@ export interface OutcomeEvidencePairingRecommendationCandidateRequest {
   inferredType?: string | null;
   distinctValueCount?: number | null;
   cohortTag?: string | null;
+  // Human-set baseline/follow-up classification — see
+  // OUTCOME_EVIDENCE_MERGE_PLAN.md's pre/post inversion fix. Python's
+  // grounding check rejects a paired proposal unless both sides carry one
+  // of these and they differ; ia_backend never trusts the LLM's own
+  // beforeColumnId/afterColumnId placement for direction regardless.
+  datasetRole?: "baseline" | "followup" | null;
 }
 
 export interface OutcomeEvidencePairingRecommendationRequest {
@@ -590,7 +712,7 @@ export interface OutcomeEvidencePairingRecommendationRequest {
 }
 
 export interface OutcomeEvidencePairingRecommendationEntry {
-  shape: "paired_delta" | "single_distribution";
+  shape: "paired_delta" | "paired_categorical_shift" | "single_distribution";
   beforeColumnId?: string | null;
   afterColumnId?: string | null;
   columnId?: string | null;
@@ -644,6 +766,7 @@ const activityAnalysisV2ToolNameSchema = z.enum([
   "days_since_last_event",
   "period_change",
   "paired_change",
+  "paired_category_shift",
   "time_bucket_count",
   "calculate_ratio",
   "calculate_difference",
@@ -696,7 +819,9 @@ const activityAnalysisV2ClarificationQuestionDraftSchema = z.object({
     .nullable()
     .optional()
     .transform((value) => value ?? ""),
-  kind: z.enum(["single_choice", "free_text", "merge_confirmation"]),
+  // Derived from interpretationQuestionKindValues for the same reason
+  // questionCode is below — see that comment.
+  kind: z.enum(interpretationQuestionKindValues),
   questionDomain: z.enum(["preparation", "interpretation"]),
   options: z.array(z.string()).nullable(),
   recommendedOption: z.string().nullable(),
@@ -762,6 +887,11 @@ const projectImpactStoryNarrativeResponseSchema = z.object({
   llmUsage: z.unknown().nullable().optional(),
 });
 
+const displayLabelResponseSchema = z.object({
+  displayLabel: z.string(),
+  llmUsage: z.unknown().nullable().optional(),
+});
+
 // Deliberately no numeric `value` field anywhere in this schema — the
 // chart-plan endpoint only ever selects entryIds and an aggregation kind,
 // never a number. Backend re-validates every entryId against its own copy
@@ -775,18 +905,26 @@ const projectImpactStoryChartPlanKpiCandidateSchema = z.object({
   narrativeReason: z.string(),
 });
 
-const projectImpactStoryChartPlanChartCandidateSchema = z.object({
+// Same "no numeric value field anywhere" invariant as the KPI schema
+// above: shareFilter is strings copied from the catalog ia_backend itself
+// sent, never a number the model could invent.
+const projectImpactStoryChartAuthoringComponentCandidateSchema = z.object({
+  entryId: z.string(),
+  shareFilter: z.array(z.string()).nullable().optional(),
+});
+
+const projectImpactStoryChartAuthoringChartCandidateSchema = z.object({
   chartId: z.string(),
   chartType: z.string(),
   title: z.string(),
   subtitle: z.string().nullable().optional(),
-  entryIds: z.array(z.string()),
   narrativeReason: z.string(),
+  components: z.array(projectImpactStoryChartAuthoringComponentCandidateSchema),
 });
 
-const projectImpactStoryChartPlanResponseSchema = z.object({
+const projectImpactStoryChartAuthoringResponseSchema = z.object({
   headlineKpis: z.array(projectImpactStoryChartPlanKpiCandidateSchema),
-  chartPlan: z.array(projectImpactStoryChartPlanChartCandidateSchema),
+  chartPlan: z.array(projectImpactStoryChartAuthoringChartCandidateSchema),
   groundingStatus: z.enum(["PASSED", "FAILED"]),
   fellBackToDeterministicSelection: z.boolean(),
   llmUsage: z.unknown().nullable().optional(),
@@ -816,7 +954,11 @@ const outcomeEvidencePairingSuggestionResponseSchema = z.object({
 // ProjectOutcomeStatement ids, which is the real trust boundary. This
 // schema only confirms the response is well-formed JSON of the right shape.
 const outcomeEvidencePairingRecommendationEntrySchema = z.object({
-  shape: z.enum(["paired_delta", "single_distribution"]),
+  shape: z.enum([
+    "paired_delta",
+    "paired_categorical_shift",
+    "single_distribution",
+  ]),
   beforeColumnId: z.string().nullable().optional(),
   afterColumnId: z.string().nullable().optional(),
   columnId: z.string().nullable().optional(),
@@ -824,8 +966,18 @@ const outcomeEvidencePairingRecommendationEntrySchema = z.object({
   rationale: z.string(),
 });
 
-const outcomeEvidencePairingRecommendationResponseSchema = z.object({
-  recommendations: z.array(outcomeEvidencePairingRecommendationEntrySchema),
+// Validated in two passes rather than one z.array(entrySchema): Zod array
+// validation is all-or-nothing, so a single recommendation carrying a
+// `shape` value this backend version doesn't recognize yet (e.g. this
+// service deployed before ia_python_service during a rollout of a new
+// shape — see OUTCOME_EVIDENCE_MERGE_PLAN.md's deploy-order guidance) would
+// otherwise fail the entire response and turn a mid-rollout gap into a
+// hard 502 for every recommendation in that response, not just the
+// unrecognized one. The envelope is still validated strictly — this only
+// widens tolerance for individual recommendation shapes, not for a
+// genuinely malformed response.
+const outcomeEvidencePairingRecommendationResponseEnvelopeSchema = z.object({
+  recommendations: z.array(z.unknown()),
   groundingStatus: z.enum(["PASSED", "FAILED"]),
   llmUsage: z.unknown().nullable().optional(),
 });
@@ -1166,6 +1318,7 @@ export class PythonProcessingClient {
     // alias for existing environments. A real activity summary was observed
     // timing out at ~60s despite the route itself eventually succeeding.
     private readonly llmTimeoutMs: number,
+    private readonly logger?: Pick<FastifyBaseLogger, "warn">,
   ) {}
 
   // Qualitative coding review generation is the most LLM-call-heavy path in
@@ -1569,11 +1722,11 @@ export class PythonProcessingClient {
     return parsed.data as ProjectImpactStoryNarrativeResponse;
   }
 
-  async planProjectImpactStoryChart(
-    input: ProjectImpactStoryChartPlanRequest,
-  ): Promise<ProjectImpactStoryChartPlanResponse> {
+  async generateDisplayLabel(
+    input: DisplayLabelRequest,
+  ): Promise<DisplayLabelResponse> {
     const response = await this.request(
-      "/internal/project-impact-story/chart-plan",
+      "/internal/project-impact-story/display-label",
       {
         method: "POST",
         headers: {
@@ -1582,25 +1735,60 @@ export class PythonProcessingClient {
         },
         body: JSON.stringify(input),
       },
-      "The Python processing service could not plan the project impact story chart layout.",
-      "python_processing_project_impact_story_chart_plan_unavailable",
-      "The Python processing service timed out while planning the project impact story chart layout.",
-      "python_processing_project_impact_story_chart_plan_timeout",
-      this.projectImpactStoryLlmTimeoutMs,
+      "The Python processing service could not generate a display label.",
+      "python_processing_display_label_unavailable",
+      "The Python processing service timed out while generating a display label.",
+      "python_processing_display_label_timeout",
+      this.llmTimeoutMs,
     );
 
     const payload = await response.json();
-    const parsed = projectImpactStoryChartPlanResponseSchema.safeParse(payload);
+    const parsed = displayLabelResponseSchema.safeParse(payload);
     if (!parsed.success) {
       throw new AppError(
-        "The Python processing service returned a malformed project impact story chart plan.",
+        "The Python processing service returned a malformed display label.",
         502,
-        "python_processing_project_impact_story_chart_plan_malformed",
+        "python_processing_display_label_malformed",
         parsed.error.flatten(),
       );
     }
 
-    return parsed.data as ProjectImpactStoryChartPlanResponse;
+    return parsed.data as DisplayLabelResponse;
+  }
+
+  async planProjectImpactStoryChartAuthoring(
+    input: ProjectImpactStoryChartAuthoringRequest,
+  ): Promise<ProjectImpactStoryChartAuthoringResponse> {
+    const response = await this.request(
+      "/internal/project-impact-story/chart-authoring",
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          ...this.authHeaders(),
+        },
+        body: JSON.stringify(input),
+      },
+      "The Python processing service could not author the project impact story chart layout.",
+      "python_processing_project_impact_story_chart_authoring_unavailable",
+      "The Python processing service timed out while authoring the project impact story chart layout.",
+      "python_processing_project_impact_story_chart_authoring_timeout",
+      this.projectImpactStoryLlmTimeoutMs,
+    );
+
+    const payload = await response.json();
+    const parsed =
+      projectImpactStoryChartAuthoringResponseSchema.safeParse(payload);
+    if (!parsed.success) {
+      throw new AppError(
+        "The Python processing service returned a malformed project impact story chart authoring plan.",
+        502,
+        "python_processing_project_impact_story_chart_authoring_malformed",
+        parsed.error.flatten(),
+      );
+    }
+
+    return parsed.data as ProjectImpactStoryChartAuthoringResponse;
   }
 
   async suggestOutcomeEvidencePairingOutcomes(
@@ -1660,7 +1848,9 @@ export class PythonProcessingClient {
 
     const payload = await response.json();
     const parsed =
-      outcomeEvidencePairingRecommendationResponseSchema.safeParse(payload);
+      outcomeEvidencePairingRecommendationResponseEnvelopeSchema.safeParse(
+        payload,
+      );
     if (!parsed.success) {
       throw new AppError(
         "The Python processing service returned a malformed outcome-evidence pairing recommendation.",
@@ -1670,6 +1860,30 @@ export class PythonProcessingClient {
       );
     }
 
-    return parsed.data as OutcomeEvidencePairingRecommendationResponse;
+    const recommendations: OutcomeEvidencePairingRecommendationEntry[] = [];
+    parsed.data.recommendations.forEach((recommendation, index) => {
+      const entry =
+        outcomeEvidencePairingRecommendationEntrySchema.safeParse(
+          recommendation,
+        );
+      if (entry.success) {
+        recommendations.push(entry.data);
+        return;
+      }
+
+      this.logger?.warn(
+        {
+          recommendationIndex: index,
+          recommendation,
+          validationErrors: entry.error.flatten(),
+        },
+        "dropping malformed outcome-evidence pairing recommendation entry from Python service response",
+      );
+    });
+
+    return {
+      ...parsed.data,
+      recommendations,
+    } as OutcomeEvidencePairingRecommendationResponse;
   }
 }

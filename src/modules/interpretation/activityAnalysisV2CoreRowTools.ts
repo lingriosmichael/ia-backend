@@ -89,6 +89,7 @@ export function createCohortAliasValue(
     basis: "cohort",
     sourceColumnEpistemicRoles: source.sourceColumnEpistemicRoles,
     epistemicRoles: source.epistemicRoles,
+    columnLineageByName: source.columnLineageByName,
   };
 }
 
@@ -107,6 +108,7 @@ export function createResultAliasValue(
     basis: "result",
     sourceColumnEpistemicRoles: source.sourceColumnEpistemicRoles,
     epistemicRoles: source.epistemicRoles,
+    columnLineageByName: source.columnLineageByName,
   };
 }
 
@@ -386,6 +388,39 @@ export function executeJoinTables(
     leftPrefix,
     rightPrefix,
   });
+  const joinedColumnLineageByName: ActivityAnalysisV2RowAliasValue["columnLineageByName"] =
+    {};
+  const joinKeyNames = new Set(
+    keys.flatMap((key) => [key.leftColumnName, key.rightColumnName]),
+  );
+  for (const key of keys) {
+    const leftLineage = leftSource.columnLineageByName[key.leftColumnName];
+    if (leftLineage) {
+      joinedColumnLineageByName[key.leftColumnName] = leftLineage;
+    }
+    if (key.rightColumnName !== key.leftColumnName) {
+      const rightLineage = rightSource.columnLineageByName[key.rightColumnName];
+      if (rightLineage) {
+        joinedColumnLineageByName[key.rightColumnName] = rightLineage;
+      }
+    }
+  }
+  for (const [columnName, lineage] of Object.entries(
+    leftSource.columnLineageByName,
+  )) {
+    if (joinKeyNames.has(columnName)) {
+      continue;
+    }
+    joinedColumnLineageByName[`${leftPrefix}_${columnName}`] = lineage;
+  }
+  for (const [columnName, lineage] of Object.entries(
+    rightSource.columnLineageByName,
+  )) {
+    if (joinKeyNames.has(columnName)) {
+      continue;
+    }
+    joinedColumnLineageByName[`${rightPrefix}_${columnName}`] = lineage;
+  }
   const resultAlias = createResultAliasValue(alias, {
     ...leftSource,
     rows: joinedRows,
@@ -405,6 +440,7 @@ export function executeJoinTables(
         ...rightSource.sourceTableNames,
       ]),
     ],
+    columnLineageByName: joinedColumnLineageByName,
   });
   return {
     resultAlias,

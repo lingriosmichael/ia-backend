@@ -178,3 +178,58 @@ test("non-goal_assessment catalog entries are ignored", () => {
 
   assert.equal(entries.length, 0);
 });
+
+test("displayLabel falls back to the raw goalText when no cached label exists", () => {
+  const entries = buildProjectImpactStoryGoalProgressEntries([
+    goalAssessmentEntry({
+      entryId: "e1",
+      activityId: "act-1",
+      assessmentStatus: "achieved",
+      achieved: true,
+      measuredValue: 100,
+      targetValue: 100,
+      comparison: "at_least",
+      goalText: "Mindestens 70 Bewerbungen von Interessierten sammeln",
+    }),
+  ]);
+
+  assert.equal(entries.length, 1);
+  assert.equal(
+    entries[0]!.label,
+    "Mindestens 70 Bewerbungen von Interessierten sammeln",
+  );
+  assert.equal(
+    entries[0]!.displayLabel,
+    "Mindestens 70 Bewerbungen von Interessierten sammeln",
+  );
+});
+
+test("displayLabel uses the resolved short label while label stays the full goalText", () => {
+  const entries = buildProjectImpactStoryGoalProgressEntries(
+    [
+      goalAssessmentEntry({
+        entryId: "e1",
+        activityId: "act-1",
+        assessmentStatus: "achieved",
+        achieved: true,
+        measuredValue: 100,
+        targetValue: 100,
+        comparison: "at_least",
+        goalText: "Mindestens 70 Bewerbungen von Interessierten sammeln",
+      }),
+    ],
+    new Map([
+      [
+        "Mindestens 70 Bewerbungen von Interessierten sammeln",
+        "70+ Bewerbungen",
+      ],
+    ]),
+  );
+
+  assert.equal(entries.length, 1);
+  assert.equal(
+    entries[0]!.label,
+    "Mindestens 70 Bewerbungen von Interessierten sammeln",
+  );
+  assert.equal(entries[0]!.displayLabel, "70+ Bewerbungen");
+});

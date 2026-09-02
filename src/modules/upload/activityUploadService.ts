@@ -1,5 +1,8 @@
 import type { MultipartFile } from "@fastify/multipart";
-import type { ActivityUploadResponse } from "../../shared/contracts.js";
+import type {
+  ActivityUploadResponse,
+  UploadDatasetRole,
+} from "../../shared/contracts.js";
 import { AppError } from "../../shared/errors/appError.js";
 import { AuthorizationService } from "../../shared/auth/authorizationService.js";
 import { ActivityService } from "../activity/activityService.js";
@@ -18,6 +21,7 @@ export class ActivityUploadService {
     userId: string,
     activityId: string,
     file: MultipartFile | undefined,
+    datasetRole: UploadDatasetRole | null = null,
   ): Promise<ActivityUploadResponse> {
     if (!file) {
       throw new AppError("A file is required.", 400, "file_required");
@@ -43,6 +47,7 @@ export class ActivityUploadService {
         contentType: storedFile.contentType ?? undefined,
         sizeBytes: storedFile.sizeBytes,
         storageKey: storedFile.storageKey,
+        datasetRole,
       },
     );
 

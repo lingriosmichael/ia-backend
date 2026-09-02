@@ -1,8 +1,10 @@
 # Outcome Evidence Merge Plan (Wirkungsaussagen → Merged-Activity, LLM-Recommendation Design)
 
 Status: **implemented** (currently as uncommitted working-tree changes
-across all three repos as of 2026-08-27/28 — verified by reading on-disk
-source directly, not git history). This document replaces
+across all three repos as of 2026-08-27/28, with the `paired_categorical_shift`
+shape and the `datasetRole` pre/post trust boundary added 2026-08-30 — see
+Decisions 7-8 and the "Genuinely new" bullets below — verified by reading
+on-disk source directly, not git history). This document replaces
 `CURRENT_WIRKUNGSAUSSAGE_PIPELINE.md`, deleted from this directory as part
 of writing this doc: that file described the old manual
 "Wirkungsaussagen"/outcome-statements tab and its deterministic-candidate +
@@ -64,11 +66,15 @@ The implemented flow is:
    single synchronous call — there is no pre-detection step and no
    human-declared pairing tag gating this
 5. Python (`recommend_outcome_evidence_pairings`) proposes, in one LLM
-   pass, both the column shape (`paired_delta` before/after, or
-   `single_distribution` standalone) _and_ which outcome statement (if
-   any) each recommendation supports — this joint proposal replaces the
-   old two-stage design (a deterministic candidate matcher, then a
-   separate outcome-only suggestion call)
+   pass, both the column shape — `paired_delta` (before/after numeric),
+   `paired_categorical_shift` (before/after categorical, e.g. a risk-level
+   or status column shifting between categories), or `single_distribution`
+   standalone — _and_ which outcome statement (if any) each recommendation
+   supports — this joint proposal replaces the old two-stage design (a
+   deterministic candidate matcher, then a separate outcome-only suggestion
+   call). `paired_categorical_shift` is a later addition on top of the
+   original two-shape design described below (see the new "Genuinely new"
+   bullets and Decisions 7-8)
 6. `ia_backend` is the real trust boundary: every `columnId`/`outcomeId`
    Python returns is independently re-validated against the catalog it
    built and the project's real `ProjectOutcomeStatement` records —
@@ -80,10 +86,18 @@ The implemented flow is:
 8. confirming calls the approve endpoint →
    `OutcomeEvidenceRecommendationApprovalService`, the real safety-check
    layer: it re-resolves every column against current evidence, runs a
-   cross-cohort safety check, and — as of the 2026-08-28 match-key fix —
-   scores every shared column between the before/after tables by actual
-   row overlap to pick the real join key, rejecting zero-match and
-   ambiguous-key cases, before persisting anything
+   cross-cohort safety check, requires the before/after tables to carry a
+   human-set, opposite `datasetRole` (see Decision 7 — this, not table
+   order or column names, is what "before" and "after" actually mean), and
+   — as of the 2026-08-28 match-key fix — scores every shared column
+   between the before/after tables by actual row overlap to pick the real
+   join key, rejecting zero-match and ambiguous-key cases, before
+   persisting anything. For `paired_categorical_shift` specifically, it
+   additionally requires the two columns to be a compatible categorical
+   pairing — either both fixed-domain (`categorical`/`flag`) with a
+   shared/overlapping value domain, or both `subjective_code` columns
+   where one's qualitative-coding-review finding explicitly declares reuse
+   of the other's codebook (see Decision 8)
 9. the result is a persisted `OutcomeEvidenceLink` (same collection as
    before, extended with `proposalId` and `matchDiagnostics`) — Project
    Impact Story reads this exactly as before; this feature's downstream
@@ -133,6 +147,31 @@ Relative to the old candidate-matcher + suggestion design:
   punctuation in copied-back column names and failed exact-match grounding
   on effectively every recommendation (see the Phase 6 post-mortem note in
   `ia_python_service/CLAUDE.md`)
+- a third recommendation shape, `paired_categorical_shift` — a before/after
+  shift between two categorical columns (e.g. a status or risk-level column
+  moving from "at risk" to "stable"), alongside the original `paired_delta`
+  (numeric) and `single_distribution` (standalone) shapes. Added after this
+  document's initial 2026-08-27/28 write-up; see Decision 8 below for its
+  approval-time compatibility rules and `projectImpactStoryImpactCatalog.ts`'s
+  `computePairedCategoricalShiftMeasurement` for how a confirmed
+  `paired_categorical_shift` link is turned into chart data
+- `UploadDatasetRole` (`"baseline" | "followup"`), a new field on
+  `upload_metadata` (`datasetRole`) that a human sets explicitly per file.
+  This is now the only signal the approval-time safety check trusts to
+  decide which side of a pairing is "before" and which is "after" — see
+  Decision 7. Exposed to the webapp via `PATCH
+/evidence/:evidenceId/dataset-role` and shown/set from
+  `outcomeEvidenceDatasetRoleTag.tsx`/`outcomeEvidenceDatasetRoleUploader.tsx`
+  in the evidence tab
+- a codebook-provenance requirement for pairing two `subjective_code`
+  (coded-qualitative) columns as a `paired_categorical_shift`: the approval
+  step rejects the pairing unless one column's qualitative-coding-review
+  finding explicitly declares (`sourceCodebookFrom`) that it reused the
+  other column's approved codebook — see Decision 8. The same rule is
+  enforced independently in `ActivityAnalystV2`'s own `paired_category_shift`
+  tool gate (`CURRENT_ANALYSIS_PIPELINE.md`) for the unrelated
+  interpretation-pipeline flow; this feature does not share that code, it
+  reimplements the same invariant for its own approval path
 
 **Renamed or relocated, same underlying logic:**
 
@@ -345,11 +384,14 @@ has to be redone by a human through the new recommend/approve flow.
 Review happens entirely inside
 `routes/projects/$projectId/interpretation.tsx`'s `ActivityKnowledgeCard`:
 
-- a "Get recommendations" action in the card's header, shown only when
-  `activity.systemType === "outcome_evidence"`, status is `ready`/`reviewed`,
-  and zero confirmed links exist yet — hidden outright (not disabled) once
-  any link exists; the confirmed-links panel's "remove all" action is the
-  only way to bring the button back
+- a "Get recommendations" action in the card's header, shown when
+  `activity.systemType === "outcome_evidence"` and status is
+  `ready`/`reviewed`. As of the incremental-rerun change, it stays visible
+  even when confirmed links already exist; rerunning is safe because
+  `OutcomeEvidenceRecommendationService` already deduplicates against
+  confirmed `OutcomeEvidenceLink`s before returning recommendations, so the
+  action can surface newly-relevant evidence without forcing a destructive
+  "remove all" reset first
 - `OutcomeEvidenceRecommendationPanel` rendered below the card body, same
   gating, receiving `recommendations`/`dismissedKeys`/`onDismiss` as props
   from the card rather than self-fetching, since the button and panel share
@@ -371,7 +413,25 @@ Review happens entirely inside
   index — a real duplicate-prevention guarantee, not just an app-level
   check) and `matchDiagnostics` (`{matchedCount, baselineCount,
 comparisonCount, matchedRatio, candidateKeysConsidered}`,
-  `Schema.Types.Mixed`, nullable).
+  `Schema.Types.Mixed`, nullable). A `paired_categorical_shift` record
+  additionally stores `pairLabelColumnName` (the before column's name,
+  mirroring `paired_delta`'s `pairingGroupKey`) and, inside
+  `matchDiagnostics`, a `compatibilityCheck` object recording which
+  approval-time compatibility rule passed (`strategy:
+"shared_codebook_provenance"` with the resolved codebook pointer, or the
+  fixed-domain-value-overlap path) — see Decision 8.
+
+### New field: human-set dataset role
+
+- `upload_metadata.datasetRole: "baseline" | "followup" | null` — set
+  explicitly by a human via `PATCH
+/evidence/:evidenceId/dataset-role`, never inferred. `null` until set;
+  an upload with no role assigned is excluded from the outcome-evidence
+  candidate catalog. This is the field the approval-time safety check
+  (`outcomeEvidenceApprovalSafetyCheck.ts`'s `assertPairedDeltaApprovalIsSafe`,
+  reused for both `paired_delta` and `paired_categorical_shift`) requires to
+  be present and different on both sides of a pairing before it can be
+  confirmed — see Decision 7.
 
 ### Deleted collection
 
@@ -453,6 +513,42 @@ to manage (the paired-delta match-key bug this doc's sibling
 that cache's existence). Flagged as an open question below — revisit if
 call volume/cost becomes a real concern.
 
+### 7. A human-set `datasetRole`, not table order, column names, or the LLM's own placement, is the pre/post trust boundary
+
+Neither the recommendation call nor the approval step ever infers which
+table is "before" and which is "after" from a table's name, upload order,
+or the LLM's `beforeColumnId`/`afterColumnId` choice — none of those are
+trustworthy (a human can review uploads out of order; the LLM can place
+columns in either slot). The only signal that counts is `datasetRole`, a
+field a human sets explicitly per upload (`"baseline"` or `"followup"`).
+`assertPairedDeltaApprovalIsSafe` (`outcomeEvidenceApprovalSafetyCheck.ts`)
+is the single enforcement point: it rejects confirmation unless the before
+table and after table carry exactly one `"baseline"` and one `"followup"`,
+re-checked against _current_ data at approval time — so reassigning a
+file's role after a recommendation was generated, but before it's
+approved, is caught rather than silently confirming a now-stale pairing.
+This applies identically to `paired_delta` and `paired_categorical_shift`.
+
+### 8. A coded-qualitative categorical shift requires proven shared codebook provenance, not just a matching role
+
+Two columns can only be confirmed as a `paired_categorical_shift` if they
+are either (a) both a fixed, comparable category domain
+(`categorical`/`flag`, with overlapping observed values), or (b) both
+`subjective_code` — but for (b), having the same epistemic role is not
+enough on its own: a "before" qualitative code and an "after" qualitative
+code could easily have been coded independently, against different
+codebooks, and comparing them as one shift would misrepresent two
+unrelated codings as a measured change. The approval step
+(`assertPairedCategoricalShiftCompatibility` in
+`outcomeEvidenceRecommendationApprovalService.ts`) additionally requires
+one column's qualitative-coding-review finding to explicitly declare
+(`sourceCodebookFrom`) that it reused the other column's approved
+codebook — checked in either direction, since review order doesn't always
+match chronological wave order. Without that declared provenance, the
+pairing is rejected with
+`outcome_evidence_recommendation_subjective_code_provenance_required`
+rather than confirmed on a hopeful assumption.
+
 ## Current API Surface
 
 ### Outcome statements (unchanged)
@@ -493,8 +589,11 @@ call volume/cost becomes a real concern.
 - `POST /internal/outcome-evidence-pairing/recommend` — request:
   `{projectId, language, outcomeStatements: [{outcomeId, term, statement}],
 candidates: [{columnId, label, epistemicRole, inferredType,
-distinctValueCount, cohortTag}]}`; response: `{recommendations:
-[{shape: "paired_delta"|"single_distribution", beforeColumnId,
+distinctValueCount, cohortTag, datasetRole: "baseline"|"followup"|null}]}`
+  — `datasetRole` is the human-set field from Decision 7, included so
+  Python's own grounding can do its (defense-in-depth-only) direction
+  check; response: `{recommendations: [{shape: "paired_delta" |
+"paired_categorical_shift" | "single_distribution", beforeColumnId,
 afterColumnId, columnId, outcomeId: string|null, rationale}],
 groundingStatus, llmUsage}`. Full field-level detail lives in
   `ia_python_service/CLAUDE.md` — kept there as the single field-level

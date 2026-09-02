@@ -7,7 +7,10 @@ import {
   connectMongoDatabase,
   disconnectMongoDatabase,
 } from "../shared/database/mongoose.js";
-import type { ProcessingJobRecord } from "../shared/contracts.js";
+import type {
+  ProcessingJobRecord,
+  QualitativeCodingReviewSourceCodebookSelectionInput,
+} from "../shared/contracts.js";
 import { readLanguageFromPayload } from "../modules/ai/execution/processingJobService.js";
 
 const idlePollIntervalMs = 5_000;
@@ -21,6 +24,50 @@ const supportedJobTypes = [
 function sleep(milliseconds: number) {
   return new Promise<void>((resolve) => {
     setTimeout(resolve, milliseconds);
+  });
+}
+
+function readQualitativeCodingSourceCodebookSelectionsFromPayload(
+  payload: Record<string, unknown> | null | undefined,
+): QualitativeCodingReviewSourceCodebookSelectionInput[] {
+  if (!payload || !Array.isArray(payload.sourceCodebookSelections)) {
+    return [];
+  }
+
+  return payload.sourceCodebookSelections.flatMap((selection) => {
+    if (
+      !selection ||
+      typeof selection !== "object" ||
+      Array.isArray(selection) ||
+      !("targetFindingKey" in selection) ||
+      !("sourceCodebookFrom" in selection)
+    ) {
+      return [];
+    }
+    const targetFindingKey =
+      typeof selection.targetFindingKey === "string"
+        ? selection.targetFindingKey
+        : null;
+    const sourceCodebookFrom = selection.sourceCodebookFrom;
+    if (
+      !targetFindingKey ||
+      !sourceCodebookFrom ||
+      typeof sourceCodebookFrom !== "object" ||
+      Array.isArray(sourceCodebookFrom) ||
+      typeof sourceCodebookFrom.uploadMetadataId !== "string" ||
+      typeof sourceCodebookFrom.findingKey !== "string"
+    ) {
+      return [];
+    }
+    return [
+      {
+        targetFindingKey,
+        sourceCodebookFrom: {
+          uploadMetadataId: sourceCodebookFrom.uploadMetadataId,
+          findingKey: sourceCodebookFrom.findingKey,
+        },
+      },
+    ];
   });
 }
 
@@ -86,7 +133,13 @@ async function runClaimedJob(
         job.triggeredById,
         job.uploadMetadataId,
         language,
-        job.id,
+        {
+          currentJobId: job.id,
+          sourceCodebookSelections:
+            readQualitativeCodingSourceCodebookSelectionsFromPayload(
+              job.payload,
+            ),
+        },
       );
     } else if (job.jobType === "project_impact_story") {
       // buildProjectAnalytics re-validates readiness itself before doing any

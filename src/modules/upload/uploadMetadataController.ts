@@ -1,7 +1,10 @@
 import type { FastifyReply, FastifyRequest } from "fastify";
 import { requireAuthenticatedUser } from "../../shared/auth/requireAuthenticatedUser.js";
 import { successResponse } from "../../shared/http/apiResponse.js";
-import { idParamSchema } from "../../schemas/httpSchemas.js";
+import {
+  idParamSchema,
+  updateUploadDatasetRoleSchema,
+} from "../../schemas/httpSchemas.js";
 import { EvidenceProcessingService } from "../processing/evidenceProcessingService.js";
 import { buildDownloadContentDisposition } from "./fileStorageService.js";
 import { UploadMetadataService } from "./uploadMetadataService.js";
@@ -42,6 +45,17 @@ export class UploadMetadataController {
       .send(file.stream);
   }
 
+  async getPreview(request: FastifyRequest) {
+    const auth = requireAuthenticatedUser(request);
+
+    const params = idParamSchema.parse(request.params);
+    const preview = await this.uploadMetadataService.getEvidencePreview(
+      auth.userId,
+      requireParam(params, "evidenceId"),
+    );
+    return successResponse(preview);
+  }
+
   async delete(request: FastifyRequest) {
     const auth = requireAuthenticatedUser(request);
 
@@ -51,6 +65,19 @@ export class UploadMetadataController {
       requireParam(params, "evidenceId"),
     );
     return successResponse(response);
+  }
+
+  async updateDatasetRole(request: FastifyRequest) {
+    const auth = requireAuthenticatedUser(request);
+
+    const params = idParamSchema.parse(request.params);
+    const body = updateUploadDatasetRoleSchema.parse(request.body);
+    const record = await this.uploadMetadataService.updateDatasetRole(
+      auth.userId,
+      requireParam(params, "evidenceId"),
+      body.datasetRole,
+    );
+    return successResponse(record);
   }
 
   async analyse(request: FastifyRequest) {

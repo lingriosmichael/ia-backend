@@ -29,6 +29,11 @@ const uploadMetadataSchema = new Schema(
       enum: ["pending", "uploaded", "archived"],
       default: "pending",
     },
+    datasetRole: {
+      type: String,
+      enum: ["baseline", "followup"],
+      default: null,
+    },
   },
   {
     collection: "uploads",

@@ -17,6 +17,7 @@ import {
   type AnalysisRowContext,
 } from "./deterministicAnalysisService.js";
 import type {
+  ActivityAnalysisV2ColumnLineage,
   ActivityAnalysisV2FilterCondition,
   ActivityAnalysisV2FilterValue,
   ActivityAnalysisV2RowSourceReference,
@@ -81,6 +82,7 @@ export interface ActivityAnalysisV2ResolvedRowSource {
     ActivityAnalysisV2CalculationRecord["sourceColumnEpistemicRoles"]
   >;
   epistemicRoles: EpistemicRole[];
+  columnLineageByName: Record<string, ActivityAnalysisV2ColumnLineage>;
 }
 
 export interface ActivityAnalysisV2RowAliasValue {
@@ -96,6 +98,7 @@ export interface ActivityAnalysisV2RowAliasValue {
     ActivityAnalysisV2CalculationRecord["sourceColumnEpistemicRoles"]
   >;
   epistemicRoles: EpistemicRole[];
+  columnLineageByName: Record<string, ActivityAnalysisV2ColumnLineage>;
 }
 
 // Dedupes by columnName+role (a column can legitimately appear once per
@@ -421,6 +424,7 @@ export function resolveSourceRows(
           ),
         ),
       ),
+      columnLineageByName: aliasValue.columnLineageByName,
     };
   }
 
@@ -461,6 +465,7 @@ export function resolveSourceRows(
           ),
         ),
       ),
+      columnLineageByName: aliasValue.columnLineageByName,
     };
   }
 
@@ -497,6 +502,7 @@ export function resolveSourceRows(
     filters: reference.filters ?? [],
     sourceColumnEpistemicRoles: filterColumnRoles,
     epistemicRoles: collectEpistemicRoles(filterColumnRoles),
+    columnLineageByName: table.columnLineageByName,
   };
 }
 

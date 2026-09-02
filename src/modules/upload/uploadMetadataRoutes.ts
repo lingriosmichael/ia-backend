@@ -17,6 +17,11 @@ export async function registerUploadMetadataRoutes(
     { preHandler: authenticate },
     controller.delete.bind(controller),
   );
+  app.patch(
+    "/evidence/:evidenceId/dataset-role",
+    { preHandler: authenticate },
+    controller.updateDatasetRole.bind(controller),
+  );
   app.post(
     "/evidence/:evidenceId/analyse",
     {
@@ -29,5 +34,10 @@ export async function registerUploadMetadataRoutes(
     "/evidence/:evidenceId/file",
     { preHandler: authenticate },
     controller.getFile.bind(controller),
+  );
+  app.get(
+    "/evidence/:evidenceId/preview",
+    { preHandler: authenticate },
+    controller.getPreview.bind(controller),
   );
 }

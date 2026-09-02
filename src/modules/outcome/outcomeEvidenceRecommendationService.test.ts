@@ -44,13 +44,25 @@ function column(name: string, epistemicRole: string | null = null) {
   };
 }
 
-// One merged activity, one table, two eligible columns (before/after
-// candidates for a paired_delta recommendation) plus one categorical
-// column (a single_distribution candidate) — enough to exercise both
-// recommendation shapes.
+// Two uploads on one merged activity — a baseline file and a follow-up
+// file, each contributing one table under the same table name (a plausible
+// real shape: both exports use a sheet called "wirkungsmessung"). The
+// baseline file also carries the single_distribution candidate
+// (besuchsgrund). Deliberately NOT one file with "_vorher"/"_nachher"
+// column-name suffixes: that would let a name-pattern coincidence pass the
+// datasetRole check even if the direction logic were broken, defeating the
+// point of this fixture (see OUTCOME_EVIDENCE_MERGE_PLAN.md's pre/post
+// inversion fix) — the before/after pair here is only resolvable via
+// datasetRole, never via column labels.
 function buildCandidateCatalogDependencies(): OutcomeEvidenceCandidateCatalogDependencies {
-  const uploads = [{ id: "upload-1", activityId: "activity-merged" }];
-  const results = [{ id: "result-1", uploadMetadataId: "upload-1" }];
+  const uploads = [
+    { id: "upload-1", activityId: "activity-merged", datasetRole: "baseline" },
+    { id: "upload-2", activityId: "activity-merged", datasetRole: "followup" },
+  ];
+  const results = [
+    { id: "result-1", uploadMetadataId: "upload-1" },
+    { id: "result-2", uploadMetadataId: "upload-2" },
+  ];
   const preparations = [
     {
       interpretationResultId: "result-1",
@@ -65,8 +77,25 @@ function buildCandidateCatalogDependencies(): OutcomeEvidenceCandidateCatalogDep
             columns: [
               column("teilnehmer_id", "identifier"),
               column("q3_selbstbild_vorher", "validated_scale"),
-              column("q3_selbstbild_nachher", "validated_scale"),
               column("besuchsgrund", "categorical"),
+            ],
+          },
+        ],
+      },
+    },
+    {
+      interpretationResultId: "result-2",
+      status: "ready_for_analysis",
+      preparedDataset: {
+        isReadyForDeterministicAnalysis: true,
+        tables: [
+          {
+            name: "wirkungsmessung",
+            identifierColumn: "teilnehmer_id",
+            cohortTag: null,
+            columns: [
+              column("teilnehmer_id", "identifier"),
+              column("q3_selbstbild_nachher", "validated_scale"),
             ],
           },
         ],
@@ -84,10 +113,20 @@ function buildCandidateCatalogDependencies(): OutcomeEvidenceCandidateCatalogDep
               {
                 teilnehmer_id: "t1",
                 q3_selbstbild_vorher: "3",
-                q3_selbstbild_nachher: "4",
                 besuchsgrund: "a",
               },
             ],
+          },
+        ],
+      },
+    },
+    {
+      uploadMetadataId: "upload-2",
+      payload: {
+        tables: [
+          {
+            name: "wirkungsmessung",
+            rows: [{ teilnehmer_id: "t1", q3_selbstbild_nachher: "4" }],
           },
         ],
       },
@@ -119,18 +158,22 @@ function buildCandidateCatalogDependencies(): OutcomeEvidenceCandidateCatalogDep
           uploadMetadataIds.includes(representation.uploadMetadataId),
         ),
     },
+    qualitativeCodingReviewRepository: {
+      findByUploadMetadataIds: async () => [],
+    },
   } as unknown as OutcomeEvidenceCandidateCatalogDependencies;
 }
 
 // buildOutcomeEvidenceCandidateCatalog assigns a short "col_N" token by
-// catalog position, not by the column's own name — this fixture's single
-// table has exactly one identifier column (excluded from the catalog) then
-// these three, in this order, so the mapping below is stable for as long as
-// buildCandidateCatalogDependencies' column list above doesn't change.
+// catalog position, not by the column's own name — upload-1's table
+// (identifier column excluded) contributes col_1/col_2 in listed order,
+// then upload-2's table contributes col_3, so the mapping below is stable
+// for as long as buildCandidateCatalogDependencies' table layout doesn't
+// change.
 const COLUMN_IDS_BY_NAME: Record<string, string> = {
   q3_selbstbild_vorher: "col_1",
-  q3_selbstbild_nachher: "col_2",
-  besuchsgrund: "col_3",
+  besuchsgrund: "col_2",
+  q3_selbstbild_nachher: "col_3",
 };
 
 function buildColumnId(columnName: string): string {
@@ -228,18 +271,81 @@ test("resolves a well-formed paired_delta recommendation back to real column ref
         columnName: "q3_selbstbild_vorher",
         label: "Q3 selbstbild vorher",
         cohortTag: null,
+        datasetRole: "baseline",
       },
       after: {
-        uploadMetadataId: "upload-1",
+        uploadMetadataId: "upload-2",
         tableName: "wirkungsmessung",
         columnName: "q3_selbstbild_nachher",
         label: "Q3 selbstbild nachher",
         cohortTag: null,
+        datasetRole: "followup",
       },
       outcomeId: outcomeStatement.id,
       rationale: "Same self-efficacy scale, asked twice.",
     },
   ]);
+});
+
+test("direction comes from datasetRole, never from which field the LLM populated", async () => {
+  const { service } = createFixture(async () => ({
+    recommendations: [
+      {
+        shape: "paired_delta",
+        // Deliberately swapped: the follow-up column's id is in
+        // beforeColumnId and the baseline column's id is in afterColumnId.
+        // resolveRecommendation must still resolve `before` to the
+        // baseline-role column and `after` to the follow-up-role column,
+        // ignoring this placement entirely — see
+        // OUTCOME_EVIDENCE_MERGE_PLAN.md's pre/post inversion fix.
+        beforeColumnId: buildColumnId("q3_selbstbild_nachher"),
+        afterColumnId: buildColumnId("q3_selbstbild_vorher"),
+        outcomeId: outcomeStatement.id,
+        rationale: "Same self-efficacy scale, asked twice.",
+      },
+    ],
+    groundingStatus: "PASSED",
+  }));
+
+  const result = await service.recommendForActivity(
+    "project-1",
+    "activity-merged",
+    [outcomeStatement],
+  );
+
+  assert.equal(result.length, 1);
+  const [recommendation] = result;
+  assert.equal(recommendation?.shape, "paired_delta");
+  if (recommendation?.shape !== "paired_delta") {
+    throw new Error("expected a paired_delta recommendation");
+  }
+  assert.equal(recommendation.before.columnName, "q3_selbstbild_vorher");
+  assert.equal(recommendation.before.uploadMetadataId, "upload-1");
+  assert.equal(recommendation.after.columnName, "q3_selbstbild_nachher");
+  assert.equal(recommendation.after.uploadMetadataId, "upload-2");
+});
+
+test("a paired_delta recommendation whose two columns share the same datasetRole is dropped", async () => {
+  const { service } = createFixture(async () => ({
+    recommendations: [
+      {
+        shape: "paired_delta",
+        beforeColumnId: buildColumnId("q3_selbstbild_vorher"),
+        afterColumnId: buildColumnId("besuchsgrund"),
+        outcomeId: null,
+        rationale: "...",
+      },
+    ],
+    groundingStatus: "PASSED",
+  }));
+
+  const result = await service.recommendForActivity(
+    "project-1",
+    "activity-merged",
+    [outcomeStatement],
+  );
+
+  assert.deepEqual(result, []);
 });
 
 test("resolves a well-formed single_distribution recommendation with a null outcomeId", async () => {
@@ -270,9 +376,55 @@ test("resolves a well-formed single_distribution recommendation with a null outc
         columnName: "besuchsgrund",
         label: "Besuchsgrund",
         cohortTag: null,
+        datasetRole: "baseline",
       },
       outcomeId: null,
       rationale: "Category breakdown with no matching outcome.",
+    },
+  ]);
+});
+
+test("resolves a well-formed paired_categorical_shift recommendation back to real column references", async () => {
+  const { service } = createFixture(async () => ({
+    recommendations: [
+      {
+        shape: "paired_categorical_shift",
+        beforeColumnId: buildColumnId("q3_selbstbild_vorher"),
+        afterColumnId: buildColumnId("q3_selbstbild_nachher"),
+        outcomeId: outcomeStatement.id,
+        rationale: "Same fixed-response question, asked before and after.",
+      },
+    ],
+    groundingStatus: "PASSED",
+  }));
+
+  const result = await service.recommendForActivity(
+    "project-1",
+    "activity-merged",
+    [outcomeStatement],
+  );
+
+  assert.deepEqual(result, [
+    {
+      shape: "paired_categorical_shift",
+      before: {
+        uploadMetadataId: "upload-1",
+        tableName: "wirkungsmessung",
+        columnName: "q3_selbstbild_vorher",
+        label: "Q3 selbstbild vorher",
+        cohortTag: null,
+        datasetRole: "baseline",
+      },
+      after: {
+        uploadMetadataId: "upload-2",
+        tableName: "wirkungsmessung",
+        columnName: "q3_selbstbild_nachher",
+        label: "Q3 selbstbild nachher",
+        cohortTag: null,
+        datasetRole: "followup",
+      },
+      outcomeId: outcomeStatement.id,
+      rationale: "Same fixed-response question, asked before and after.",
     },
   ]);
 });
@@ -383,6 +535,111 @@ test("a recommendation matching an already-confirmed link's column(s) is dropped
   );
 
   assert.deepEqual(result, []);
+});
+
+test("a recommendation matching an already-confirmed paired_categorical_shift link's columns is dropped", async () => {
+  // Regression test for the §5 rollout fix: "Get recommendations" now stays
+  // available even with existing confirmed links, which only stays safe if
+  // dedup also covers the new shape, not just single_distribution/paired_delta.
+  const alreadyConfirmedLink: OutcomeEvidenceLinkPersistenceRecord = {
+    linkId: "link-1",
+    organizationId: "org-1",
+    projectId: "project-1",
+    outcomeId: outcomeStatement.id,
+    shape: "paired_categorical_shift",
+    activityIdBefore: "activity-merged",
+    activityIdAfter: "activity-merged",
+    beforeUploadMetadataId: "upload-1",
+    beforeTableName: "wirkungsmessung",
+    beforeColumnName: "q3_selbstbild_vorher",
+    afterUploadMetadataId: "upload-2",
+    afterTableName: "wirkungsmessung",
+    afterColumnName: "q3_selbstbild_nachher",
+    matchKey: "teilnehmer_id",
+    pairLabelColumnName: "q3_selbstbild_vorher",
+    confirmedById: "user-1",
+    confirmedAt: NOW.toISOString(),
+    createdAt: NOW,
+    updatedAt: NOW,
+  };
+
+  const { service } = createFixture(
+    async () => ({
+      recommendations: [
+        {
+          shape: "paired_categorical_shift",
+          beforeColumnId: buildColumnId("q3_selbstbild_vorher"),
+          afterColumnId: buildColumnId("q3_selbstbild_nachher"),
+          outcomeId: outcomeStatement.id,
+          rationale: "Same fixed-response question, asked before and after.",
+        },
+      ],
+      groundingStatus: "PASSED",
+    }),
+    [alreadyConfirmedLink],
+  );
+
+  const result = await service.recommendForActivity(
+    "project-1",
+    "activity-merged",
+    [outcomeStatement],
+  );
+
+  assert.deepEqual(result, []);
+});
+
+test("rollout: a project with an existing confirmed link still gets new, non-overlapping recommendations proposed", async () => {
+  // Regression coverage for the §5 rollout guarantee itself, not just the
+  // dedup mechanics: "Get recommendations" stays useful (not just safe) on
+  // a project that already has confirmed links — matching recommendations
+  // are dropped, but a genuinely new one for different columns still
+  // comes through undisturbed.
+  const alreadyConfirmedLink: OutcomeEvidenceLinkPersistenceRecord = {
+    linkId: "link-1",
+    organizationId: "org-1",
+    projectId: "project-1",
+    outcomeId: outcomeStatement.id,
+    shape: "single_distribution",
+    activityId: "activity-merged",
+    uploadMetadataId: "upload-1",
+    tableName: "wirkungsmessung",
+    categoryColumnName: "besuchsgrund",
+    confirmedById: "user-1",
+    confirmedAt: NOW.toISOString(),
+    createdAt: NOW,
+    updatedAt: NOW,
+  };
+
+  const { service } = createFixture(
+    async () => ({
+      recommendations: [
+        {
+          shape: "single_distribution",
+          columnId: buildColumnId("besuchsgrund"),
+          outcomeId: outcomeStatement.id,
+          rationale: "Category breakdown.",
+        },
+        {
+          shape: "paired_categorical_shift",
+          beforeColumnId: buildColumnId("q3_selbstbild_vorher"),
+          afterColumnId: buildColumnId("q3_selbstbild_nachher"),
+          outcomeId: outcomeStatement.id,
+          rationale: "Same fixed-response question, asked before and after.",
+        },
+      ],
+      groundingStatus: "PASSED",
+    }),
+    [alreadyConfirmedLink],
+  );
+
+  const result = await service.recommendForActivity(
+    "project-1",
+    "activity-merged",
+    [outcomeStatement],
+  );
+
+  assert.equal(result.length, 1);
+  assert.equal(result[0]?.shape, "paired_categorical_shift");
 });
 
 test("groundingStatus FAILED results in an empty list, not a padded ungrounded result", async () => {
@@ -509,6 +766,7 @@ test("listConfirmedLinksForActivity humanizes each column's raw name into a disp
         columnName: "besuchsgrund",
         label: "Besuchsgrund",
         cohortTag: null,
+        datasetRole: null,
       },
     },
   ]);

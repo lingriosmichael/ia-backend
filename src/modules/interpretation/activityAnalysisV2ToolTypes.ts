@@ -7,8 +7,23 @@ import type {
   ActivityAnalysisV2QualitativeFindingRecord,
   ActivityAnalysisV2ToolCallRecord,
   ActivityAnalysisV2ToolName,
+  EpistemicRole,
   PreparedDatasetTable,
+  QualitativeCodingSourceCodebookReference,
 } from "../../shared/contracts.js";
+
+export interface ActivityAnalysisV2SubjectiveCodeProvenance {
+  findingKey: string | null;
+  sourceCodebookFrom: QualitativeCodingSourceCodebookReference | null;
+}
+
+export interface ActivityAnalysisV2ColumnLineage {
+  uploadMetadataId: string;
+  tableName: string;
+  columnName: string;
+  epistemicRole: EpistemicRole | null;
+  subjectiveCodeProvenance: ActivityAnalysisV2SubjectiveCodeProvenance | null;
+}
 
 export interface ActivityAnalysisV2TableContext {
   uploadMetadataId: string;
@@ -16,6 +31,7 @@ export interface ActivityAnalysisV2TableContext {
   tableName: string;
   rows: Record<string, unknown>[];
   preparedTable: PreparedDatasetTable | null;
+  columnLineageByName: Record<string, ActivityAnalysisV2ColumnLineage>;
 }
 
 export interface BaseToolRequest {
@@ -412,6 +428,21 @@ export type ActivityAnalysisV2ToolRequest = {
         preColumnName: string;
         postColumnName: string;
         outputColumnName: string;
+        useAnalysisRows?: boolean;
+        filters?: ActivityAnalysisV2FilterCondition[];
+      };
+    }
+  | {
+      toolName: "paired_category_shift";
+      alias?: string;
+      arguments: {
+        uploadMetadataId?: string;
+        tableName?: string;
+        cohortAlias?: string;
+        resultAlias?: string;
+        entityColumnName: string;
+        beforeCategoryColumnName: string;
+        afterCategoryColumnName: string;
         useAnalysisRows?: boolean;
         filters?: ActivityAnalysisV2FilterCondition[];
       };

@@ -2,12 +2,17 @@ import {
   activityStatusValues,
   processingJobTypeValues,
   projectStatusValues,
+  uploadDatasetRoleValues,
 } from "../shared/contracts.js";
 import { z } from "zod";
 import { normalizeMonthValue } from "../shared/utils/monthValue.js";
 import { joinNonEmptyTrimmedLines } from "../shared/utils/text.js";
 
 const jsonPayloadSchema = z.record(z.string(), z.unknown());
+export const uploadDatasetRoleSchema = z.enum(uploadDatasetRoleValues);
+export const updateUploadDatasetRoleSchema = z.object({
+  datasetRole: uploadDatasetRoleSchema,
+});
 const monthValueSchema = z
   .string()
   .trim()
@@ -152,6 +157,11 @@ const outcomeEvidenceRecommendationColumnReferenceSchema = z.object({
   columnName: z.string().min(1),
   label: z.string().min(1),
   cohortTag: z.string().nullable(),
+  // Same echoed-back-for-display posture as cohortTag above — the
+  // approval-time safety check re-resolves the real current datasetRole
+  // itself rather than trusting this value (OUTCOME_EVIDENCE_MERGE_PLAN.md's
+  // pre/post inversion fix).
+  datasetRole: uploadDatasetRoleSchema.nullable(),
 });
 
 export const outcomeEvidenceRecommendationApprovalSchema = z.discriminatedUnion(
@@ -159,6 +169,13 @@ export const outcomeEvidenceRecommendationApprovalSchema = z.discriminatedUnion(
   [
     z.object({
       shape: z.literal("paired_delta"),
+      before: outcomeEvidenceRecommendationColumnReferenceSchema,
+      after: outcomeEvidenceRecommendationColumnReferenceSchema,
+      outcomeId: z.string().min(1).nullable(),
+      rationale: z.string(),
+    }),
+    z.object({
+      shape: z.literal("paired_categorical_shift"),
       before: outcomeEvidenceRecommendationColumnReferenceSchema,
       after: outcomeEvidenceRecommendationColumnReferenceSchema,
       outcomeId: z.string().min(1).nullable(),
@@ -388,6 +405,37 @@ export const approveQualitativeCodingReviewSchema = z
         return;
       }
       seen.add(columnDecision.findingKey);
+    });
+  });
+
+export const generateQualitativeCodingReviewSchema = z
+  .object({
+    sourceCodebookSelections: z
+      .array(
+        z.object({
+          targetFindingKey: z.string().trim().min(1).max(400),
+          sourceCodebookFrom: z.object({
+            uploadMetadataId: z.string().trim().min(1).max(200),
+            findingKey: z.string().trim().min(1).max(400),
+          }),
+        }),
+      )
+      .max(50)
+      .optional(),
+  })
+  .superRefine((value, context) => {
+    const seenTargetKeys = new Set<string>();
+    value.sourceCodebookSelections?.forEach((selection, index) => {
+      if (seenTargetKeys.has(selection.targetFindingKey)) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          message:
+            "Each qualitative coding finding may only declare one source codebook selection.",
+          path: ["sourceCodebookSelections", index, "targetFindingKey"],
+        });
+        return;
+      }
+      seenTargetKeys.add(selection.targetFindingKey);
     });
   });
 

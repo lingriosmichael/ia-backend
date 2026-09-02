@@ -7,10 +7,11 @@ export type { ProjectChartSelectionAudit } from "../../shared/contracts.js";
 
 // Deterministic diff between "what could the planner have shown" (the
 // opportunity audit's ready_now set, computed from the exact same catalog
-// this generation run sent to chart_plan.py) and "what did it actually
-// show" (executeProjectImpactStoryChartPlan's selectedEntryIds, from this
-// same generation run). Answers the failure mode a static opportunity
-// audit alone cannot: "bezirk was available — why didn't it show up?"
+// this generation run sent to the chart-authoring call) and "what did it
+// actually show" (executeProjectImpactStoryChartAuthoring's
+// selectedEntryIds, from this same generation run). Answers the failure
+// mode a static opportunity audit alone cannot: "bezirk was available —
+// why didn't it show up?"
 // Must be computed from the same generation run's own ready_now/selected
 // sets, never recomputed later against since-changed data, or the diff
 // stops meaning what it claims to.

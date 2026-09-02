@@ -1,6 +1,7 @@
 import type {
   ClarificationQuestionOption,
   InterpretationQuestionCode,
+  InterpretationQuestionKind,
 } from "../../shared/contracts.js";
 
 // Single backend-owned source of truth for clarification-question wording.
@@ -44,6 +45,20 @@ export interface ClarificationQuestionRenderInput {
 export interface ClarificationQuestionRenderOutput {
   userFacingPrompt: string;
   userFacingOptions: ClarificationQuestionOption[] | null;
+}
+
+// What renderClarificationQuestion (the public entry point) returns —
+// ClarificationQuestionRenderOutput plus the derived kind. Kept separate
+// from ClarificationQuestionRenderOutput itself so the per-code renderer
+// functions below don't each need to know about kind; only
+// renderClarificationQuestion attaches it, from QUESTION_CODE_KIND.
+export interface ClarificationQuestionRenderResult extends ClarificationQuestionRenderOutput {
+  // Derived from questionCode via QUESTION_CODE_KIND below, not from
+  // ia_python_service's own draft.kind — see that constant's comment for
+  // why. null only for the one documented open-ended exception
+  // (questionCode === null), where there is no template to derive a kind
+  // from and the LLM's own draft.kind is still trusted.
+  kind: InterpretationQuestionKind | null;
 }
 
 function localized<T>(
@@ -240,6 +255,20 @@ const EPISTEMIC_ROLE_CLARIFICATION_OPTIONS: Record<
   ],
 };
 
+// IMPACT_STORY_CHART_IMPROVEMENT_PLAN.md §4. Identity options (value ===
+// the localized display text), same pattern as epistemic_role_clarification
+// above — parseScaleDirectionAnswer in datasetPreparationService.ts matches
+// the answeredValue back against these fixed strings in both languages.
+const SCALE_DIRECTION_PROMPT: Record<ClarificationQuestionLanguage, string> = {
+  de: "Ist bei der Spalte '{column}' ein höherer Wert besser oder schlechter?",
+  en: "For the column '{column}', is a higher value better or worse?",
+};
+const SCALE_DIRECTION_OPTIONS: Record<ClarificationQuestionLanguage, string[]> =
+  {
+    de: ["Ein höherer Wert ist besser", "Ein niedrigerer Wert ist besser"],
+    en: ["A higher value is better", "A lower value is better"],
+  };
+
 // Not shown in the primary UI: cohort_tag is answered by dragging files
 // into named groups (InterpretationCohortGroupingBoard in ia_webapp), which
 // uses its own instruction copy, not this prompt. Kept as a required field
@@ -405,6 +434,20 @@ function renderEpistemicRoleClarification(
   };
 }
 
+function renderScaleDirection(
+  input: ClarificationQuestionRenderInput,
+): ClarificationQuestionRenderOutput {
+  return {
+    userFacingPrompt: fillTemplate(
+      localized(SCALE_DIRECTION_PROMPT, input.language),
+      { column: input.targetColumnName ?? "" },
+    ),
+    userFacingOptions: toIdentityOptions(
+      localized(SCALE_DIRECTION_OPTIONS, input.language),
+    ),
+  };
+}
+
 function renderCohortTag(
   input: ClarificationQuestionRenderInput,
 ): ClarificationQuestionRenderOutput {
@@ -452,16 +495,56 @@ const RENDERERS: Record<
   epistemic_role_clarification: renderEpistemicRoleClarification,
   cohort_tag: renderCohortTag,
   filter_value_grounding: renderFilterValueGrounding,
+  scale_direction: renderScaleDirection,
+};
+
+// Single source of truth for whether a question's answer widget is
+// single-select, multi-select, or free text — colocated with RENDERERS
+// (and, per code, with that code's own prompt template above) so the two
+// can never independently drift the way they used to: ia_python_service's
+// ActivityAnalystV2 planner previously emitted its own `kind` per
+// question, hardcoded per questionCode in analyst.py's system prompt, with
+// nothing checking it against the wording rendered here — e.g.
+// filter_value_grounding's prompt says "Wählen Sie alle passenden Werte
+// aus" (select every value that applies) while the planner was told to
+// emit kind "single_choice" for it. Now the LLM only decides which
+// question to ask and what options apply; how the answer widget behaves
+// is decided here, deterministically, by whoever writes the wording.
+// Same Record<InterpretationQuestionCode, ...> exhaustiveness guarantee as
+// RENDERERS.
+const QUESTION_CODE_KIND: Record<
+  InterpretationQuestionCode,
+  InterpretationQuestionKind
+> = {
+  normalization_merge: "single_choice",
+  row_grain: "single_choice",
+  duplicate_identifier_resolution: "single_choice",
+  primary_status_field: "single_choice",
+  // Wording says "select every value that should count" — multi-select.
+  positive_status_values: "multi_choice",
+  primary_date_field: "single_choice",
+  epistemic_role_clarification: "single_choice",
+  cohort_tag: "single_choice",
+  // Wording says "select every value that applies" — multi-select. This is
+  // the questionCode from the reported bug.
+  filter_value_grounding: "multi_choice",
+  scale_direction: "single_choice",
 };
 
 export function renderClarificationQuestion(
   input: ClarificationQuestionRenderInput,
-): ClarificationQuestionRenderOutput {
+): ClarificationQuestionRenderResult {
   if (input.questionCode === null) {
-    return renderOpenEndedClarificationQuestion(
-      input.rawPrompt,
-      input.rawOptions,
-    );
+    return {
+      ...renderOpenEndedClarificationQuestion(
+        input.rawPrompt,
+        input.rawOptions,
+      ),
+      kind: null,
+    };
   }
-  return RENDERERS[input.questionCode](input);
+  return {
+    ...RENDERERS[input.questionCode](input),
+    kind: QUESTION_CODE_KIND[input.questionCode],
+  };
 }

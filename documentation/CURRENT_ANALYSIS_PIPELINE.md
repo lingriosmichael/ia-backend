@@ -431,11 +431,12 @@ than being a separate method parameter).
 
 - if an interpreted dataset has `free_text` columns but no `subjective_code` columns, the backend marks the activity workflow stage as `qualitative_review`
 - the interpretation page opens a dedicated qualitative-coding-review dialog for the pending upload
-- the dialog auto-triggers generation when it opens with no existing review
+- if approved codebooks from other uploads in the same activity already exist, the dialog first shows a per-finding "reuse codebook from ..." picker; otherwise it auto-triggers generation when it opens with no existing review
 - `POST /qualitative-coding-review/:uploadMetadataId/generate` runs a synchronous precondition gate (`QualitativeCodingReviewService.assertReadyToGenerate`: upload/privacy-safe-representation/interpretation-result existence) and, once it passes, creates a `qualitative_coding_review` processing job and returns it immediately — it does not call Python inline and does not return the proposal
-- `activityAnalysisWorker.ts` (a standalone backend worker process, distinct from `ia_python_service`'s worker) claims the job and runs the same `QualitativeCodingReviewService.generate` logic that used to run inline in the request; Python proposes a coding review for those free-text columns, the proposal is persisted, and the job is marked complete
+- the generate request can carry `sourceCodebookSelections[]`, each keyed by the target finding's own `findingKey` and pointing to an approved source finding via `{ uploadMetadataId, findingKey }`
+- `activityAnalysisWorker.ts` (a standalone backend worker process, distinct from `ia_python_service`'s worker) claims the job and runs the same `QualitativeCodingReviewService.generate` logic that used to run inline in the request; that service resolves each selected source finding against current approved qualitative reviews in the same activity, extracts its approved `proposedCodes`, and sends those per-finding codebooks to Python before the proposal is persisted
 - the frontend polls the job (`useJobQuery`, `POST /jobs/:processingJobId/sync`) until it reaches a terminal status, then re-fetches `GET /qualitative-coding-review/:uploadMetadataId` for the persisted proposal — the same generic job-polling pattern evidence processing already uses
-- the proposal can optionally reuse a sibling codebook file named `<source_basename>_codebook.csv`
+- each generated finding now persists `sourceCodebookFrom: { uploadMetadataId, findingKey } | null` plus the source file name, so downstream `subjective_code` provenance can prove direct codebook reuse between specific qualitative findings rather than only "same upload"
 - every proposed finding must receive a review decision before approval can succeed
 - once approved, the backend overlays a synthetic coded column into the privacy-safe table payload and marks it as `subjective_code`
 
@@ -537,7 +538,19 @@ purpose.
   `OUTCOME_EVIDENCE_MERGE_PLAN.md`.
 - `PREPARATION_QUESTION_CODES` is back down to five entries:
   `normalization_merge`, `row_grain`, `duplicate_identifier_resolution`,
-  `epistemic_role_clarification`, `cohort_tag`.
+  `epistemic_role_clarification`, `cohort_tag` — plus a sixth added
+  2026-08-30 (uncommitted), `scale_direction`: whether a higher value is
+  better or worse for a `metric_count` column, captured once per column so
+  downstream Project Impact Story charts can normalize or flip a
+  reverse-scored item instead of silently plotting it as if higher were
+  always better (see `IMPACT_STORY_CHART_IMPROVEMENT_PLAN.md` §4 and
+  `ImpactCatalogEntry.scaleDirection`/`resolvePairedDeltaScaleDirection` in
+  `CURRENT_ANALYTICS_PIPELINE.md`). Unlike the other five,
+  `scale_direction` is **non-blocking** — it's metadata capture, not a
+  readiness gate, so an unanswered `scale_direction` question never keeps a
+  dataset out of analysis-ready state
+  (`datasetPreparationService.ts`'s `isPreparationQuestion`/
+  `isResolvableIntoPreparedDataset` split).
 - `cohort_tag` questions are now only generated for tables belonging to the
   single `outcome_evidence` system activity type
   (`buildCohortTagQuestions`, `interpretationArtifactService.ts:743-780`) —
@@ -650,6 +663,7 @@ When a qualitative coding review has been approved, the payload is augmented in-
 
 - a synthetic coded column in the relevant table rows
 - `syntheticColumnMetadata` describing that column as `subjective_code`
+- approved provenance on that synthetic column, including `findingKey` and any explicit `sourceCodebookFrom` pointer the reviewer selected during generation
 
 ### Critical invariant
 
@@ -1123,6 +1137,30 @@ If the planner cannot produce a grounded plan because a blocking definition is m
 - `ActivityAnalysisV2Service.answerClarificationQuestion` (singular) is a complete, independently correct implementation of the same one-answer case, with its own test coverage — but no route registers it (verified 2026-08-21: `interpretationRoutes.ts` has no `PATCH .../questions/:questionId` entry at all, unlike the batch route). It is not currently reachable over HTTP. Wire a route to it or remove it deliberately; don't assume from this document that a route already exists.
 - `ActivityAnalysisV2Service.answerClarificationQuestion(s)` now only validates and persists the answer(s) — it no longer replans inline. The controller then creates a fresh `activity_analysis_v2` processing job (same job type and creation path as starting a run, see Stage 8), so persisting the answer is fast and synchronous while the resulting replan runs asynchronously through `activityAnalysisWorker.ts`. The frontend polls that job and re-fetches the run once it's terminal, the same way it does after triggering an initial run.
 
+### Fix as of 2026-08-30 (uncommitted): question widget kind is decided deterministically, not by the LLM
+
+Python's V2 planner previously emitted its own `kind` per clarification
+question, hardcoded per `questionCode` in `analyst.py`'s system prompt, with
+nothing checking it against the wording `clarificationQuestionCopy.ts`
+actually renders — a real production bug: `filter_value_grounding`'s
+rendered wording says "select every value that applies" but the planner was
+told to emit `kind: "single_choice"` for it, so the frontend rendered a
+single-select widget for a question meant to allow multiple answers. Now
+the LLM only decides which question to ask and what options apply; the
+widget `kind` is decided deterministically by `clarificationQuestionCopy.ts`'s
+`QUESTION_CODE_KIND` map (keyed by `questionCode`, matching whatever
+wording is actually rendered), never by the planner.
+
+This surfaced a second issue: `filter_value_grounding`'s options are raw
+`observedValues` pulled directly from uploaded data, not a curated
+vocabulary, so an option's text can itself contain a comma (e.g. `"Ja, mit
+Auflagen"`). A `multi_choice` answer's selections are now serialized as a
+JSON string array (`interpretationQuestionCard.tsx`'s
+`buildMultiChoiceAnswer`) rather than comma-joined, so an embedded comma in
+one option's value is unambiguous;
+`interpretationQuestionAnswerValidation.ts`'s `splitMultiChoiceAnswer`
+still accepts the legacy comma-joined format for already-persisted answers.
+
 ### Why answers are stored on the activity
 
 These questions are activity-level analytical definitions, not per-upload interpretation questions. They must survive reruns and apply to the activity’s current analytical context.
@@ -1136,6 +1174,17 @@ resolved before V2 can treat the prepared dataset as analysis-ready.
 ### Main file
 
 - `ia_backend/src/modules/interpretation/activityAnalysisV2ToolExecutor.ts`
+  — as of 2026-08-30 (uncommitted), this file's tool implementations were
+  split out into sibling modules for size (the module-split rationale and
+  dependency order is documented at the top of each file):
+  `activityAnalysisV2AggregationAndSetTools.ts` (count/aggregate/set-op
+  tools), `activityAnalysisV2CoreRowTools.ts` (row/cohort/join tools),
+  `activityAnalysisV2TemporalTools.ts` (date/paired-change/temporal tools),
+  `activityAnalysisV2ToolRowResolution.ts` (shared row/alias resolution the
+  others import from, itself importing from none of them), and
+  `activityAnalysisV2EpistemicRoleGate.ts` (the downgrade-message builders
+  for the epistemic-role gate below). `activityAnalysisV2ToolExecutor.ts`
+  itself still owns request dispatch, provenance tracking, and the gates.
 
 ### Responsibilities
 
@@ -1153,7 +1202,10 @@ resolved before V2 can treat the prepared dataset as analysis-ready.
 - set operations
 - numeric aggregation
 - target comparison
-- temporal tools
+- temporal tools, including `paired_change` (numeric before/after) and, as
+  of 2026-08-30 (uncommitted), `paired_category_shift` (categorical
+  before/after — see the epistemic-role gate note below for its
+  compatibility rules)
 - cohort construction and reuse
 - joins and anti-joins
 - row-wise numeric derivation/comparison
@@ -1202,10 +1254,39 @@ for sampled excerpt-backed qualitative evidence. Each finding carries:
 
 The executor now propagates column-role provenance through filters, reusable
 cohorts/results, and scalar aliases. This supports a deterministic
-epistemic-role gate: outcome-style claims such as `compare_target` and
-numeric aggregation over `subjective_code` or `free_text` evidence are
-rejected and the goal is downgraded instead of producing a grounded
-quantitative claim from the wrong evidence type.
+epistemic-role gate: outcome-style claims such as `compare_target`,
+numeric aggregation, and `paired_change` over `subjective_code` or
+`free_text` evidence are rejected and the goal is downgraded instead of
+producing a grounded quantitative claim from the wrong evidence type.
+
+### New as of 2026-08-30 (uncommitted): `paired_category_shift` and its own epistemic-role rule
+
+`paired_category_shift` (a before/after shift between two categorical
+columns, the categorical analog of `paired_change`) has a rule shaped
+differently from every other tool the epistemic-role gate covers, because
+"never use `subjective_code` evidence for an outcome claim" is too blunt
+here: a genuine before/after shift in coded qualitative themes _can_ be
+meaningful evidence, but only if both codings are provably comparable. The
+gate (`getEpistemicRoleGateDowngradeMessage` in
+`activityAnalysisV2ToolExecutor.ts`, using
+`hasSharedSubjectiveCodeProvenance`) enforces:
+
+- if neither column is `subjective_code`, no special check applies (a plain
+  `categorical`/`flag` before/after shift is always allowed)
+- if exactly one column is `subjective_code`, the call is rejected — a
+  coded qualitative column can never be compared against a non-coded
+  categorical column as one shift
+- if both columns are `subjective_code`, the call is only allowed when one
+  column's qualitative-coding-review finding explicitly declares
+  (`sourceCodebookFrom`) that it reused the other column's approved
+  codebook, checked in either direction
+
+This is the interpretation-pipeline's own, independent enforcement of the
+same invariant `OUTCOME_EVIDENCE_MERGE_PLAN.md`'s Decision 8 documents for
+the separate outcome-evidence-pairing approval flow
+(`outcomeEvidenceRecommendationApprovalService.ts`'s
+`assertPairedCategoricalShiftCompatibility`) — the two are not shared code,
+they reimplement the same rule for two different call paths.
 
 As of 2026-08-21, a second, independent gate (`activityAnalysisV2FilterValueGate.ts`,
 applied alongside the epistemic-role gate in the executor's main per-request

@@ -42,6 +42,7 @@ function createFixture(options?: {
   afterIdentifierColumn?: string | null;
   beforeRows?: Array<Record<string, unknown>>;
   afterRows?: Array<Record<string, unknown>>;
+  qualitativeCodingReviews?: Array<Record<string, unknown>>;
   executeImpl?: (
     requests: ActivityAnalysisV2ToolRequest[],
   ) => ActivityAnalysisV2CalculationRecord[];
@@ -54,8 +55,19 @@ function createFixture(options?: {
     },
   } as unknown as ActivityRepository;
 
-  const uploads = [{ id: "upload-1", activityId: "activity-merged" }];
-  const results = [{ id: "result-1", uploadMetadataId: "upload-1" }];
+  // Two uploads, not one workbook internally holding both tables: datasetRole
+  // is tracked per upload (OUTCOME_EVIDENCE_MERGE_PLAN.md's pre/post
+  // inversion fix), matching how a multi-sheet workbook actually reaches
+  // this service in production — split into separate derived-sheet uploads
+  // before interpretation, never left as one upload spanning both waves.
+  const uploads = [
+    { id: "upload-1", activityId: "activity-merged", datasetRole: "baseline" },
+    { id: "upload-2", activityId: "activity-merged", datasetRole: "followup" },
+  ];
+  const results = [
+    { id: "result-1", uploadMetadataId: "upload-1" },
+    { id: "result-2", uploadMetadataId: "upload-2" },
+  ];
   const preparations = [
     {
       interpretationResultId: "result-1",
@@ -72,8 +84,19 @@ function createFixture(options?: {
               column("teilnehmer_id", "identifier"),
               column("q3_vorher", "validated_scale"),
               column("besuchsgrund", "categorical"),
+              column("status_vorher", "categorical"),
+              column("feedback_vorher", "free_text"),
             ],
           },
+        ],
+      },
+    },
+    {
+      interpretationResultId: "result-2",
+      status: "ready_for_analysis",
+      preparedDataset: {
+        isReadyForDeterministicAnalysis: true,
+        tables: [
           {
             name: "wirkungsmessung_zweite_tabelle",
             identifierColumn:
@@ -86,6 +109,8 @@ function createFixture(options?: {
               column("antwort_id", "identifier"),
               column("teilnehmer_id", "identifier"),
               column("q3_nachher", "validated_scale"),
+              column("status_nachher", "categorical"),
+              column("feedback_nachher", "free_text"),
             ],
           },
         ],
@@ -105,15 +130,26 @@ function createFixture(options?: {
                 teilnehmer_id: "teilnehmer-1",
                 q3_vorher: 2,
                 besuchsgrund: "Austausch",
+                status_vorher: "ja",
+                feedback_vorher: "Mehr Mut",
               },
               {
                 antwort_id: "antwort-2",
                 teilnehmer_id: "teilnehmer-2",
                 q3_vorher: 4,
                 besuchsgrund: "Beratung",
+                status_vorher: "nein",
+                feedback_vorher: "Mehr Orientierung",
               },
             ],
           },
+        ],
+      },
+    },
+    {
+      uploadMetadataId: "upload-2",
+      payload: {
+        tables: [
           {
             name: "wirkungsmessung_zweite_tabelle",
             rows: options?.afterRows ?? [
@@ -121,11 +157,15 @@ function createFixture(options?: {
                 antwort_id: "antwort-9",
                 teilnehmer_id: "teilnehmer-1",
                 q3_nachher: 3,
+                status_nachher: "nein",
+                feedback_nachher: "Weniger Zweifel",
               },
               {
                 antwort_id: "antwort-10",
                 teilnehmer_id: "teilnehmer-2",
                 q3_nachher: 5,
+                status_nachher: "ja",
+                feedback_nachher: "Mehr Ziele",
               },
             ],
           },
@@ -159,6 +199,10 @@ function createFixture(options?: {
           uploadMetadataIds.includes(representation.uploadMetadataId),
         ),
     },
+    qualitativeCodingReviewRepository: {
+      findByUploadMetadataIds: async () =>
+        options?.qualitativeCodingReviews ?? [],
+    },
   } as unknown as OutcomeEvidenceCandidateCatalogDependencies;
 
   const currentActivityEvidenceLoader = {
@@ -173,10 +217,20 @@ function createFixture(options?: {
             privacySafeRepresentationId: "psr-1",
             logicalEvidenceId: "logical-1",
             versionNumber: 1,
-            originalFileName: "outcome-evidence.xlsx",
+            originalFileName: "outcome-evidence-baseline.xlsx",
             evidenceModality: "tabular",
             uploadedAt: NOW,
             payload: privacySafeRepresentations[0]?.payload ?? {},
+          },
+          {
+            uploadMetadataId: "upload-2",
+            privacySafeRepresentationId: "psr-2",
+            logicalEvidenceId: "logical-2",
+            versionNumber: 1,
+            originalFileName: "outcome-evidence-followup.xlsx",
+            evidenceModality: "tabular",
+            uploadedAt: NOW,
+            payload: privacySafeRepresentations[1]?.payload ?? {},
           },
         ],
         missingPrivacySafeUploads: [],
@@ -276,9 +330,23 @@ function defaultCalculation(
       ? matchKey === "teilnehmer_id"
         ? { pairedCount: 2, meanPre: 2.0, meanPost: 3.0 }
         : { pairedCount: 0, meanPre: 0, meanPost: 0 }
-      : request.toolName === "group_count"
-        ? { groups: [{ value: "a", count: 2 }] }
-        : {};
+      : request.toolName === "paired_category_shift"
+        ? matchKey === "teilnehmer_id"
+          ? {
+              pairedCount: 2,
+              beforeCounts: [
+                { label: "ja", count: 1 },
+                { label: "nein", count: 1 },
+              ],
+              afterCounts: [
+                { label: "ja", count: 1 },
+                { label: "nein", count: 1 },
+              ],
+            }
+          : { pairedCount: 0, beforeCounts: [], afterCounts: [] }
+        : request.toolName === "group_count"
+          ? { groups: [{ value: "a", count: 2 }] }
+          : {};
   return {
     calculationId: `${request.toolName}-1`,
     toolName:
@@ -300,7 +368,10 @@ function defaultCalculation(
   };
 }
 
-const pairedDeltaRecommendation: OutcomeEvidenceRecommendation = {
+const pairedDeltaRecommendation: Extract<
+  OutcomeEvidenceRecommendation,
+  { shape: "paired_delta" }
+> = {
   shape: "paired_delta",
   before: {
     uploadMetadataId: "upload-1",
@@ -308,13 +379,15 @@ const pairedDeltaRecommendation: OutcomeEvidenceRecommendation = {
     columnName: "q3_vorher",
     label: "Q3 vorher",
     cohortTag: null,
+    datasetRole: "baseline",
   },
   after: {
-    uploadMetadataId: "upload-1",
+    uploadMetadataId: "upload-2",
     tableName: "wirkungsmessung_zweite_tabelle",
     columnName: "q3_nachher",
     label: "Q3 nachher",
     cohortTag: null,
+    datasetRole: "followup",
   },
   outcomeId: "outcome-1",
   rationale: "Same scale, asked twice.",
@@ -331,9 +404,60 @@ const singleDistributionRecommendation: Extract<
     columnName: "besuchsgrund",
     label: "Besuchsgrund",
     cohortTag: null,
+    datasetRole: "baseline",
   },
   outcomeId: "outcome-1",
   rationale: "Category breakdown.",
+};
+
+const pairedCategoricalShiftRecommendation: Extract<
+  OutcomeEvidenceRecommendation,
+  { shape: "paired_categorical_shift" }
+> = {
+  shape: "paired_categorical_shift",
+  before: {
+    uploadMetadataId: "upload-1",
+    tableName: "wirkungsmessung",
+    columnName: "status_vorher",
+    label: "Status vorher",
+    cohortTag: null,
+    datasetRole: "baseline",
+  },
+  after: {
+    uploadMetadataId: "upload-2",
+    tableName: "wirkungsmessung_zweite_tabelle",
+    columnName: "status_nachher",
+    label: "Status nachher",
+    cohortTag: null,
+    datasetRole: "followup",
+  },
+  outcomeId: "outcome-1",
+  rationale: "Same fixed-response status question, asked twice.",
+};
+
+const pairedSubjectiveCodeShiftRecommendation: Extract<
+  OutcomeEvidenceRecommendation,
+  { shape: "paired_categorical_shift" }
+> = {
+  shape: "paired_categorical_shift",
+  before: {
+    uploadMetadataId: "upload-1",
+    tableName: "wirkungsmessung",
+    columnName: "feedback_vorher_coded",
+    label: "Feedback vorher coded",
+    cohortTag: null,
+    datasetRole: "baseline",
+  },
+  after: {
+    uploadMetadataId: "upload-2",
+    tableName: "wirkungsmessung_zweite_tabelle",
+    columnName: "feedback_nachher_coded",
+    label: "Feedback nachher coded",
+    cohortTag: null,
+    datasetRole: "followup",
+  },
+  outcomeId: "outcome-1",
+  rationale: "Approved qualitative themes reused across both waves.",
 };
 
 test("approves a well-formed paired_delta recommendation, resolves the join, and persists a real link", async () => {
@@ -385,6 +509,380 @@ test("approves a well-formed single_distribution recommendation and resolves it 
     executeCalls.flat().some((request) => request.toolName === "group_count"),
     true,
   );
+});
+
+test("approves a fixed-domain paired_categorical_shift recommendation and persists compatibility diagnostics", async () => {
+  const { service, createdLinks, executeCalls } = createFixture();
+
+  const link = await service.approveRecommendation(
+    "user-1",
+    "project-1",
+    "activity-merged",
+    pairedCategoricalShiftRecommendation,
+  );
+
+  assert.equal(link.shape, "paired_categorical_shift");
+  assert.equal(createdLinks.length, 1);
+  assert.equal(
+    executeCalls
+      .flat()
+      .some((request) => request.toolName === "paired_category_shift"),
+    true,
+  );
+  if (link.shape === "paired_categorical_shift") {
+    assert.equal(link.matchKey, "teilnehmer_id");
+    assert.equal(link.pairLabelColumnName, "status_vorher");
+    assert.deepEqual(link.matchDiagnostics, {
+      matchedCount: 2,
+      baselineCount: 2,
+      comparisonCount: 2,
+      matchedRatio: 1,
+      candidateKeysConsidered: ["teilnehmer_id"],
+      compatibilityCheck: {
+        strategy: "observed_value_domain",
+        beforeEpistemicRole: "categorical",
+        afterEpistemicRole: "categorical",
+        beforeNormalizedValues: ["ja", "nein"],
+        afterNormalizedValues: ["ja", "nein"],
+      },
+    });
+  }
+});
+
+test("approves a paired_categorical_shift between approved subjective_code columns only when the endline review reuses the baseline codebook provenance", async () => {
+  const { service, createdLinks } = createFixture({
+    qualitativeCodingReviews: [
+      {
+        uploadMetadataId: "upload-1",
+        status: "approved",
+        findings: {
+          summary: [
+            {
+              findingKey: "wirkungsmessung::feedback_vorher",
+              tableName: "wirkungsmessung",
+              textColumnName: "feedback_vorher",
+              syntheticCodeColumnName: "feedback_vorher_coded",
+              sourceCodebookFrom: null,
+              proposedAssignments: [
+                { rowIndex: 0, assignedCode: "mut" },
+                { rowIndex: 1, assignedCode: "orientierung" },
+              ],
+            },
+          ],
+        },
+        decisions: {
+          columnDecisions: [
+            {
+              findingKey: "wirkungsmessung::feedback_vorher",
+              decision: "approve_as_proposed",
+            },
+          ],
+        },
+      },
+      {
+        uploadMetadataId: "upload-2",
+        status: "approved",
+        findings: {
+          summary: [
+            {
+              findingKey: "wirkungsmessung_zweite_tabelle::feedback_nachher",
+              tableName: "wirkungsmessung_zweite_tabelle",
+              textColumnName: "feedback_nachher",
+              syntheticCodeColumnName: "feedback_nachher_coded",
+              sourceCodebookFrom: {
+                uploadMetadataId: "upload-1",
+                findingKey: "wirkungsmessung::feedback_vorher",
+              },
+              proposedAssignments: [
+                { rowIndex: 0, assignedCode: "zweifel" },
+                { rowIndex: 1, assignedCode: "ziele" },
+              ],
+            },
+          ],
+        },
+        decisions: {
+          columnDecisions: [
+            {
+              findingKey: "wirkungsmessung_zweite_tabelle::feedback_nachher",
+              decision: "approve_as_proposed",
+            },
+          ],
+        },
+      },
+    ],
+  });
+
+  const link = await service.approveRecommendation(
+    "user-1",
+    "project-1",
+    "activity-merged",
+    pairedSubjectiveCodeShiftRecommendation,
+  );
+
+  assert.equal(link.shape, "paired_categorical_shift");
+  assert.equal(createdLinks.length, 1);
+  if (link.shape === "paired_categorical_shift") {
+    assert.ok(link.matchDiagnostics);
+    assert.deepEqual(link.matchDiagnostics.compatibilityCheck, {
+      strategy: "shared_codebook_provenance",
+      beforeEpistemicRole: "subjective_code",
+      afterEpistemicRole: "subjective_code",
+      beforeSourceCodebookUploadMetadataId: null,
+      beforeSourceCodebookFindingKey: null,
+      afterSourceCodebookUploadMetadataId: "upload-1",
+      afterSourceCodebookFindingKey: "wirkungsmessung::feedback_vorher",
+    });
+  }
+});
+
+test("approves a paired_categorical_shift when the baseline review is the one declaring reuse of the endline codebook", async () => {
+  // Review order doesn't always match wave chronology — a baseline upload
+  // reviewed after its endline counterpart already exists can legitimately
+  // produce this reverse pointer. Either direction proves the two findings
+  // share one codebook, which is what this check actually guards.
+  const { service, createdLinks } = createFixture({
+    qualitativeCodingReviews: [
+      {
+        uploadMetadataId: "upload-1",
+        status: "approved",
+        findings: {
+          summary: [
+            {
+              findingKey: "wirkungsmessung::feedback_vorher",
+              tableName: "wirkungsmessung",
+              textColumnName: "feedback_vorher",
+              syntheticCodeColumnName: "feedback_vorher_coded",
+              sourceCodebookFrom: {
+                uploadMetadataId: "upload-2",
+                findingKey: "wirkungsmessung_zweite_tabelle::feedback_nachher",
+              },
+              proposedAssignments: [
+                { rowIndex: 0, assignedCode: "zweifel" },
+                { rowIndex: 1, assignedCode: "ziele" },
+              ],
+            },
+          ],
+        },
+        decisions: {
+          columnDecisions: [
+            {
+              findingKey: "wirkungsmessung::feedback_vorher",
+              decision: "approve_as_proposed",
+            },
+          ],
+        },
+      },
+      {
+        uploadMetadataId: "upload-2",
+        status: "approved",
+        findings: {
+          summary: [
+            {
+              findingKey: "wirkungsmessung_zweite_tabelle::feedback_nachher",
+              tableName: "wirkungsmessung_zweite_tabelle",
+              textColumnName: "feedback_nachher",
+              syntheticCodeColumnName: "feedback_nachher_coded",
+              sourceCodebookFrom: null,
+              proposedAssignments: [
+                { rowIndex: 0, assignedCode: "mut" },
+                { rowIndex: 1, assignedCode: "orientierung" },
+              ],
+            },
+          ],
+        },
+        decisions: {
+          columnDecisions: [
+            {
+              findingKey: "wirkungsmessung_zweite_tabelle::feedback_nachher",
+              decision: "approve_as_proposed",
+            },
+          ],
+        },
+      },
+    ],
+  });
+
+  const link = await service.approveRecommendation(
+    "user-1",
+    "project-1",
+    "activity-merged",
+    pairedSubjectiveCodeShiftRecommendation,
+  );
+
+  assert.equal(link.shape, "paired_categorical_shift");
+  assert.equal(createdLinks.length, 1);
+  if (link.shape === "paired_categorical_shift") {
+    assert.ok(link.matchDiagnostics);
+    assert.deepEqual(link.matchDiagnostics.compatibilityCheck, {
+      strategy: "shared_codebook_provenance",
+      beforeEpistemicRole: "subjective_code",
+      afterEpistemicRole: "subjective_code",
+      beforeSourceCodebookUploadMetadataId: "upload-2",
+      beforeSourceCodebookFindingKey:
+        "wirkungsmessung_zweite_tabelle::feedback_nachher",
+      afterSourceCodebookUploadMetadataId: null,
+      afterSourceCodebookFindingKey: null,
+    });
+  }
+});
+
+test("rejects a paired_categorical_shift between subjective_code columns when the endline review does not declare baseline codebook reuse", async () => {
+  const { service, createdLinks } = createFixture({
+    qualitativeCodingReviews: [
+      {
+        uploadMetadataId: "upload-1",
+        status: "approved",
+        findings: {
+          summary: [
+            {
+              findingKey: "wirkungsmessung::feedback_vorher",
+              tableName: "wirkungsmessung",
+              textColumnName: "feedback_vorher",
+              syntheticCodeColumnName: "feedback_vorher_coded",
+              sourceCodebookFrom: null,
+              proposedAssignments: [
+                { rowIndex: 0, assignedCode: "mut" },
+                { rowIndex: 1, assignedCode: "orientierung" },
+              ],
+            },
+          ],
+        },
+        decisions: {
+          columnDecisions: [
+            {
+              findingKey: "wirkungsmessung::feedback_vorher",
+              decision: "approve_as_proposed",
+            },
+          ],
+        },
+      },
+      {
+        uploadMetadataId: "upload-2",
+        status: "approved",
+        findings: {
+          summary: [
+            {
+              findingKey: "wirkungsmessung_zweite_tabelle::feedback_nachher",
+              tableName: "wirkungsmessung_zweite_tabelle",
+              textColumnName: "feedback_nachher",
+              syntheticCodeColumnName: "feedback_nachher_coded",
+              sourceCodebookFrom: null,
+              proposedAssignments: [
+                { rowIndex: 0, assignedCode: "zweifel" },
+                { rowIndex: 1, assignedCode: "ziele" },
+              ],
+            },
+          ],
+        },
+        decisions: {
+          columnDecisions: [
+            {
+              findingKey: "wirkungsmessung_zweite_tabelle::feedback_nachher",
+              decision: "approve_as_proposed",
+            },
+          ],
+        },
+      },
+    ],
+  });
+
+  await assert.rejects(
+    () =>
+      service.approveRecommendation(
+        "user-1",
+        "project-1",
+        "activity-merged",
+        pairedSubjectiveCodeShiftRecommendation,
+      ),
+    (error: unknown) =>
+      error instanceof AppError &&
+      error.statusCode === 409 &&
+      error.code ===
+        "outcome_evidence_recommendation_subjective_code_provenance_required",
+  );
+  assert.equal(createdLinks.length, 0);
+});
+
+test("rejects a paired_categorical_shift between subjective_code columns with heavily overlapping code sets but no declared provenance", async () => {
+  // Regression test for the "code-set overlap is the wrong proxy" fix:
+  // even when the before/after findings happen to share the exact same
+  // proposed codes (which a naive implementation might mistake for the
+  // same codebook), approval must still be gated on the explicit
+  // sourceCodebookFrom pointer, not on how similar the two code sets look.
+  const { service, createdLinks } = createFixture({
+    qualitativeCodingReviews: [
+      {
+        uploadMetadataId: "upload-1",
+        status: "approved",
+        findings: {
+          summary: [
+            {
+              findingKey: "wirkungsmessung::feedback_vorher",
+              tableName: "wirkungsmessung",
+              textColumnName: "feedback_vorher",
+              syntheticCodeColumnName: "feedback_vorher_coded",
+              sourceCodebookFrom: null,
+              proposedAssignments: [
+                { rowIndex: 0, assignedCode: "mut" },
+                { rowIndex: 1, assignedCode: "orientierung" },
+              ],
+            },
+          ],
+        },
+        decisions: {
+          columnDecisions: [
+            {
+              findingKey: "wirkungsmessung::feedback_vorher",
+              decision: "approve_as_proposed",
+            },
+          ],
+        },
+      },
+      {
+        uploadMetadataId: "upload-2",
+        status: "approved",
+        findings: {
+          summary: [
+            {
+              findingKey: "wirkungsmessung_zweite_tabelle::feedback_nachher",
+              tableName: "wirkungsmessung_zweite_tabelle",
+              textColumnName: "feedback_nachher",
+              syntheticCodeColumnName: "feedback_nachher_coded",
+              sourceCodebookFrom: null,
+              proposedAssignments: [
+                { rowIndex: 0, assignedCode: "mut" },
+                { rowIndex: 1, assignedCode: "orientierung" },
+              ],
+            },
+          ],
+        },
+        decisions: {
+          columnDecisions: [
+            {
+              findingKey: "wirkungsmessung_zweite_tabelle::feedback_nachher",
+              decision: "approve_as_proposed",
+            },
+          ],
+        },
+      },
+    ],
+  });
+
+  await assert.rejects(
+    () =>
+      service.approveRecommendation(
+        "user-1",
+        "project-1",
+        "activity-merged",
+        pairedSubjectiveCodeShiftRecommendation,
+      ),
+    (error: unknown) =>
+      error instanceof AppError &&
+      error.statusCode === 409 &&
+      error.code ===
+        "outcome_evidence_recommendation_subjective_code_provenance_required",
+  );
+  assert.equal(createdLinks.length, 0);
 });
 
 test("rejects when outcomeId is missing", async () => {

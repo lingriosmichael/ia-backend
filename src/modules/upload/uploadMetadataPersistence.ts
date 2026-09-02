@@ -1,4 +1,7 @@
-import type { UploadMetadataStatus } from "../../shared/contracts.js";
+import type {
+  UploadDatasetRole,
+  UploadMetadataStatus,
+} from "../../shared/contracts.js";
 
 export interface UploadMetadataPersistenceRecord {
   id: string;
@@ -19,6 +22,7 @@ export interface UploadMetadataPersistenceRecord {
   storageKey: string | null;
   originalFileDeletedAt: Date | null;
   status: UploadMetadataStatus;
+  datasetRole: UploadDatasetRole | null;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -38,6 +42,7 @@ export interface UploadMetadataCreateInput {
   contentType: string | null;
   sizeBytes: number | null;
   storageKey: string | null;
+  datasetRole?: UploadDatasetRole | null;
 }
 
 export interface UploadMetadataUpdateInput {
@@ -50,4 +55,5 @@ export interface UploadMetadataUpdateInput {
   supersededAt?: Date | null;
   originalFileDeletedAt?: Date | null;
   status?: UploadMetadataStatus;
+  datasetRole?: UploadDatasetRole | null;
 }

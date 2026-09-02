@@ -660,3 +660,107 @@ export function executePairedChange(
     ],
   };
 }
+
+export function executePairedCategoryShift(
+  alias: string,
+  source: ActivityAnalysisV2ResolvedRowSource,
+  entityColumnName: string,
+  beforeCategoryColumnName: string,
+  afterCategoryColumnName: string,
+): {
+  calculations: ActivityAnalysisV2CalculationRecord[];
+  resultAlias: ActivityAnalysisV2RowAliasValue;
+} {
+  const pairedRows = source.rows
+    .map((row) => {
+      const beforeCategory = toCategoryValue(row[beforeCategoryColumnName]);
+      const afterCategory = toCategoryValue(row[afterCategoryColumnName]);
+      if (!beforeCategory || !afterCategory) {
+        return null;
+      }
+      return {
+        ...row,
+        [beforeCategoryColumnName]: beforeCategory,
+        [afterCategoryColumnName]: afterCategory,
+      };
+    })
+    .filter((row): row is Record<string, unknown> => row !== null);
+
+  const beforeCounts = new Map<string, number>();
+  const afterCounts = new Map<string, number>();
+  for (const row of pairedRows) {
+    const beforeCategory = toCategoryValue(row[beforeCategoryColumnName]);
+    const afterCategory = toCategoryValue(row[afterCategoryColumnName]);
+    if (!beforeCategory || !afterCategory) {
+      continue;
+    }
+    beforeCounts.set(
+      beforeCategory,
+      (beforeCounts.get(beforeCategory) ?? 0) + 1,
+    );
+    afterCounts.set(afterCategory, (afterCounts.get(afterCategory) ?? 0) + 1);
+  }
+
+  const sortGroups = (groups: Map<string, number>) =>
+    [...groups.entries()]
+      .sort((left, right) => {
+        if (right[1] !== left[1]) {
+          return right[1] - left[1];
+        }
+        return left[0].localeCompare(right[0]);
+      })
+      .map(([label, count]) => ({ label, count }));
+
+  const calculationId = buildCalculationId("paired_category_shift", {
+    alias,
+    sourceLabel: source.sourceLabel,
+    entityColumnName,
+    beforeCategoryColumnName,
+    afterCategoryColumnName,
+    basis: source.basis,
+  });
+  const resultAlias = createResultAliasValue(alias, {
+    ...source,
+    rows: pairedRows,
+    basis: "result",
+  });
+  return {
+    resultAlias,
+    calculations: [
+      {
+        calculationId,
+        toolName: "paired_category_shift",
+        label: `Paired category shift result ${alias}`,
+        description:
+          "Builds a reusable paired-category result and before/after category counts from matched respondents.",
+        formula: null,
+        value: pairedRows.length,
+        unit: "pairs",
+        sourceUploadMetadataIds: source.sourceUploadMetadataIds,
+        sourceTableNames: source.sourceTableNames,
+        sourceColumns: [
+          entityColumnName,
+          beforeCategoryColumnName,
+          afterCategoryColumnName,
+        ],
+        grain: "row",
+        numerator: pairedRows.length,
+        denominator: null,
+        denominatorType: "rows",
+        identifierColumn: null,
+        result: {
+          resultAlias: alias,
+          pairedCount: pairedRows.length,
+          entityColumnName,
+          beforeCategoryColumnName,
+          afterCategoryColumnName,
+          beforeCounts: sortGroups(beforeCounts),
+          afterCounts: sortGroups(afterCounts),
+          basis: source.basis,
+          sourceLabel: source.sourceLabel,
+          rows: pairedRows,
+        },
+      },
+    ],
+  };
+}

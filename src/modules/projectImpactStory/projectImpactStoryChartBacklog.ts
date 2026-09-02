@@ -39,6 +39,7 @@ export function buildProjectImpactStoryChartBacklog(
   catalog: ProjectImpactStoryCatalogEntry[],
   selectedEntryIds: ReadonlySet<string>,
   language: "de" | "en",
+  displayLabelsByRawText: Map<string, string> = new Map(),
 ): ProjectImpactStoryChartSpec[] {
   const charts: ProjectImpactStoryChartSpec[] = [];
 
@@ -48,7 +49,12 @@ export function buildProjectImpactStoryChartBacklog(
     }
 
     if (entry.kind === "context_distribution") {
-      const built = buildChartData([entry], language, false);
+      const built = buildChartData(
+        [entry],
+        language,
+        false,
+        displayLabelsByRawText,
+      );
       if (!built || built.data.length === 0) {
         continue;
       }
@@ -66,7 +72,12 @@ export function buildProjectImpactStoryChartBacklog(
     }
 
     if (entry.kind === "paired_story_delta") {
-      const built = buildChartData([entry], language, false);
+      const built = buildChartData(
+        [entry],
+        language,
+        false,
+        displayLabelsByRawText,
+      );
       if (!built || built.data.length === 0) {
         continue;
       }
@@ -91,7 +102,12 @@ export function buildProjectImpactStoryChartBacklog(
       ) {
         continue;
       }
-      const built = buildChartData([entry], language, false);
+      const built = buildChartData(
+        [entry],
+        language,
+        false,
+        displayLabelsByRawText,
+      );
       if (!built || built.data.length === 0) {
         continue;
       }

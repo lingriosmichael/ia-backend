@@ -3,20 +3,35 @@ import { databaseSession } from "../../shared/database/databaseClient.js";
 import type { DatabaseSession } from "../../shared/database/databaseClient.js";
 import { isMongoDuplicateKeyError } from "../../shared/database/mongoErrors.js";
 import type { TransactionManager } from "../../shared/database/transactionManager.js";
-import type { UploadMetadataRecord } from "../../shared/contracts.js";
+import type {
+  EvidencePreviewRecord,
+  UploadDatasetRole,
+  UploadMetadataRecord,
+} from "../../shared/contracts.js";
 import type { ProcessingJobRepository } from "../ai/execution/processingJobRepository.js";
 import { AppError } from "../../shared/errors/appError.js";
 import { AuthorizationService } from "../../shared/auth/authorizationService.js";
 import type { ActivityRepository } from "../activity/activityRepository.js";
 import { mapUploadMetadata } from "../../shared/utils/mappers.js";
+import {
+  asRecordArray,
+  readString,
+  readStringArray,
+} from "../../shared/utils/unknownValueReaders.js";
 import { ActivityService } from "../activity/activityService.js";
 import { clearActivityInterpretationReviewStateIfPresent } from "../interpretation/interpretationReviewState.js";
+import type { PrivacySafeRepresentationRepository } from "../processing/privacySafeRepresentationRepository.js";
 import { ProcessingResourceCleanupService } from "../processing/processingResourceCleanupService.js";
 import { ProjectDerivedStateInvalidationService } from "../project/projectDerivedStateInvalidationService.js";
 import type { UserRepository } from "../user/userRepository.js";
 import { FileStorageService } from "./fileStorageService.js";
 import type { UploadMetadataPersistenceRecord } from "./uploadMetadataPersistence.js";
 import type { UploadMetadataRepository } from "./uploadMetadataRepository.js";
+
+// Preview is meant to help a reviewer recognize a table/column referenced by
+// a clarification question, not to browse the dataset — 10 rows is enough
+// context for that without turning this into a second data-grid feature.
+const EVIDENCE_PREVIEW_ROW_LIMIT = 10;
 
 function mapUploadStatus(status: "pending" | "uploaded" | "archived") {
   return status;
@@ -39,6 +54,7 @@ export class UploadMetadataService {
     private readonly processingJobRepository: ProcessingJobRepository,
     private readonly processingResourceCleanupService: ProcessingResourceCleanupService,
     private readonly projectDerivedStateInvalidationService: ProjectDerivedStateInvalidationService,
+    private readonly privacySafeRepresentationRepository: PrivacySafeRepresentationRepository,
     private readonly logger: FastifyBaseLogger,
   ) {}
 
@@ -87,6 +103,7 @@ export class UploadMetadataService {
       sizeBytes?: number;
       storageKey?: string;
       replacesUploadMetadataId?: string | null;
+      datasetRole?: UploadDatasetRole | null;
     },
   ) {
     let activityWithAuthorizationContext:
@@ -199,6 +216,12 @@ export class UploadMetadataService {
         contentType: input.contentType?.trim() ?? null,
         sizeBytes: input.sizeBytes ?? null,
         storageKey: input.storageKey?.trim() ?? null,
+        // A replacement version (re-uploading a corrected file) keeps the
+        // replaced version's role unless the caller explicitly overrides it
+        // — same "same slot, new version" reasoning as logicalEvidenceId
+        // above, so re-uploading a corrected baseline file doesn't silently
+        // lose its Ausgangslage classification.
+        datasetRole: input.datasetRole ?? replacedRecord?.datasetRole ?? null,
       },
       databaseSession,
     );
@@ -214,6 +237,10 @@ export class UploadMetadataService {
       );
       await this.processingResourceCleanupService.deleteByUploadMetadataId(
         replacedRecord.id,
+        databaseSession,
+      );
+      await this.processingResourceCleanupService.deleteProjectAnalyticsByProjectId(
+        authorizedProject.id,
         databaseSession,
       );
       await this.processingJobRepository.deleteByUploadMetadataId(
@@ -320,6 +347,12 @@ export class UploadMetadataService {
               contentType: input.contentType?.trim() ?? null,
               sizeBytes: input.sizeBytes,
               storageKey: input.storageKey.trim(),
+              // Otherwise a workbook uploaded straight into the Ausgangslage/
+              // Wirkungsdaten two-slot picker would lose its classification
+              // the moment "Excel-Datei vorbereiten" splits it into derived
+              // sheet uploads — each derived sheet is still the same file,
+              // still the same wave, just split by tab.
+              datasetRole: sourceWorkbookUpload.datasetRole,
             },
             session,
           );
@@ -451,6 +484,43 @@ export class UploadMetadataService {
     return this.mapRecordWithUploaderName(updatedRecord);
   }
 
+  // Separate from the generic update() above so this is the one path that
+  // changes datasetRole — keeping the eventual "reject once a confirmed
+  // OutcomeEvidenceLink already depends on this file's role"
+  // guard (OUTCOME_EVIDENCE_MERGE_PLAN.md's pre/post inversion fix, wired
+  // once the outcome-evidence pairing pipeline actually reads datasetRole)
+  // to one call site instead of every generic-update caller.
+  async updateDatasetRole(
+    userId: string,
+    uploadMetadataId: string,
+    datasetRole: UploadDatasetRole,
+  ) {
+    const existingRecord = await this.uploadMetadataRepository.findById(
+      uploadMetadataId,
+      databaseSession,
+    );
+    if (!existingRecord) {
+      throw new AppError(
+        "Evidence record not found.",
+        404,
+        "evidence_not_found",
+      );
+    }
+
+    await this.authorizationService.canEditProject(
+      userId,
+      existingRecord.projectId,
+    );
+
+    const updatedRecord = await this.uploadMetadataRepository.update(
+      uploadMetadataId,
+      { datasetRole },
+      databaseSession,
+    );
+
+    return this.mapRecordWithUploaderName(updatedRecord);
+  }
+
   async getFile(userId: string, uploadMetadataId: string) {
     const record = await this.uploadMetadataRepository.findById(
       uploadMetadataId,
@@ -482,6 +552,61 @@ export class UploadMetadataService {
         record.contentType ??
         this.fileStorageService.getContentTypeForPath(record.storageKey),
       originalFileName: record.originalFileName,
+    };
+  }
+
+  // Reads from the current privacy-safe representation, deliberately never
+  // from the raw stored file — see the EvidenceTablePreview/EvidencePreviewRecord
+  // contracts. This also means preview keeps working after the raw file's
+  // storage object is cleaned up post-privacy-review
+  // (deleteOriginalFileAfterPrivacySafePersistence below).
+  async getEvidencePreview(
+    userId: string,
+    uploadMetadataId: string,
+  ): Promise<EvidencePreviewRecord> {
+    const record = await this.uploadMetadataRepository.findById(
+      uploadMetadataId,
+      databaseSession,
+    );
+
+    if (!record) {
+      throw new AppError(
+        "Evidence record not found.",
+        404,
+        "evidence_not_found",
+      );
+    }
+
+    await this.authorizationService.canViewProject(userId, record.projectId);
+
+    const privacySafeRepresentation =
+      await this.privacySafeRepresentationRepository.findLatestByUploadMetadataId(
+        uploadMetadataId,
+        databaseSession,
+      );
+
+    if (!privacySafeRepresentation) {
+      throw new AppError(
+        "This evidence has not been privacy-reviewed yet, so no preview is available.",
+        404,
+        "evidence_preview_not_available",
+      );
+    }
+
+    const tables = asRecordArray(privacySafeRepresentation.payload.tables);
+
+    return {
+      evidenceId: uploadMetadataId,
+      tables: tables.map((table, index) => {
+        const rows = asRecordArray(table.rows);
+
+        return {
+          name: readString(table.name) ?? `table_${index + 1}`,
+          columns: readStringArray(table.columns),
+          rows: rows.slice(0, EVIDENCE_PREVIEW_ROW_LIMIT),
+          totalRowCount: rows.length,
+        };
+      }),
     };
   }
 
@@ -527,6 +652,10 @@ export class UploadMetadataService {
 
       await this.processingResourceCleanupService.deleteByUploadMetadataId(
         uploadMetadataId,
+        session,
+      );
+      await this.processingResourceCleanupService.deleteProjectAnalyticsByProjectId(
+        record.projectId,
         session,
       );
       await this.processingJobRepository.deleteByUploadMetadataId(
@@ -639,6 +768,11 @@ export class UploadMetadataService {
           session,
         );
       }
+
+      await this.processingResourceCleanupService.deleteProjectAnalyticsByProjectId(
+        firstDerivedUpload.projectId,
+        session,
+      );
     });
 
     const storageKeys = derivedUploads

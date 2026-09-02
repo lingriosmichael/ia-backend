@@ -9,6 +9,7 @@ import type { ProjectDerivedStateInvalidationService } from "../project/projectD
 import type { ProcessingResourceCleanupService } from "../processing/processingResourceCleanupService.js";
 import type { UserRepository } from "../user/userRepository.js";
 import type { UploadMetadataRepository } from "./uploadMetadataRepository.js";
+import type { PrivacySafeRepresentationRepository } from "../processing/privacySafeRepresentationRepository.js";
 import { UploadMetadataService } from "./uploadMetadataService.js";
 
 test("upload create clears acknowledgment and invalidates project derived state when new activity evidence is added", async () => {
@@ -126,6 +127,7 @@ test("upload create clears acknowledgment and invalidates project derived state 
     {} as ProcessingJobRepository,
     processingResourceCleanupService,
     projectDerivedStateInvalidationService,
+    {} as never,
     { error: () => undefined } as never,
   );
 
@@ -238,6 +240,9 @@ test("upload replacement clears processing and Wirkungsaussage state for the sup
     deleteByUploadMetadataId: async (uploadMetadataId: string) => {
       calls.push(`cleanupSuperseded:${uploadMetadataId}`);
     },
+    deleteProjectAnalyticsByProjectId: async (projectId: string) => {
+      calls.push(`deleteProjectAnalytics:${projectId}`);
+    },
   } as unknown as ProcessingResourceCleanupService;
 
   const service = new UploadMetadataService(
@@ -266,6 +271,7 @@ test("upload replacement clears processing and Wirkungsaussage state for the sup
         calls.push(`invalidate:${projectId}`);
       },
     } as unknown as ProjectDerivedStateInvalidationService,
+    {} as never,
     { error: () => undefined } as never,
   );
 
@@ -279,6 +285,7 @@ test("upload replacement clears processing and Wirkungsaussage state for the sup
     "createUpload",
     "archive:upload-1",
     "cleanupSuperseded:upload-1",
+    "deleteProjectAnalytics:project-1",
     "deleteJobs:upload-1",
     "invalidate:project-1",
     "clearActivityAggregate:activity-1",
@@ -351,6 +358,9 @@ test("upload delete clears acknowledgment and invalidates project derived state 
     deleteByUploadMetadataId: async () => {
       calls.push("cleanupProcessing");
     },
+    deleteProjectAnalyticsByProjectId: async (projectId: string) => {
+      calls.push(`deleteProjectAnalytics:${projectId}`);
+    },
   } as unknown as ProcessingResourceCleanupService;
 
   const projectDerivedStateInvalidationService = {
@@ -383,6 +393,7 @@ test("upload delete clears acknowledgment and invalidates project derived state 
     processingJobRepository,
     processingResourceCleanupService,
     projectDerivedStateInvalidationService,
+    {} as never,
     { error: () => undefined } as never,
   );
 
@@ -396,6 +407,7 @@ test("upload delete clears acknowledgment and invalidates project derived state 
   ]);
   assert.ok(calls.includes("invalidate:project-1"));
   assert.ok(calls.includes("cleanupProcessing"));
+  assert.ok(calls.includes("deleteProjectAnalytics:project-1"));
   assert.ok(calls.includes("deleteJobs"));
   assert.ok(calls.includes("deleteUpload"));
   assert.ok(calls.includes("deleteStoredFiles"));
@@ -441,10 +453,12 @@ test("upload delete does not remove stored files when transactional cleanup fail
       deleteByUploadMetadataId: async () => {
         throw new Error("cleanup failed");
       },
+      deleteProjectAnalyticsByProjectId: async () => undefined,
     } as unknown as ProcessingResourceCleanupService,
     {
       invalidateProject: async () => undefined,
     } as unknown as ProjectDerivedStateInvalidationService,
+    {} as never,
     { error: () => undefined } as never,
   );
 
@@ -487,10 +501,12 @@ test("upload delete still succeeds when best-effort stored file cleanup fails", 
     {
       deleteActivityAggregateStateByActivityId: async () => undefined,
       deleteByUploadMetadataId: async () => 0,
+      deleteProjectAnalyticsByProjectId: async () => 0,
     } as unknown as ProcessingResourceCleanupService,
     {
       invalidateProject: async () => undefined,
     } as unknown as ProjectDerivedStateInvalidationService,
+    {} as never,
     { error: () => undefined } as never,
   );
 
@@ -574,6 +590,7 @@ test("createDerivedWorkbookSheetUpload falls back to the existing derived upload
     {} as ProcessingJobRepository,
     {} as ProcessingResourceCleanupService,
     {} as ProjectDerivedStateInvalidationService,
+    {} as never,
     { error: () => undefined } as never,
   );
 
@@ -671,6 +688,7 @@ test("archiveAfterWorkbookSplit deletes the original workbook file and stamps or
     {} as ProcessingJobRepository,
     {} as ProcessingResourceCleanupService,
     {} as ProjectDerivedStateInvalidationService,
+    {} as never,
     { error: () => undefined } as never,
   );
 
@@ -797,12 +815,16 @@ test("cleanupDerivedWorkbookSheetUploads removes derived uploads, jobs, processi
       deleteByUploadMetadataId: async (uploadMetadataId: string) => {
         calls.push(`cleanupProcessing:${uploadMetadataId}`);
       },
+      deleteProjectAnalyticsByProjectId: async (projectId: string) => {
+        calls.push(`deleteProjectAnalytics:${projectId}`);
+      },
     } as unknown as ProcessingResourceCleanupService,
     {
       invalidateProject: async (projectId: string) => {
         calls.push(`invalidate:${projectId}`);
       },
     } as unknown as ProjectDerivedStateInvalidationService,
+    {} as never,
     { error: () => undefined } as never,
   );
 
@@ -823,6 +845,284 @@ test("cleanupDerivedWorkbookSheetUploads removes derived uploads, jobs, processi
     "cleanupProcessing:derived-upload-2",
     "deleteJobs:derived-upload-2",
     "deleteUpload:derived-upload-2",
+    "deleteProjectAnalytics:project-1",
     "commitTransaction",
   ]);
+});
+
+test("updateDatasetRole persists the new role for the found record's project and returns it", async () => {
+  const calls: string[] = [];
+
+  const baseRecord = {
+    id: "upload-1",
+    organizationId: "org-1",
+    projectId: "project-1",
+    activityId: "activity-1",
+    logicalEvidenceId: "logical-1",
+    versionNumber: 1,
+    replacesUploadMetadataId: null,
+    supersededAt: null,
+    originalFileName: "evidence.csv",
+    contentType: "text/csv",
+    sizeBytes: 10,
+    storageKey: "uploads/evidence.csv",
+    originalFileDeletedAt: null,
+    status: "uploaded",
+    uploadedById: "user-1",
+    datasetRole: null,
+    createdAt: new Date("2026-01-01T00:00:00.000Z"),
+    updatedAt: new Date("2026-01-01T00:00:00.000Z"),
+  };
+
+  const uploadMetadataRepository = {
+    findById: async (uploadMetadataId: string) => {
+      assert.equal(uploadMetadataId, "upload-1");
+      return baseRecord;
+    },
+    update: async (
+      uploadMetadataId: string,
+      input: Record<string, unknown>,
+    ) => {
+      calls.push(`update:${uploadMetadataId}:${JSON.stringify(input)}`);
+      return { ...baseRecord, ...input };
+    },
+  } as unknown as UploadMetadataRepository;
+
+  const authorizationService = {
+    canEditProject: async (userId: string, projectId: string) => {
+      calls.push(`canEditProject:${userId}:${projectId}`);
+      return { project: { id: projectId } };
+    },
+  } as unknown as AuthorizationService;
+
+  const service = new UploadMetadataService(
+    uploadMetadataRepository,
+    {} as ActivityService,
+    authorizationService,
+    {} as never,
+    {
+      findById: async () => ({ id: "user-1", fullName: "User One" }),
+    } as unknown as UserRepository,
+    {} as TransactionManager,
+    {} as ActivityRepository,
+    {} as ProcessingJobRepository,
+    {} as ProcessingResourceCleanupService,
+    {} as ProjectDerivedStateInvalidationService,
+    {} as never,
+    { error: () => undefined } as never,
+  );
+
+  const updated = await service.updateDatasetRole(
+    "user-1",
+    "upload-1",
+    "baseline",
+  );
+
+  assert.equal(updated.datasetRole, "baseline");
+  // The safety check that gates confirming a before/after pairing
+  // (outcomeEvidenceApprovalSafetyCheck.ts) trusts this exact patch shape —
+  // this locks down that only datasetRole changes, and only for the
+  // project the record actually belongs to, not a caller-supplied one.
+  assert.deepEqual(calls, [
+    "canEditProject:user-1:project-1",
+    'update:upload-1:{"datasetRole":"baseline"}',
+  ]);
+});
+
+test("updateDatasetRole rejects an unknown evidence id before checking authorization", async () => {
+  const uploadMetadataRepository = {
+    findById: async () => null,
+  } as unknown as UploadMetadataRepository;
+
+  let authorizationCalled = false;
+  const authorizationService = {
+    canEditProject: async () => {
+      authorizationCalled = true;
+      return { project: { id: "project-1" } };
+    },
+  } as unknown as AuthorizationService;
+
+  const service = new UploadMetadataService(
+    uploadMetadataRepository,
+    {} as ActivityService,
+    authorizationService,
+    {} as never,
+    {} as UserRepository,
+    {} as TransactionManager,
+    {} as ActivityRepository,
+    {} as ProcessingJobRepository,
+    {} as ProcessingResourceCleanupService,
+    {} as ProjectDerivedStateInvalidationService,
+    {} as never,
+    { error: () => undefined } as never,
+  );
+
+  await assert.rejects(
+    service.updateDatasetRole("user-1", "missing-upload", "baseline"),
+    /Evidence record not found/,
+  );
+  assert.equal(authorizationCalled, false);
+});
+
+test("updateDatasetRole never persists the role change when the caller cannot edit the project", async () => {
+  const uploadMetadataRepository = {
+    findById: async () => ({
+      id: "upload-1",
+      projectId: "project-1",
+      uploadedById: "user-1",
+      datasetRole: null,
+    }),
+    update: async () => {
+      throw new Error("update must not be called when authorization fails");
+    },
+  } as unknown as UploadMetadataRepository;
+
+  const authorizationService = {
+    canEditProject: async () => {
+      throw new Error("not authorized to edit this project");
+    },
+  } as unknown as AuthorizationService;
+
+  const service = new UploadMetadataService(
+    uploadMetadataRepository,
+    {} as ActivityService,
+    authorizationService,
+    {} as never,
+    {} as UserRepository,
+    {} as TransactionManager,
+    {} as ActivityRepository,
+    {} as ProcessingJobRepository,
+    {} as ProcessingResourceCleanupService,
+    {} as ProjectDerivedStateInvalidationService,
+    {} as never,
+    { error: () => undefined } as never,
+  );
+
+  await assert.rejects(
+    service.updateDatasetRole("user-1", "upload-1", "followup"),
+    /not authorized to edit this project/,
+  );
+});
+
+test("getEvidencePreview rejects an unknown evidence id", async () => {
+  const uploadMetadataRepository = {
+    findById: async () => null,
+  } as unknown as UploadMetadataRepository;
+
+  const service = new UploadMetadataService(
+    uploadMetadataRepository,
+    {} as ActivityService,
+    {} as AuthorizationService,
+    {} as never,
+    {} as UserRepository,
+    {} as TransactionManager,
+    {} as ActivityRepository,
+    {} as ProcessingJobRepository,
+    {} as ProcessingResourceCleanupService,
+    {} as ProjectDerivedStateInvalidationService,
+    {} as never,
+    { error: () => undefined } as never,
+  );
+
+  await assert.rejects(
+    service.getEvidencePreview("user-1", "missing-upload"),
+    /Evidence record not found/,
+  );
+});
+
+test("getEvidencePreview rejects when the evidence has not been privacy-reviewed yet", async () => {
+  const uploadMetadataRepository = {
+    findById: async () => ({ id: "upload-1", projectId: "project-1" }),
+  } as unknown as UploadMetadataRepository;
+
+  const authorizationService = {
+    canViewProject: async () => ({ project: { id: "project-1" } }),
+  } as unknown as AuthorizationService;
+
+  const privacySafeRepresentationRepository = {
+    findLatestByUploadMetadataId: async () => null,
+  } as unknown as PrivacySafeRepresentationRepository;
+
+  const service = new UploadMetadataService(
+    uploadMetadataRepository,
+    {} as ActivityService,
+    authorizationService,
+    {} as never,
+    {} as UserRepository,
+    {} as TransactionManager,
+    {} as ActivityRepository,
+    {} as ProcessingJobRepository,
+    {} as ProcessingResourceCleanupService,
+    {} as ProjectDerivedStateInvalidationService,
+    privacySafeRepresentationRepository,
+    { error: () => undefined } as never,
+  );
+
+  await assert.rejects(
+    service.getEvidencePreview("user-1", "upload-1"),
+    /has not been privacy-reviewed yet/,
+  );
+});
+
+test("getEvidencePreview reads only the privacy-safe representation, truncating rows but reporting the true total", async () => {
+  const allRows = Array.from({ length: 25 }, (_, index) => ({
+    row: index,
+  }));
+
+  const uploadMetadataRepository = {
+    findById: async () => ({ id: "upload-1", projectId: "project-1" }),
+  } as unknown as UploadMetadataRepository;
+
+  const authorizationService = {
+    canViewProject: async () => ({ project: { id: "project-1" } }),
+  } as unknown as AuthorizationService;
+
+  let fileStorageServiceCalled = false;
+  const fileStorageService = {
+    openStoredFileStream: async () => {
+      fileStorageServiceCalled = true;
+      throw new Error("preview must never read the raw stored file");
+    },
+  } as never;
+
+  const privacySafeRepresentationRepository = {
+    findLatestByUploadMetadataId: async (uploadMetadataId: string) => {
+      assert.equal(uploadMetadataId, "upload-1");
+      return {
+        payload: {
+          tables: [
+            {
+              name: "responses",
+              columns: ["row"],
+              rows: allRows,
+            },
+          ],
+        },
+      };
+    },
+  } as unknown as PrivacySafeRepresentationRepository;
+
+  const service = new UploadMetadataService(
+    uploadMetadataRepository,
+    {} as ActivityService,
+    authorizationService,
+    fileStorageService,
+    {} as UserRepository,
+    {} as TransactionManager,
+    {} as ActivityRepository,
+    {} as ProcessingJobRepository,
+    {} as ProcessingResourceCleanupService,
+    {} as ProjectDerivedStateInvalidationService,
+    privacySafeRepresentationRepository,
+    { error: () => undefined } as never,
+  );
+
+  const preview = await service.getEvidencePreview("user-1", "upload-1");
+
+  assert.equal(preview.evidenceId, "upload-1");
+  assert.equal(preview.tables.length, 1);
+  assert.equal(preview.tables[0]?.name, "responses");
+  assert.equal(preview.tables[0]?.rows.length, 10);
+  assert.equal(preview.tables[0]?.totalRowCount, 25);
+  assert.equal(fileStorageServiceCalled, false);
 });

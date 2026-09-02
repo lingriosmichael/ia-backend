@@ -79,6 +79,32 @@ function toOutcomeEvidenceLinkRecord(
     };
   }
 
+  if (document.shape === "paired_categorical_shift") {
+    return {
+      ...base,
+      shape: "paired_categorical_shift",
+      activityIdBefore: field(document.activityIdBefore, "activityIdBefore"),
+      activityIdAfter: field(document.activityIdAfter, "activityIdAfter"),
+      beforeUploadMetadataId: field(
+        document.beforeUploadMetadataId,
+        "beforeUploadMetadataId",
+      ),
+      beforeTableName: field(document.beforeTableName, "beforeTableName"),
+      beforeColumnName: field(document.beforeColumnName, "beforeColumnName"),
+      afterUploadMetadataId: field(
+        document.afterUploadMetadataId,
+        "afterUploadMetadataId",
+      ),
+      afterTableName: field(document.afterTableName, "afterTableName"),
+      afterColumnName: field(document.afterColumnName, "afterColumnName"),
+      matchKey: field(document.matchKey, "matchKey"),
+      pairLabelColumnName: field(
+        document.pairLabelColumnName,
+        "pairLabelColumnName",
+      ),
+    };
+  }
+
   return {
     ...base,
     shape: "single_distribution",

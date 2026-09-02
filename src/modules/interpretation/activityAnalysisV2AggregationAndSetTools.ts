@@ -670,6 +670,10 @@ export function executeSetOperation(
     basis: "cohort",
     sourceColumnEpistemicRoles: mergedSourceColumnEpistemicRoles,
     epistemicRoles: collectEpistemicRoles(mergedSourceColumnEpistemicRoles),
+    columnLineageByName: {
+      ...leftSource.columnLineageByName,
+      ...rightSource.columnLineageByName,
+    },
   };
   return {
     cohort,

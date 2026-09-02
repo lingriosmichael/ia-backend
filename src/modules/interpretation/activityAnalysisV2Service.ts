@@ -17,6 +17,7 @@ import type {
 } from "../../shared/contracts.js";
 import type { AuthorizationService } from "../../shared/auth/authorizationService.js";
 import {
+  buildAssignedCodeLabelsByColumn,
   extractSyntheticQualitativeCodeColumnMetadata,
   preparedDatasetTableWithSyntheticColumns,
   qualitativeCodingReviewRequirementStatus,
@@ -739,6 +740,25 @@ export class ActivityAnalysisV2Service {
       runStartedAt,
     );
 
+    // A `subjective_code` context candidate's group_count categories are
+    // the raw code slug (e.g. "empathy_expressed"), not the human-chosen
+    // label the qualitative-coding reviewer picked for it (e.g. "Empathy
+    // expressed") — resolve that back deterministically, never via an LLM,
+    // same reasoning as this function's own humanizeColumnName call for
+    // the column name itself. A plain `categorical` column's real values
+    // simply never match anything in this map, so they render unchanged.
+    const candidateUploadMetadataIds = [
+      ...new Set(
+        boundedCandidates.map((candidate) => candidate.uploadMetadataId),
+      ),
+    ];
+    const codingReviews =
+      await this.qualitativeCodingReviewRepository.findByUploadMetadataIds(
+        candidateUploadMetadataIds,
+        databaseSession,
+      );
+    const codeLabelsByColumn = buildAssignedCodeLabelsByColumn(codingReviews);
+
     return contextExecution.calculations.flatMap((calculation) => {
       const tableName = calculation.sourceTableNames[0];
       const columnName = calculation.sourceColumns[0];
@@ -750,6 +770,7 @@ export class ActivityAnalysisV2Service {
         return [];
       }
 
+      const codeLabels = codeLabelsByColumn.get(candidate.columnName);
       const groups = Array.isArray(calculation.result.groups)
         ? (calculation.result.groups as Array<{
             value: string | null;
@@ -759,7 +780,8 @@ export class ActivityAnalysisV2Service {
       const shares = groups
         .filter((group) => group.value !== null)
         .map((group) => ({
-          labelDe: group.value as string,
+          labelDe:
+            codeLabels?.get(group.value as string) ?? (group.value as string),
           count: group.count,
         }));
       const n = shares.reduce((total, share) => total + share.count, 0);
@@ -778,7 +800,11 @@ export class ActivityAnalysisV2Service {
             "hbar_target",
             "donut_share",
           ] as ContextCatalogEntry["eligibleChartTypes"],
-          sourceDe: `Quelle: ${tableName}`,
+          // IMPACT_STORY_CHART_IMPROVEMENT_PLAN.md §3 — tableName alone is
+          // frequently the raw upload filename stem, never a human
+          // description; pairing it with the activity's real name is
+          // strictly more context with no schema change.
+          sourceDe: `Quelle: ${activity.name} — ${tableName}`,
         },
       ];
     });
@@ -862,7 +888,15 @@ export class ActivityAnalysisV2Service {
         {
           id: questionId,
           goalId: draft.goalId ?? null,
-          kind: draft.kind,
+          // Derived from questionCode by renderClarificationQuestion, not
+          // trusted from the planner's own draft.kind, for every non-null
+          // questionCode — see QUESTION_CODE_KIND's comment in
+          // clarificationQuestionCopy.ts. draft.kind is only used as a
+          // fallback for the one case rendered.kind is null: the
+          // open-ended questionCode === null exception, where the LLM
+          // genuinely authors the question and there's no template to
+          // derive a kind from.
+          kind: rendered.kind ?? draft.kind,
           questionDomain: draft.questionDomain,
           userFacingPrompt: rendered.userFacingPrompt,
           userFacingOptions: rendered.userFacingOptions,
@@ -1097,6 +1131,15 @@ export class ActivityAnalysisV2Service {
             epistemicRole: column.epistemicRole,
             ...withMetricMetadata(column),
             observedValues: resolveObservedValuesForColumn(column, rows),
+            subjectiveCodeProvenance: syntheticColumnByName.has(column.name)
+              ? {
+                  findingKey:
+                    syntheticColumnByName.get(column.name)?.findingKey ?? null,
+                  sourceCodebookFrom:
+                    syntheticColumnByName.get(column.name)
+                      ?.sourceCodebookFrom ?? null,
+                }
+              : null,
           }));
 
         return {

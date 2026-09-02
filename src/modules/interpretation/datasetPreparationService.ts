@@ -10,6 +10,7 @@ import type {
   PreparedDatasetColumnRole,
   PreparedDatasetIdentifierHandling,
   PreparedDatasetMetricKind,
+  PreparedDatasetScaleDirection,
   PreparedDatasetSnapshot,
   PreparedDatasetTable,
   PreparedDatasetValueScope,
@@ -35,6 +36,7 @@ export const PREPARATION_QUESTION_CODES = new Set<InterpretationQuestionCode>([
   "duplicate_identifier_resolution",
   "epistemic_role_clarification",
   "cohort_tag",
+  "scale_direction",
 ]);
 
 function isPreparationQuestionCode(
@@ -71,6 +73,34 @@ function isPreparationQuestion(
   );
 }
 
+// Deliberately does not require isBlocking, unlike isPreparationQuestion
+// above: scale_direction is a recognized preparation code (so its answer
+// belongs in decisionSummary/PreparedDatasetColumn, same resolution path
+// as any other preparation question) but is intentionally non-blocking —
+// it must never gate dataset readiness (see isPreparationQuestion's own
+// callers) while still being resolved once answered. Only used by
+// buildPreparationInput's decisionSummary construction, never by the
+// readiness-status computation in syncForInterpretationResult.
+function isResolvableIntoPreparedDataset(
+  question: InterpretationResultPersistenceRecord["questions"][number],
+  datasetProfile: InterpretationResultPersistenceRecord["datasetProfile"],
+  privacySafePayload: Record<string, unknown>,
+): boolean {
+  if (
+    shouldIgnoreInterpretationQuestion(question, {
+      datasetProfile,
+      privacySafePayload,
+    })
+  ) {
+    return false;
+  }
+
+  return (
+    question.questionDomain === "preparation" &&
+    isPreparationQuestionCode(question.questionCode)
+  );
+}
+
 // Explicit return type (rather than relying on inference) so this object's
 // keys are checked against DatasetPreparationDecisionSummary at compile
 // time — adding a field to one without the other now fails the build
@@ -99,6 +129,7 @@ function emptyDecisionSummary(): DatasetPreparationDecisionSummary {
     primaryDateFields: [] as DatasetPreparationDecisionSelection[],
     epistemicRoleClarifications: [] as DatasetPreparationDecisionSelection[],
     cohortTags: [] as DatasetPreparationDecisionSelection[],
+    scaleDirections: [] as DatasetPreparationDecisionSelection[],
   };
 }
 
@@ -126,6 +157,8 @@ function mapQuestionCodeToSummaryKey(questionCode: InterpretationQuestionCode) {
       return "epistemicRoleClarifications";
     case "cohort_tag":
       return "cohortTags";
+    case "scale_direction":
+      return "scaleDirections";
   }
 }
 
@@ -370,6 +403,28 @@ function parseEpistemicRoleClarificationAnswer(
   return null;
 }
 
+function parseScaleDirectionAnswer(
+  answer: string | null,
+): PreparedDatasetScaleDirection | null {
+  if (!answer) {
+    return null;
+  }
+  const normalized = normalizeText(answer);
+  if (
+    normalized.includes("higher value is better") ||
+    normalized.includes("höherer wert ist besser")
+  ) {
+    return "higher_is_better";
+  }
+  if (
+    normalized.includes("lower value is better") ||
+    normalized.includes("niedrigerer wert ist besser")
+  ) {
+    return "lower_is_better";
+  }
+  return null;
+}
+
 // The cohort_tag question's option list is generated per-project from
 // Project.targetGroups plus a leading "not applicable / single cohort"
 // option (unlike the other closed-option questions above, its wording isn't
@@ -608,6 +663,16 @@ function buildPreparedDatasetSnapshot(
             )
           : baseEpistemicRole;
 
+      // IMPACT_STORY_CHART_IMPROVEMENT_PLAN.md §4 — human-declared, never
+      // inferred from minValue/maxValue or anything else below.
+      const scaleDirectionAnswer = decisionSummary.scaleDirections.find(
+        (selection) =>
+          selection.tableName === tableName &&
+          selection.columnName === columnName,
+      );
+      const scaleDirection: PreparedDatasetScaleDirection | null =
+        parseScaleDirectionAnswer(scaleDirectionAnswer?.value ?? null);
+
       const minValue = profileColumn?.numericSummary?.min ?? null;
       const maxValue = profileColumn?.numericSummary?.max ?? null;
       const metricKind = inferPreparedColumnMetricKind({
@@ -644,6 +709,7 @@ function buildPreparedDatasetSnapshot(
         maxValue,
         metricKind,
         valueScope,
+        scaleDirection,
       };
     });
 
@@ -687,7 +753,11 @@ function buildPreparationInput(
   privacySafePayload: Record<string, unknown>,
 ): DatasetPreparationUpsertInput {
   const preparationQuestions = result.questions.filter((question) =>
-    isPreparationQuestion(question, result.datasetProfile, privacySafePayload),
+    isResolvableIntoPreparedDataset(
+      question,
+      result.datasetProfile,
+      privacySafePayload,
+    ),
   );
   const answeredQuestions = preparationQuestions.filter(
     (question) => question.status === "answered" && question.answeredValue,

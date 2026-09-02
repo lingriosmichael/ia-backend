@@ -70,17 +70,25 @@ rendered inside `projectImpactStoryPage.tsx` on the project's Analytics tab
    `jobType` on the same `ai_executions` queue. On claiming this job type it
    calls `ProjectImpactStoryService.buildProjectImpactStory(...)`.
 4. **Service** — `ProjectImpactStoryService.buildProjectImpactStory`
-   (`ia_backend/src/modules/projectImpactStory/projectImpactStoryService.ts:733-907`):
+   (`ia_backend/src/modules/projectImpactStory/projectImpactStoryService.ts`,
+   `buildProjectImpactStory`, line ~801 onward as of 2026-08-30 — line
+   numbers throughout this doc drift as the file grows; treat them as
+   approximate, the function/file name as authoritative):
    1. re-validates readiness (state can drift between enqueue and claim);
-   2. builds the **chart-plan catalog** from every activity's grounded
-      `ActivityAnalystV2` output (`projectImpactStoryCatalog.ts`) — this
-      feeds headline KPIs / charts, **not** the narrative;
+   2. builds the **chart-authoring catalog** from every activity's grounded
+      `ActivityAnalystV2` output, plus (as of 2026-08-30) two of the three
+      confirmed impact-catalog shapes (`projectImpactStoryCatalog.ts` /
+      `projectImpactStoryChartAuthoringRequestMapper.ts`) — this feeds
+      headline KPIs / charts, **not** the narrative;
    3. builds the **impact catalog** exclusively from human-confirmed
       `OutcomeEvidenceLink` records
       (`projectImpactStoryImpactCatalog.ts` → `buildProjectImpactStoryImpactCatalog`)
-      — this is the **only** catalog ever sent to the narrative LLM call;
-   4. `planChartsAndKpis` → `pythonProcessingClient.planProjectImpactStoryChart`
-      → `POST /internal/project-impact-story/chart-plan` (chart/KPI
+      — this is the **only** catalog ever sent to the narrative LLM call
+      (it is also reused for chart authoring and for the deterministic
+      `confirmedOutcomeCharts` tier, but never merged into what the
+      narrative itself sees);
+   4. `planChartsAndKpis` → `pythonProcessingClient.planProjectImpactStoryChartAuthoring`
+      → `POST /internal/project-impact-story/chart-authoring` (chart/KPI
       selection only — no numbers computed by Python; irrelevant to the
       narrative text itself, listed here only to place the narrative call
       in sequence);
@@ -264,7 +272,7 @@ available."` (line 92).
 | `projectPeriod`                             | `buildNarrativePeriod(project.startMonth, project.endMonth)`                                                                                                                                                          |
 | `targetGroup`                               | `project.overarchingTargetGroup`, falling back to the first non-blank entry in `project.targetGroups`                                                                                                                 |
 | `initialSituation`                          | `Project.initialSituation` (the "Ausgangslage" field) — framing only, never treated as a grounded numeric source (see §4's prompt text and §6's checker: a number stated while paraphrasing it still fails grounding) |
-| `outputFacts`                               | `toProjectImpactStoryNarrativeOutputFactRequests(headlineKpis)` — the project's headline KPIs from the chart-plan side, §7                                                                                            |
+| `outputFacts`                               | `toProjectImpactStoryNarrativeOutputFactRequests(headlineKpis)` — the project's headline KPIs from the chart-authoring side, §7                                                                                       |
 | `catalog`                                   | `toProjectImpactStoryNarrativeCatalogEntryRequests(impactCatalog)` — the confirmed-outcome impact catalog, §7                                                                                                         |
 
 ## 6. The checker (this is what produces the "detail could not be matched" banner)
@@ -281,12 +289,16 @@ Checks, in the order the code runs them:
    the catalog or output-fact id sets, that's a violation:
    `"References catalog entries that do not exist: [...]"`.
 2. **Per-paragraph entry-count cap** (lines 164-180): more than
-   `_MAX_CATALOG_ENTRIES_PER_PARAGRAPH = 5` (line 64) distinct catalog
-   entries cited in one paragraph is a violation — this is what turns the
-   prompt's "choose at most 5 entries" instruction from a hope into an
-   enforced rule; the comment at lines 56-63 notes this was added after
-   observing a real paragraph citing 15+ distribution entries as a data
-   dump.
+   `_MAX_CATALOG_ENTRIES_PER_PARAGRAPH` distinct catalog entries cited in
+   one paragraph is a violation. **Raised from `5` to `8` on 2026-08-30**
+   (product decision, alongside the retry removal in §6a below) —
+   deliberately loosened as a data-dump guard, not a factual-accuracy
+   check: with the retry gone, a project citing several correctly-grounded
+   entries in its one and only attempt shouldn't trip a cap that was
+   originally tuned assuming a corrective re-prompt existed to fix it.
+   This is the _only_ one of the six checks in this section that was
+   loosened; the other five (including the number-grounding check right
+   below) are unchanged.
 3. **Leaked entryId check** (lines 182-192): if a paragraph's raw `text`
    contains a UUID-shaped string (`_UUID_PATTERN`, lines 52-54:
    `\b[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\b`),
@@ -351,46 +363,59 @@ Returns `GroundingResult(passed=len(violations) == 0, violations=violations)`.
 
 ### 6a. Retry loop and what happens on exhaustion
 
-Shared generic loop: `run_with_grounding_retries`
-(`ia_python_service/app/analytics/grounding_retry_loop.py:25-143`), used by
-every LLM curation/generation stage in this service (chart-plan, dashboard
+**Changed 2026-08-30 (product decision): zero retries.** Shared generic
+loop: `run_with_grounding_retries`
+(`ia_python_service/app/analytics/grounding_retry_loop.py`), used by every
+LLM curation/generation stage in this service (chart authoring, dashboard
 curation, this narrative call). For the narrative call specifically,
-`_MAX_GROUNDING_RETRIES = 1` (`narrative.py:17`) — **up to 2 total LLM
-calls** (one attempt, one retry), deliberately lower than the `2` used
-elsewhere in this feature (see the "Known discrepancy fixed" note at the
-bottom). The comment at `narrative.py:411-424` explains why: this call
-sends the project's _entire_ evidence catalog as context on every attempt,
-so retries here are more expensive than most other grounding-retry callers
-in this service, and the budget is kept low rather than exhausted for its
-own sake.
+`_MAX_GROUNDING_RETRIES = 0` (`narrative.py:17`, dropped from `1`) —
+**exactly 1 LLM call, no corrective re-prompt** — deliberately lower than
+the `2` still used elsewhere in this feature (chart authoring). The
+comment directly above `narrative.py`'s call into
+`run_with_grounding_retries` explains why: this call sends the project's
+_entire_ evidence catalog as context on every attempt, making a
+corrective re-prompt expensive relative to chart authoring's, and the
+product decision was to accept a single real (possibly imperfect) attempt
+over paying for a retry — see also the loosened per-paragraph cap in §6
+item 2 above, changed in the same product decision.
 
-Flow, per `generate_project_impact_story_narrative`
-(`narrative.py:376-474`):
+Flow, per `generate_project_impact_story_narrative` (`narrative.py:455-549`):
 
 1. `propose_with_capture(None)` → `_propose_narrative` (the OpenAI call in
    §3/§4/§5), capturing the draft in a `nonlocal last_draft` closure
    regardless of outcome.
 2. `validate_narrative_output(draft, catalog, output_facts)` (§6).
-3. **Pass** → `on_success` (lines 398-409): `groundingStatus="PASSED"`,
-   `fellBackToDeterministicSummary=False`. Backend maps this to
-   `narrativeStatus: "generated"` — **no banner**.
-4. **Fail** → violation reasons are fed into the next `_propose_narrative`
-   call as the "Your previous attempt was rejected..." suffix (§4), and the
-   loop retries once more (`max_retries + 1 = 2` attempts total).
-5. **Retries exhausted, still failing** → `on_exhausted`
-   (`narrative.py:434-461`). Since at least one attempt always ran,
-   `last_draft` is always set, so the _reachable_ branch (lines 438-445)
-   returns:
+3. **Pass** → `on_success` (`narrative.py:477-488`):
+   `groundingStatus="PASSED"`, `fellBackToDeterministicSummary=False`.
+   Backend maps this to `narrativeStatus: "generated"` — **no banner**.
+4. **Fail** → with `max_retries=0`, there is no retry: the loop goes
+   straight to exhaustion after this one attempt. (A failed check no
+   longer feeds violation feedback into a second `_propose_narrative`
+   call the way it used to — there is no second call to feed it into.)
+5. **Exhausted (i.e. the one attempt failed grounding)** → `on_exhausted`
+   (`narrative.py:509-536`). Since the one attempt always ran,
+   `last_draft` is always set, so the _reachable_ branch
+   (`narrative.py:513-520`) returns the model's own real draft, unverified,
+   rather than discarding it for a template:
 
    ```python
    ProjectImpactStoryNarrativeResponse(
        narrativeSummary=render_narrative_text(last_draft),
        groundingStatus="FAILED",
-       groundingRetryCount=_MAX_GROUNDING_RETRIES,
+       groundingRetryCount=_MAX_GROUNDING_RETRIES,  # always 0 now
        fellBackToDeterministicSummary=False,
        llmUsage=usage,
    )
    ```
+
+   The `last_draft is None` branch right below it
+   (`narrative.py:528-536`, the old deterministic-template fallback) was
+   already unreachable before this change and remains unreachable now —
+   `run_with_grounding_retries` still runs at least one attempt before it
+   can call `on_exhausted` even with `max_retries=0`, and any exception
+   from `propose_with_capture` bypasses `on_exhausted` entirely (the whole
+   call raises instead). Kept as a defensive fallback, not dead code to
+   remove, in case that shared contract ever changes.
 
    i.e. **the model's own last real draft, unverified** — not a template.
    `ia_backend`'s `generateNarrative` (`projectImpactStoryService.ts:580-585`)
@@ -454,7 +479,7 @@ sources feed the narrative call:
   no-duplicates / actual matched count, rejects zero-match and ambiguous
   candidates) and made this function throw instead of default.
 - **`headlineKpis` (output facts)** — `toProjectImpactStoryNarrativeOutputFactRequests`
-  turns the project's chart-plan headline KPIs (participation counts,
+  turns the project's chart-authoring headline KPIs (participation counts,
   satisfaction rates, etc. — sourced from `ActivityAnalystV2` run
   `calculation`/`goal_assessment` output, gated only by V2's own grounding,
   not by human confirmation) into the `OUTPUT_FACT` list. These are the
@@ -504,35 +529,35 @@ though `impactCatalog` is derived directly from those links.
 
 - Every "Analyse aktualisieren" click that doesn't hit an already-running
   job re-runs the **entire** pipeline from scratch: readiness re-check →
-  chart-plan LLM call (up to 3 attempts, `chart_plan.py`'s own
-  `_MAX_GROUNDING_RETRIES = 2`) → narrative LLM call (up to 2 attempts, §6a)
-  → two new, append-only Mongo documents. Regeneration never updates a
-  document in place.
+  chart-authoring LLM call (up to 3 attempts, `chart_authoring.py`'s own
+  `_MAX_GROUNDING_RETRIES = 2`) → narrative LLM call (**exactly 1 attempt**
+  as of 2026-08-30, §6a) → two new, append-only Mongo documents.
+  Regeneration never updates a document in place.
 - Rate-limited to 12 kickoff requests per authenticated user per 10 minutes
   (`processingKickoffRateLimitConfig`) and de-duplicated against an
   in-flight job for the same project, but **not otherwise debounced** — a
   legitimate distinct click still costs at least 2 real LLM calls
-  end-to-end.
+  end-to-end (1 narrative + at least 1 chart-authoring attempt).
 - `story.updatedAt` (rendered as "Erstellt am {{timestamp}}") is
   `Math.max(snapshot.updatedAt, overlay?.updatedAt ?? 0)`
   (`formatLatestTimestamp`, `projectImpactStoryService.ts:59-68`) — "most
   recently touched," not a field literally named `createdAt`, though it
   reads like a creation timestamp in the UI.
 
-## Known discrepancy fixed
+## Known discrepancy fixed (historical — resolved, kept for context)
 
-`CURRENT_ANALYTICS_PIPELINE.md`'s Stage 4 states "each runs its own
-grounding-retry loop of up to 3 full LLM calls (`run_with_grounding_retries`,
-`_MAX_GROUNDING_RETRIES = 2` in both `narrative.py` and `chart_plan.py`)."
-Reading current source directly: `chart_plan.py:17` does say `2`, but
-`narrative.py:17` says `_MAX_GROUNDING_RETRIES = 1` (max **2** attempts for
-the narrative call, not 3), with an explicit comment
-(`narrative.py:411-424`) explaining it was deliberately kept lower than
-chart-plan's because this call's context (the full evidence catalog) is
-larger and more expensive to resend on every retry. That canonical doc's
-own header already notes it was written against an uncommitted working
-tree, so this is most likely later drift rather than an error at the time
-of writing — flagging here per this repo's standing rule to fold
-corrections into the existing doc rather than let two docs silently
-disagree. `CURRENT_ANALYTICS_PIPELINE.md` should be corrected to say `2`
-for chart-plan and `1` for narrative specifically.
+An earlier version of this document flagged a real discrepancy against
+`CURRENT_ANALYTICS_PIPELINE.md`'s Stage 4 over the narrative call's retry
+count (`narrative.py`'s `_MAX_GROUNDING_RETRIES` was `1`, not `2`, unlike
+the chart-selection call's). That specific numeric disagreement is now
+moot: on 2026-08-30, `_MAX_GROUNDING_RETRIES` for the narrative call was
+deliberately dropped to `0` (see §6a above), and `chart_plan.py` — the
+file this section originally compared against — was deleted the same day
+once its successor, `chart_authoring.py`, was confirmed working
+end-to-end (`chart_authoring.py`'s own `_MAX_GROUNDING_RETRIES` stayed
+`2`, unchanged from `chart_plan.py`'s). `CURRENT_ANALYTICS_PIPELINE.md`
+now states both current numbers correctly. Left here only as a reminder
+of the standing rule that motivated the original note: when two of these
+three sibling docs disagree on a fact, fold the correction into whichever
+one actually owns that fact rather than letting the docs silently drift
+apart again.

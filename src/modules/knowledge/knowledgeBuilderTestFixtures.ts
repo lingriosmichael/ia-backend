@@ -69,6 +69,7 @@ export function makeUpload(
     storageKey: "key",
     originalFileDeletedAt: null,
     status: "uploaded",
+    datasetRole: null,
     createdAt: NOW,
     updatedAt: NOW,
     ...overrides,

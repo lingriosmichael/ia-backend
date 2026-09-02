@@ -334,7 +334,7 @@ test("generateProjectImpactStoryNarrative uses its own dedicated background-job 
   assert.equal(capturedTimeoutMs, 300_000);
 });
 
-test("planProjectImpactStoryChart uses its own dedicated background-job timeout budget", async (t) => {
+test("planProjectImpactStoryChartAuthoring uses its own dedicated background-job timeout budget", async (t) => {
   let capturedTimeoutMs: number | null = null;
   t.mock.method(AbortSignal, "timeout", (delay: number) => {
     capturedTimeoutMs = delay;
@@ -356,7 +356,7 @@ test("planProjectImpactStoryChart uses its own dedicated background-job timeout 
     120_000,
   );
 
-  await client.planProjectImpactStoryChart({
+  await client.planProjectImpactStoryChartAuthoring({
     projectId: "project-1",
     projectName: "Mentoring Program",
     language: "de",
@@ -611,6 +611,92 @@ test("planActivityAnalysisV2 rejects a malformed plan response instead of trusti
       assert.equal(
         error.code,
         "python_processing_activity_analysis_v2_plan_malformed",
+      );
+      return true;
+    },
+  );
+});
+
+test("recommendOutcomeEvidencePairings drops a recommendation with an unrecognized shape instead of rejecting the whole response", async (t) => {
+  // Regression test for a deploy-order hazard: if ia_python_service ships
+  // a new recommendation `shape` value before this backend has, the old
+  // all-or-nothing z.array(...) validation would fail the entire response
+  // (and the caller would see a hard 502) even though every other
+  // recommendation in the same response was perfectly valid. The fix
+  // validates each recommendation independently and drops only the
+  // unrecognized one.
+  t.mock.method(AbortSignal, "timeout", () => new AbortController().signal);
+  t.mock.method(globalThis, "fetch", async () =>
+    jsonResponse({
+      recommendations: [
+        {
+          shape: "single_distribution",
+          columnId: "col_1",
+          outcomeId: "outcome-1",
+          rationale: "Category breakdown.",
+        },
+        {
+          // A shape this backend version doesn't recognize yet.
+          shape: "some_future_shape",
+          columnId: "col_2",
+          outcomeId: "outcome-1",
+          rationale: "A shape from a newer Python service.",
+        },
+      ],
+      groundingStatus: "PASSED",
+      llmUsage: null,
+    }),
+  );
+
+  const client = new PythonProcessingClient(
+    "https://python.example",
+    "secret",
+    30_000,
+    120_000,
+  );
+
+  const result = await client.recommendOutcomeEvidencePairings({
+    projectId: "project-1",
+    language: "de",
+    outcomeStatements: [],
+    candidates: [],
+  });
+
+  assert.equal(result.groundingStatus, "PASSED");
+  assert.equal(result.recommendations.length, 1);
+  assert.equal(result.recommendations[0]?.shape, "single_distribution");
+});
+
+test("recommendOutcomeEvidencePairings still rejects a genuinely malformed response", async (t) => {
+  t.mock.method(AbortSignal, "timeout", () => new AbortController().signal);
+  t.mock.method(globalThis, "fetch", async () =>
+    jsonResponse({
+      // groundingStatus is missing entirely — not just one recommendation
+      // with an unrecognized shape, but a structurally broken envelope.
+      recommendations: [],
+    }),
+  );
+
+  const client = new PythonProcessingClient(
+    "https://python.example",
+    "secret",
+    30_000,
+    120_000,
+  );
+
+  await assert.rejects(
+    () =>
+      client.recommendOutcomeEvidencePairings({
+        projectId: "project-1",
+        language: "de",
+        outcomeStatements: [],
+        candidates: [],
+      }),
+    (error: unknown) => {
+      assert.ok(error instanceof AppError);
+      assert.equal(
+        error.code,
+        "python_processing_outcome_evidence_pairing_recommendation_malformed",
       );
       return true;
     },

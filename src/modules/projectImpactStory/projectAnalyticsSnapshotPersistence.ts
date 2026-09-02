@@ -1,6 +1,5 @@
 import type {
   ActivityImpactStoryCard,
-  ContextCatalogEntry,
   LlmUsageSummary,
   ProjectImpactStoryChartSpec,
   ProjectImpactStoryDiagnostics,
@@ -20,8 +19,8 @@ export interface ProjectAnalyticsSnapshotPersistenceRecord {
   headlineKpis: ProjectImpactStoryHeadlineKpi[];
   chartPlan: ProjectImpactStoryChartSpec[];
   backlogChartPlan: ProjectImpactStoryChartSpec[];
-  contextCharts: ContextCatalogEntry[];
   goalProgressEntries: ProjectImpactStoryGoalProgressEntry[];
+  confirmedOutcomeCharts: ProjectImpactStoryChartSpec[];
   diagnostics: ProjectImpactStoryDiagnostics;
   llmUsage: LlmUsageSummary | null;
   errorMessage: string | null;
@@ -38,8 +37,8 @@ export interface ProjectAnalyticsSnapshotCreateInput {
   headlineKpis: ProjectImpactStoryHeadlineKpi[];
   chartPlan: ProjectImpactStoryChartSpec[];
   backlogChartPlan: ProjectImpactStoryChartSpec[];
-  contextCharts: ContextCatalogEntry[];
   goalProgressEntries: ProjectImpactStoryGoalProgressEntry[];
+  confirmedOutcomeCharts: ProjectImpactStoryChartSpec[];
   diagnostics: ProjectImpactStoryDiagnostics;
   llmUsage: LlmUsageSummary | null;
   errorMessage: string | null;

@@ -593,6 +593,315 @@ test("resolves plain-language epistemic_role_clarification answers to categorica
   );
 });
 
+test("resolves a scale_direction answer onto the matching column's PreparedDatasetColumn.scaleDirection", async () => {
+  let capturedInput: DatasetPreparationUpsertInput | null = null;
+
+  const repository = {
+    upsertByInterpretationResultId: async (
+      input: DatasetPreparationUpsertInput,
+    ) => {
+      capturedInput = input;
+      return {
+        id: "prep-1",
+        ...input,
+        createdAt: NOW,
+        updatedAt: NOW,
+      };
+    },
+  } as unknown as DatasetPreparationRepository;
+
+  const privacySafeRepresentationRepository = {
+    findById: async () => ({
+      id: "psr-1",
+      organizationId: "org-1",
+      projectId: "project-1",
+      activityId: "activity-1",
+      uploadMetadataId: "upload-1",
+      processingJobId: "processing-1",
+      privacyReviewId: "review-1",
+      parsedRepresentationId: "parsed-1",
+      payload: {
+        metadata: { evidenceModality: "structured_quantitative" },
+        tables: [
+          {
+            name: "wirkungsmessung",
+            rowCount: 10,
+            columns: ["teilnehmer_id", "tage_ohne_kontakt"],
+          },
+        ],
+      },
+      createdAt: NOW,
+      updatedAt: NOW,
+    }),
+  } as unknown as PrivacySafeRepresentationRepository;
+
+  const service = new DatasetPreparationService(
+    repository,
+    privacySafeRepresentationRepository,
+  );
+
+  await service.syncForInterpretationResult(
+    makeResult({
+      questions: [
+        {
+          id: "question-1",
+          kind: "single_choice",
+          questionDomain: "preparation",
+          userFacingPrompt:
+            "For the column 'tage_ohne_kontakt', is a higher value better or worse?",
+          userFacingOptions: [
+            {
+              value: "A higher value is better",
+              label: "A higher value is better",
+            },
+            {
+              value: "A lower value is better",
+              label: "A lower value is better",
+            },
+          ],
+          recommendedOption: null,
+          recommendedConfidence: null,
+          isBlocking: false,
+          questionCode: "scale_direction",
+          targetTableName: "wirkungsmessung",
+          targetColumnName: "tage_ohne_kontakt",
+          questionData: null,
+          status: "answered",
+          answeredValue: "A lower value is better",
+          answeredById: "user-1",
+          answeredAt: NOW,
+          preparationGroupId: null,
+          preparationGroupColumns: null,
+        },
+      ],
+      datasetProfile: {
+        tableCount: 1,
+        paragraphCount: 0,
+        tables: [
+          {
+            name: "wirkungsmessung",
+            rowCount: 10,
+            columnCount: 2,
+            likelyIdentifierColumns: ["teilnehmer_id"],
+            likelyStatusColumns: [],
+            likelyStageColumns: [],
+            likelyDateColumns: [],
+            likelyMeasureColumns: ["tage_ohne_kontakt"],
+            likelyFreeTextColumns: [],
+            likelySubgroupColumns: [],
+            columns: [
+              {
+                name: "teilnehmer_id",
+                inferredType: "identifier",
+                roleHints: ["likely_identifier"],
+                nullPercentage: 0,
+                distinctCount: 10,
+                averageTextLength: 4,
+                topValues: [{ value: "T001", count: 1 }],
+                numericSummary: null,
+                dateSummary: null,
+                duplicateNonNullValueCount: 0,
+                epistemicRole: "identifier",
+                isValidatedScaleCandidate: false,
+              },
+              {
+                name: "tage_ohne_kontakt",
+                inferredType: "numeric",
+                roleHints: [],
+                nullPercentage: 0,
+                distinctCount: 6,
+                averageTextLength: 1,
+                topValues: [],
+                numericSummary: { min: 0, max: 8, mean: 3 },
+                dateSummary: null,
+                duplicateNonNullValueCount: 4,
+                epistemicRole: "metric_count",
+                isValidatedScaleCandidate: false,
+              },
+            ],
+          },
+        ],
+        issues: [],
+      },
+    }),
+  );
+
+  const quantitativeInput = requireCapturedInput(capturedInput);
+  assert.ok(quantitativeInput.preparedDataset);
+  if (!quantitativeInput.preparedDataset) {
+    throw new Error("Expected prepared dataset snapshot.");
+  }
+  assert.equal(
+    quantitativeInput.preparedDataset.tables[0]?.columns.find(
+      (column) => column.name === "tage_ohne_kontakt",
+    )?.scaleDirection,
+    "lower_is_better",
+  );
+  // The other column never answered this question — must stay null, not
+  // inherit the answer meant for a different column.
+  assert.equal(
+    quantitativeInput.preparedDataset.tables[0]?.columns.find(
+      (column) => column.name === "teilnehmer_id",
+    )?.scaleDirection,
+    null,
+  );
+});
+
+test("an unanswered scale_direction question never blocks readiness, unlike a blocking preparation question", async () => {
+  // Regression test for the fix this shape needed: isPreparationQuestion
+  // (used for the readiness/status computation) requires isBlocking, so a
+  // non-blocking scale_direction question must never be counted there —
+  // only isResolvableIntoPreparedDataset (decisionSummary construction)
+  // is allowed to pick it up. If a future change accidentally loosens the
+  // readiness filter the same way, this project would get stuck at
+  // "awaiting_answers" forever for any dataset with a metric_count column,
+  // since nothing prompts a human to answer this specific question.
+  let capturedInput: DatasetPreparationUpsertInput | null = null;
+
+  const repository = {
+    upsertByInterpretationResultId: async (
+      input: DatasetPreparationUpsertInput,
+    ) => {
+      capturedInput = input;
+      return {
+        id: "prep-1",
+        ...input,
+        createdAt: NOW,
+        updatedAt: NOW,
+      };
+    },
+  } as unknown as DatasetPreparationRepository;
+
+  const privacySafeRepresentationRepository = {
+    findById: async () => ({
+      id: "psr-1",
+      organizationId: "org-1",
+      projectId: "project-1",
+      activityId: "activity-1",
+      uploadMetadataId: "upload-1",
+      processingJobId: "processing-1",
+      privacyReviewId: "review-1",
+      parsedRepresentationId: "parsed-1",
+      payload: {
+        metadata: { evidenceModality: "structured_quantitative" },
+        tables: [
+          {
+            name: "wirkungsmessung",
+            rowCount: 10,
+            columns: ["teilnehmer_id", "session_count"],
+          },
+        ],
+      },
+      createdAt: NOW,
+      updatedAt: NOW,
+    }),
+  } as unknown as PrivacySafeRepresentationRepository;
+
+  const service = new DatasetPreparationService(
+    repository,
+    privacySafeRepresentationRepository,
+  );
+
+  await service.syncForInterpretationResult(
+    makeResult({
+      questions: [
+        {
+          id: "question-1",
+          kind: "single_choice",
+          questionDomain: "preparation",
+          userFacingPrompt:
+            "For the column 'session_count', is a higher value better or worse?",
+          userFacingOptions: [
+            {
+              value: "A higher value is better",
+              label: "A higher value is better",
+            },
+            {
+              value: "A lower value is better",
+              label: "A lower value is better",
+            },
+          ],
+          recommendedOption: null,
+          recommendedConfidence: null,
+          isBlocking: false,
+          questionCode: "scale_direction",
+          targetTableName: "wirkungsmessung",
+          targetColumnName: "session_count",
+          questionData: null,
+          status: "pending",
+          answeredValue: null,
+          answeredById: null,
+          answeredAt: null,
+          preparationGroupId: null,
+          preparationGroupColumns: null,
+        },
+      ],
+      datasetProfile: {
+        tableCount: 1,
+        paragraphCount: 0,
+        tables: [
+          {
+            name: "wirkungsmessung",
+            rowCount: 10,
+            columnCount: 2,
+            likelyIdentifierColumns: ["teilnehmer_id"],
+            likelyStatusColumns: [],
+            likelyStageColumns: [],
+            likelyDateColumns: [],
+            likelyMeasureColumns: ["session_count"],
+            likelyFreeTextColumns: [],
+            likelySubgroupColumns: [],
+            columns: [
+              {
+                name: "teilnehmer_id",
+                inferredType: "identifier",
+                roleHints: ["likely_identifier"],
+                nullPercentage: 0,
+                distinctCount: 10,
+                averageTextLength: 4,
+                topValues: [{ value: "T001", count: 1 }],
+                numericSummary: null,
+                dateSummary: null,
+                duplicateNonNullValueCount: 0,
+                epistemicRole: "identifier",
+                isValidatedScaleCandidate: false,
+              },
+              {
+                name: "session_count",
+                inferredType: "numeric",
+                roleHints: [],
+                nullPercentage: 0,
+                distinctCount: 6,
+                averageTextLength: 1,
+                topValues: [],
+                numericSummary: { min: 1, max: 12, mean: 4 },
+                dateSummary: null,
+                duplicateNonNullValueCount: 4,
+                epistemicRole: "metric_count",
+                isValidatedScaleCandidate: false,
+              },
+            ],
+          },
+        ],
+        issues: [],
+      },
+    }),
+  );
+
+  const quantitativeInput = requireCapturedInput(capturedInput);
+  assert.equal(quantitativeInput.status, "ready_for_analysis");
+  assert.ok(quantitativeInput.preparedDataset);
+  if (!quantitativeInput.preparedDataset) {
+    throw new Error("Expected prepared dataset snapshot.");
+  }
+  assert.equal(
+    quantitativeInput.preparedDataset.tables[0]?.columns.find(
+      (column) => column.name === "session_count",
+    )?.scaleDirection,
+    null,
+  );
+});
+
 test("a stale epistemic_role_clarification question on a structural identifier column does not block readiness", async () => {
   // Regression test: shouldIgnoreInterpretationQuestion already hides this
   // stale question from the API and from workflow-stage blocking checks

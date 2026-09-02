@@ -44,6 +44,13 @@ export const uploadMetadataStatusValues = [
 ] as const;
 export type UploadMetadataStatus = (typeof uploadMetadataStatusValues)[number];
 
+// Human-set, never inferred from filename/label — see
+// OUTCOME_EVIDENCE_MERGE_PLAN.md's pre/post inversion fix. Null means "not
+// yet classified"; an upload in that state is excluded from the
+// outcome-evidence candidate catalog until someone assigns a role.
+export const uploadDatasetRoleValues = ["baseline", "followup"] as const;
+export type UploadDatasetRole = (typeof uploadDatasetRoleValues)[number];
+
 export const processingJobStatusValues = [
   "queued",
   "processing",
@@ -285,6 +292,7 @@ export interface UploadMetadataRecord {
   storageKey: string | null;
   originalFileDeletedAt: string | null;
   status: UploadMetadataStatus;
+  datasetRole: UploadDatasetRole | null;
   uploadedById: string;
   uploadedByName: string | null;
   createdAt: string;
@@ -462,6 +470,16 @@ export interface QualitativeCodingReviewProposedAssignment {
   assignedCode: string | null;
 }
 
+export interface QualitativeCodingSourceCodebookReference {
+  uploadMetadataId: string;
+  findingKey: string;
+}
+
+export interface QualitativeCodingReviewSourceCodebookSelectionInput {
+  targetFindingKey: string;
+  sourceCodebookFrom: QualitativeCodingSourceCodebookReference;
+}
+
 export interface QualitativeCodingReviewFindingRecord {
   findingKey: string;
   tableName: string;
@@ -473,7 +491,7 @@ export interface QualitativeCodingReviewFindingRecord {
   existingCodeColumnNames: string[];
   proposedCodes: QualitativeCodingReviewSuggestedCode[];
   proposedAssignments: QualitativeCodingReviewProposedAssignment[];
-  sourceCodebookUploadMetadataId: string | null;
+  sourceCodebookFrom: QualitativeCodingSourceCodebookReference | null;
   sourceCodebookOriginalFileName: string | null;
 }
 
@@ -529,8 +547,26 @@ export interface PrivacySafeRepresentationRecord {
   updatedAt: string;
 }
 
+// Sample rows for the evidence-preview panel (interpretation.tsx's
+// clarification-question workflow) — sourced from the current privacy-safe
+// representation, never from the raw upload, so a reviewer answering a
+// question can never see a value a privacy decision already removed,
+// tokenized, or generalized.
+export interface EvidenceTablePreview {
+  name: string;
+  columns: string[];
+  rows: Record<string, unknown>[];
+  totalRowCount: number;
+}
+
+export interface EvidencePreviewRecord {
+  evidenceId: string;
+  tables: EvidenceTablePreview[];
+}
+
 export const interpretationQuestionKindValues = [
   "single_choice",
+  "multi_choice",
   "free_text",
   "merge_confirmation",
 ] as const;
@@ -561,6 +597,13 @@ export const interpretationQuestionCodeValues = [
   // renders the sentence and maps them 1:1 to options, never inventing a
   // value.
   "filter_value_grounding",
+  // IMPACT_STORY_CHART_IMPROVEMENT_PLAN.md §4: whether a higher value is
+  // better or worse for a metric_count column, captured once per column so
+  // downstream charts can normalize/flip a reverse-scored item instead of
+  // silently plotting it as if higher were always better. Non-blocking
+  // (see datasetPreparationService.ts's PREPARATION_QUESTION_CODES
+  // comment) — this is metadata capture, not a readiness gate.
+  "scale_direction",
 ] as const;
 export type InterpretationQuestionCode =
   (typeof interpretationQuestionCodeValues)[number];
@@ -1029,6 +1072,7 @@ export interface DatasetPreparationDecisionSummary {
   primaryDateFields: DatasetPreparationDecisionSelection[];
   epistemicRoleClarifications: DatasetPreparationDecisionSelection[];
   cohortTags: DatasetPreparationDecisionSelection[];
+  scaleDirections: DatasetPreparationDecisionSelection[];
 }
 
 export const preparedDatasetColumnRoleValues = [
@@ -1098,7 +1142,16 @@ export interface PreparedDatasetColumn {
   // proposes pairing without a pre-declared tag.
   metricKind?: PreparedDatasetMetricKind | null;
   valueScope?: PreparedDatasetValueScope | null;
+  // IMPACT_STORY_CHART_IMPROVEMENT_PLAN.md §4 — human-declared (never
+  // inferred) via the scale_direction preparation question, resolved for
+  // any metric_count column. null until answered; not yet consumed by any
+  // chart/analysis logic (captured ahead of the chart work that will read
+  // it, same "persisted for later use" pattern as epistemicRole above).
+  scaleDirection?: PreparedDatasetScaleDirection | null;
 }
+
+export type PreparedDatasetScaleDirection =
+  "higher_is_better" | "lower_is_better";
 
 export interface PreparedDatasetTable {
   name: string;
@@ -1454,6 +1507,24 @@ export interface OutcomeEvidenceLinkPairedDelta {
   confirmedAt: string;
 }
 
+export interface OutcomeEvidenceLinkPairedCategoricalShift {
+  linkId: string;
+  outcomeId: string;
+  shape: "paired_categorical_shift";
+  activityIdBefore: string;
+  activityIdAfter: string;
+  beforeUploadMetadataId: string;
+  beforeTableName: string;
+  beforeColumnName: string;
+  afterUploadMetadataId: string;
+  afterTableName: string;
+  afterColumnName: string;
+  matchKey: string;
+  pairLabelColumnName: string;
+  confirmedById: string;
+  confirmedAt: string;
+}
+
 export interface OutcomeEvidenceLinkSingleDistribution {
   linkId: string;
   outcomeId: string;
@@ -1467,7 +1538,9 @@ export interface OutcomeEvidenceLinkSingleDistribution {
 }
 
 export type OutcomeEvidenceLink =
-  OutcomeEvidenceLinkPairedDelta | OutcomeEvidenceLinkSingleDistribution;
+  | OutcomeEvidenceLinkPairedDelta
+  | OutcomeEvidenceLinkPairedCategoricalShift
+  | OutcomeEvidenceLinkSingleDistribution;
 
 // The impact catalog is the outcome-linked counterpart to
 // ProjectImpactStoryCatalogEntry — the only catalog whose entries are ever
@@ -1491,6 +1564,16 @@ export interface ImpactCatalogEntry {
   nMatched: number;
   nBaseline: number;
   sourceDe: string;
+  // IMPACT_STORY_CHART_IMPROVEMENT_PLAN.md §4 consumer 1 — resolved from
+  // the before/after columns' declared PreparedDatasetColumn.scaleDirection
+  // (see projectImpactStoryImpactCatalog.ts's
+  // resolvePairedDeltaScaleDirection). null when neither column has an
+  // answered scale_direction question yet. "lower_is_better" if either
+  // column declares it, even if the other doesn't agree or is
+  // unanswered — the conservative direction for a "never misrepresent"
+  // gate: any signal the item is reverse-scored is enough to exclude it
+  // from the shared-axis group chart.
+  scaleDirection: "higher_is_better" | "lower_is_better" | null;
 }
 
 export interface OutcomeDistributionEntry {
@@ -1502,6 +1585,20 @@ export interface OutcomeDistributionEntry {
   questionLabelDe: string;
   shares: { labelDe: string; count: number }[];
   n: number;
+  sourceDe: string;
+}
+
+export interface PairedCategoricalShiftEntry {
+  entryId: string;
+  shape: "paired_categorical_shift";
+  outcomeId: string;
+  outcomeTerm: OutcomeTerm;
+  outcomeStatement: string;
+  pairLabelDe: string;
+  beforeShares: { labelDe: string; count: number }[];
+  afterShares: { labelDe: string; count: number }[];
+  nMatched: number;
+  nBaseline: number;
   sourceDe: string;
 }
 
@@ -1518,7 +1615,10 @@ export interface UnmeasuredOutcomeEntry {
 }
 
 export type ImpactCatalogItem =
-  ImpactCatalogEntry | OutcomeDistributionEntry | UnmeasuredOutcomeEntry;
+  | ImpactCatalogEntry
+  | PairedCategoricalShiftEntry
+  | OutcomeDistributionEntry
+  | UnmeasuredOutcomeEntry;
 
 export interface LinkagePositiveStatusFieldDefinition {
   fieldName: string;
@@ -1667,6 +1767,7 @@ export const activityAnalysisV2ToolNameValues = [
   "days_since_last_event",
   "period_change",
   "paired_change",
+  "paired_category_shift",
   "time_bucket_count",
   "calculate_ratio",
   "calculate_difference",
@@ -2078,7 +2179,17 @@ export interface ProjectImpactStoryHeadlineKpi {
 // projectImpactStoryGoalProgress.ts.
 export interface ProjectImpactStoryGoalProgressEntry {
   entryId: string;
+  // Full, verbatim goalText — never shortened. Kept for accessibility/
+  // tooltip use (a reader must always be able to see the real wording),
+  // separate from displayLabel below which is what actually renders on
+  // the chart. See IMPACT_STORY_CHART_IMPROVEMENT_PLAN.md §2.
   label: string;
+  // A short (~3-5 word), LLM-generated rewrite of `label`, cached
+  // content-addressed on the goal text (displayLabelService.ts) —
+  // falls back to `label` itself (i.e. equals `label`) whenever
+  // generation hasn't run yet or failed, so this field is never empty and
+  // a caller never has to null-check it to have something to render.
+  displayLabel: string;
   activityName: string;
   // Rounded percentage of target reached, already direction-corrected for
   // at_most (ceiling) goals — 100 means "on target", not "half of a raw
@@ -2092,13 +2203,35 @@ export type ProjectImpactStoryChartType =
 
 export interface ProjectImpactStoryChartDatum {
   label: string;
+  // The true deterministic value `label` was built from, before
+  // DisplayLabelService (displayLabelService.ts) may have shortened it —
+  // only set when `label` actually differs from the real underlying
+  // category/bucket/tile value. Renderers should use this (falling back to
+  // `label` when absent) for a tooltip/accessible full-text affordance, the
+  // same way ProjectImpactStoryGoalProgressEntry.label already preserves
+  // the full goal sentence next to its own shortened displayLabel. Never
+  // set for a label that was already deterministic-only end to end (e.g.
+  // "Vorher"/"Nachher", an activity name), since there `label` already is
+  // the raw value.
+  rawLabel?: string;
   value: number;
+  // Only set for a chartType: "comparison" spec built from more than two
+  // bars (e.g. a confirmed paired_categorical_shift, whose real category
+  // count per wave can be >1) — tells the renderer which half of the bars
+  // is the "before" wave, since bar index alone can't distinguish a second
+  // before-wave category from an after-wave one. Omitted for the plain
+  // two-bar comparison case, where index 0 vs. everything else is already
+  // unambiguous. Formalized here 2026-08-30, replacing a frontend-local
+  // conversion (ia_webapp's now-deleted toPairedCategoricalShiftChartSpec) —
+  // projectImpactStoryChartAuthoringExecution.ts and
+  // projectImpactStoryConfirmedPairedDeltaCharts.ts both set it directly now.
+  group?: "before" | "after";
 }
 
 // What each ProjectImpactStoryChartDatum.label actually means, set
-// deterministically by which of executeProjectImpactStoryChartPlan's data-
-// building branches produced it (see projectImpactStoryChartPlanExecution.ts)
-// — never inferred by the frontend from the label text. "status" datums use
+// deterministically by which data-building branch produced it (see
+// buildChartData in projectImpactStoryChartPlanExecution.ts) — never
+// inferred by the frontend from the label text. "status" datums use
 // ActivityAnalysisV2GoalAssessmentStatus values as their label and should be
 // rendered with the reserved status palette + a legend, since each segment
 // is a genuinely distinct identity a viewer needs to recognize; the other
@@ -2126,6 +2259,18 @@ export interface ProjectImpactStoryChartSpec {
   // every other chart, matching this contract's existing optional-field
   // convention for "doesn't apply here."
   isExploratory?: boolean;
+  // True only when every entry behind this chart is confirmed
+  // impact-catalog evidence (human-confirmed OutcomeEvidenceLink) — added
+  // 2026-08-30 alongside the chart-authoring redesign, which folds
+  // confirmed evidence into the same unified chartPlan array instead of
+  // rendering it as a separate always-first tier. A reader must still be
+  // able to tell confirmed evidence apart from grounded-but-unconfirmed
+  // evidence inside that one list. Mutually exclusive with isExploratory
+  // in practice (a chart is never built from both trust tiers at once —
+  // see projectImpactStoryChartAuthoringExecution.ts's mixed-trust
+  // rejection), but modeled as two independent optional flags rather than
+  // one enum to match this type's existing convention.
+  isConfirmedEvidence?: boolean;
 }
 
 export interface ProjectImpactStoryRecord {
@@ -2142,16 +2287,22 @@ export interface ProjectImpactStoryRecord {
   // viewer add any of these to the dashboard instantly. See
   // projectImpactStoryChartBacklog.ts.
   backlogChartPlan: ProjectImpactStoryChartSpec[];
-  // Deterministic fallback descriptive charts. In the primary path, the LLM
-  // may already select descriptive distributions into chartPlan; this lane
-  // is only for the backup case where no selected charts were produced.
-  contextCharts: ContextCatalogEntry[];
   // Outcome-linked entries built from confirmed OutcomeEvidenceLink records
   // — the only catalog the narrative call is allowed to see. See
   // projectImpactStoryImpactCatalog.ts and
   // IMPACT_STORY_OUTCOME_EXTENSION_PLAN.md §4.5/§4.6.
   impactCatalog: ImpactCatalogItem[];
   goalProgressEntries: ProjectImpactStoryGoalProgressEntry[];
+  // Deterministic, always-computed chart(s) for confirmed paired_delta
+  // evidence — a shared before/after overview (colored by group) for
+  // every scale-comparable pair, plus one standalone chart per
+  // lower_is_better pair. Never subject to chart-authoring LLM selection,
+  // same guarantee goalProgressEntries already has — see
+  // projectImpactStoryConfirmedPairedDeltaCharts.ts. Added 2026-08-30
+  // alongside the chart-authoring redesign, which otherwise has no
+  // structural signal to know whether two paired_delta pairs are on a
+  // genuinely comparable scale before grouping them.
+  confirmedOutcomeCharts: ProjectImpactStoryChartSpec[];
   narrativeSummary: string | null;
   narrativeStatus: ProjectImpactStoryNarrativeStatus | null;
   diagnostics: ProjectImpactStoryDiagnostics;

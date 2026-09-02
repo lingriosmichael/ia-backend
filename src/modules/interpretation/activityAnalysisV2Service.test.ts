@@ -631,7 +631,7 @@ test("previewActivityAnalysis executes context candidates through a separate too
     ],
     n: 5,
     eligibleChartTypes: ["hbar_target", "donut_share"],
-    sourceDe: "Quelle: mentors",
+    sourceDe: "Quelle: Mentor:innengewinnung und Auswahl — mentors",
   });
 });
 
@@ -830,6 +830,7 @@ test("previewActivityAnalysis exposes approved synthetic qualitative code column
       inferredType: "identifier",
       epistemicRole: "identifier",
       observedValues: null,
+      subjectiveCodeProvenance: null,
     },
     {
       name: "status",
@@ -840,6 +841,7 @@ test("previewActivityAnalysis exposes approved synthetic qualitative code column
       // there's nothing to observe and no confirmed positiveStatusValues
       // to fall back to either.
       observedValues: null,
+      subjectiveCodeProvenance: null,
     },
     {
       name: "reflection_note_coded",
@@ -847,6 +849,10 @@ test("previewActivityAnalysis exposes approved synthetic qualitative code column
       inferredType: "categorical",
       epistemicRole: "subjective_code",
       observedValues: ["improved", "uncertain"],
+      subjectiveCodeProvenance: {
+        findingKey: "mentors::reflection_note",
+        sourceCodebookFrom: null,
+      },
     },
   ]);
 });

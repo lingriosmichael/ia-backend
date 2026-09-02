@@ -37,6 +37,7 @@ import type {
   QualitativeCodingReviewRecord,
   ProjectStatus,
   ProjectSummary,
+  UploadDatasetRole,
   UploadMetadataStatus,
   UploadMetadataRecord,
   UserSummary,
@@ -50,6 +51,7 @@ import {
   asRecordArray,
   readNumber,
   readString,
+  readStringArray,
 } from "./unknownValueReaders.js";
 
 const organizationRoleMap = {
@@ -71,12 +73,6 @@ const activityStatusMap = {
 
 function toIso(value: Date): string {
   return value.toISOString();
-}
-
-function readStringArray(value: unknown): string[] {
-  return Array.isArray(value)
-    ? value.filter((entry): entry is string => typeof entry === "string")
-    : [];
 }
 
 function normalizeActivityStatus(
@@ -502,6 +498,7 @@ export function mapUploadMetadata(record: {
   storageKey: string | null;
   originalFileDeletedAt: Date | null;
   status: UploadMetadataStatus;
+  datasetRole?: UploadDatasetRole | null;
   uploadedById: string;
   uploadedByName?: string | null;
   createdAt: Date;
@@ -528,6 +525,7 @@ export function mapUploadMetadata(record: {
       ? toIso(record.originalFileDeletedAt)
       : null,
     status: record.status,
+    datasetRole: record.datasetRole ?? null,
     uploadedById: record.uploadedById,
     uploadedByName: record.uploadedByName ?? null,
     createdAt: toIso(record.createdAt),

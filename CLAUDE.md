@@ -46,7 +46,7 @@ per-project analytics dashboard) was deleted 2026-08-18, along with
 It was replaced by `src/modules/projectImpactStory/`, a project-level
 feature that renders a narrative and chart plan. It is a separate feature
 from the `ActivityAnalystV2` pipeline above, not a stage of it, but it does
-read V2 run output **directly** for activity cards/chart-plan candidates
+read V2 run output **directly** for activity cards/chart-authoring candidates
 (gated only by V2's own grounding) — only the narrative text specifically
 is restricted to human-confirmed `OutcomeEvidenceLink` records. Canonical
 doc: `CURRENT_ANALYTICS_PIPELINE.md` in `documentation/` — read that

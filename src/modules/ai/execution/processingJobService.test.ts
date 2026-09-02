@@ -378,6 +378,7 @@ test("createDerivedWorkbookSheetUpload forwards uploads for an active workbook s
             storageKey: "activity-1/sheet-1.csv",
             originalFileDeletedAt: null,
             status: "uploaded",
+            datasetRole: null,
             uploadedById: "user-1",
             uploadedByName: "User One",
             createdAt: "2026-07-30T10:00:00.000Z",
