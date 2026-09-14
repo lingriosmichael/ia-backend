@@ -49,6 +49,9 @@ function toActivityAnalysisRunV2Record(
     validation:
       document.validation as ActivityAnalysisRunV2PersistenceRecord["validation"],
     errorMessage: document.errorMessage ?? null,
+    llmUsage:
+      (document.llmUsage as ActivityAnalysisRunV2PersistenceRecord["llmUsage"]) ??
+      null,
     createdAt: document.createdAt,
     updatedAt: document.updatedAt,
   };

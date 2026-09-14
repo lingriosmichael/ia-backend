@@ -23,6 +23,9 @@ function fakeUsage(text: string) {
     totalPromptTokens: totalTokens,
     totalCompletionTokens: 5,
     totalTokens: totalTokens + 5,
+    totalCachedTokens: Math.floor(totalTokens / 2),
+    totalReasoningTokens: null,
+    totalEstimatedCostUsd: totalTokens / 1_000_000,
     calls: [
       {
         stageName: "project_impact_story_display_label",
@@ -31,6 +34,9 @@ function fakeUsage(text: string) {
         completionTokens: 5,
         totalTokens: totalTokens + 5,
         durationMs: 1,
+        cachedTokens: Math.floor(totalTokens / 2),
+        reasoningTokens: null,
+        estimatedCostUsd: totalTokens / 1_000_000,
       },
     ],
   };
@@ -156,6 +162,13 @@ test("usage from multiple cold-cache generations is aggregated into one summary"
     totalCompletionTokens:
       first.totalCompletionTokens + second.totalCompletionTokens,
     totalTokens: first.totalTokens + second.totalTokens,
+    totalCachedTokens: first.totalCachedTokens + second.totalCachedTokens,
+    // Both cold-cache generations left totalReasoningTokens null (fakeUsage
+    // never reports it) — mergeLlmUsage's convention keeps the merged
+    // result null only when *neither* side reported it, matching here.
+    totalReasoningTokens: null,
+    totalEstimatedCostUsd:
+      first.totalEstimatedCostUsd + second.totalEstimatedCostUsd,
     calls: [...first.calls, ...second.calls],
   });
 });

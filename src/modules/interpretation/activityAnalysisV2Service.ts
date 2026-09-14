@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { databaseSession } from "../../shared/database/databaseClient.js";
 import { AppError } from "../../shared/errors/appError.js";
+import { mergeLlmUsage } from "../../shared/utils/llmUsage.js";
 import type { FastifyBaseLogger } from "fastify";
 import {
   logPipelineStageStatus,
@@ -546,6 +547,7 @@ function mapActivityAnalysisRunV2Record(
       issues: [...run.validation.issues],
     },
     errorMessage: run.errorMessage,
+    llmUsage: run.llmUsage ?? null,
     createdAt: run.createdAt.toISOString(),
     updatedAt: run.updatedAt.toISOString(),
   };
@@ -1355,6 +1357,14 @@ export class ActivityAnalysisV2Service {
       this.buildPlannerClarificationAnswers(activity);
 
     let plannerAttempt = 0;
+    // Accumulated across every planWithClarificationAnswers() call this
+    // invocation makes (the initial attempt plus at most
+    // MAX_BACKEND_AUTO_CLARIFICATION_REPLANS auto-resolved replans) so the
+    // persisted run record reflects the true LLM cost of producing it, not
+    // just the last call's usage. Ledger recording (recordActivityAnalysisV2Usage)
+    // stays per-call, independent of this — this accumulator only feeds the
+    // run document itself.
+    let accumulatedLlmUsage: LlmUsageSummary | null = null;
     const planWithClarificationAnswers = async () => {
       plannerAttempt += 1;
       const plannerCallStartedAt = Date.now();
@@ -1448,6 +1458,10 @@ export class ActivityAnalysisV2Service {
           activity.id,
           project.id,
           response.llmUsage,
+        );
+        accumulatedLlmUsage = mergeLlmUsage(
+          accumulatedLlmUsage,
+          response.llmUsage ?? null,
         );
         return response;
       } catch (error) {
@@ -1593,6 +1607,7 @@ export class ActivityAnalysisV2Service {
             error instanceof Error
               ? error.message
               : "ActivityAnalystV2 planner call failed.",
+          llmUsage: accumulatedLlmUsage,
         },
         databaseSession,
       );
@@ -1658,6 +1673,7 @@ export class ActivityAnalysisV2Service {
           diagnostics,
           validation: plannerResponse.validation,
           errorMessage: "ActivityAnalystV2 planner returned an invalid plan.",
+          llmUsage: accumulatedLlmUsage,
         },
         databaseSession,
       );
@@ -1715,6 +1731,7 @@ export class ActivityAnalysisV2Service {
           diagnostics,
           validation: timeoutValidation,
           errorMessage: timeoutMessage,
+          llmUsage: accumulatedLlmUsage,
         },
         databaseSession,
       );
@@ -1781,6 +1798,7 @@ export class ActivityAnalysisV2Service {
           diagnostics,
           validation: pausedValidation,
           errorMessage: null,
+          llmUsage: accumulatedLlmUsage,
         },
         databaseSession,
       );
@@ -1921,6 +1939,7 @@ export class ActivityAnalysisV2Service {
           diagnostics,
           validation: assessmentResult.validation,
           errorMessage: null,
+          llmUsage: accumulatedLlmUsage,
         },
         databaseSession,
       );
@@ -1978,6 +1997,7 @@ export class ActivityAnalysisV2Service {
             diagnostics,
             validation: assessmentResult.validation,
             errorMessage: null,
+            llmUsage: accumulatedLlmUsage,
           },
           databaseSession,
         );
@@ -2068,6 +2088,7 @@ export class ActivityAnalysisV2Service {
             error instanceof Error
               ? error.message
               : "Phase 3 planned deterministic execution failed.",
+          llmUsage: accumulatedLlmUsage,
         },
         databaseSession,
       );

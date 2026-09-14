@@ -48,6 +48,17 @@ export interface InterpretationResultRepository {
     session: DatabaseSession,
   ): Promise<InterpretationResultPersistenceRecord[]>;
   /**
+   * Every InterpretationResult ever created for the project — every
+   * version, every upload, not collapsed to "latest per upload" the way
+   * findLatestByUploadMetadataIds is. Each version's own LLM calls already
+   * happened and cost money, so a cost/usage rollup needs all of them, not
+   * just the current one.
+   */
+  findAllByProjectId(
+    projectId: string,
+    session: DatabaseSession,
+  ): Promise<InterpretationResultPersistenceRecord[]>;
+  /**
    * Answers one or more questions on a single InterpretationResult in one
    * atomic update — every answer in `answers` is a $set on the same
    * document, so this either applies all of them or none of them; a

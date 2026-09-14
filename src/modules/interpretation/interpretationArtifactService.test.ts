@@ -218,6 +218,8 @@ test("ingestProcessorArtifacts persists interpretation llmUsage calls", async ()
         totalPromptTokens: 1200,
         totalCompletionTokens: 240,
         totalTokens: 1440,
+        totalCachedTokens: 700,
+        totalEstimatedCostUsd: 0.0036,
         calls: [
           {
             stageName: "classify_dataset",
@@ -226,6 +228,8 @@ test("ingestProcessorArtifacts persists interpretation llmUsage calls", async ()
             completionTokens: 80,
             totalTokens: 480,
             durationMs: 900,
+            cachedTokens: 250,
+            estimatedCostUsd: 0.0012,
           },
           {
             stageName: "extract_indicators",
@@ -234,6 +238,8 @@ test("ingestProcessorArtifacts persists interpretation llmUsage calls", async ()
             completionTokens: 160,
             totalTokens: 960,
             durationMs: 1400,
+            cachedTokens: 450,
+            estimatedCostUsd: 0.0024,
           },
         ],
       },
@@ -247,6 +253,12 @@ test("ingestProcessorArtifacts persists interpretation llmUsage calls", async ()
     totalPromptTokens: 1200,
     totalCompletionTokens: 240,
     totalTokens: 1440,
+    totalCachedTokens: 700,
+    // The raw job payload above never set totalReasoningTokens/
+    // reasoningTokens, so readInterpretationLlmUsage's parser must default
+    // them to null rather than dropping the key or throwing.
+    totalReasoningTokens: null,
+    totalEstimatedCostUsd: 0.0036,
     calls: [
       {
         stageName: "classify_dataset",
@@ -255,6 +267,9 @@ test("ingestProcessorArtifacts persists interpretation llmUsage calls", async ()
         completionTokens: 80,
         totalTokens: 480,
         durationMs: 900,
+        cachedTokens: 250,
+        reasoningTokens: null,
+        estimatedCostUsd: 0.0012,
       },
       {
         stageName: "extract_indicators",
@@ -263,6 +278,9 @@ test("ingestProcessorArtifacts persists interpretation llmUsage calls", async ()
         completionTokens: 160,
         totalTokens: 960,
         durationMs: 1400,
+        cachedTokens: 450,
+        reasoningTokens: null,
+        estimatedCostUsd: 0.0024,
       },
     ],
   });
@@ -419,6 +437,8 @@ test("ingestProcessorArtifacts localizes synthesized cohort_tag questions from t
         totalPromptTokens: 0,
         totalCompletionTokens: 0,
         totalTokens: 0,
+        totalCachedTokens: null,
+        totalEstimatedCostUsd: null,
         calls: [],
       },
     },
@@ -598,6 +618,8 @@ test("ingestProcessorArtifacts synthesizes a cohort_tag question with no recomme
         totalPromptTokens: 0,
         totalCompletionTokens: 0,
         totalTokens: 0,
+        totalCachedTokens: null,
+        totalEstimatedCostUsd: null,
         calls: [],
       },
     },

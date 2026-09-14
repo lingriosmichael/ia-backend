@@ -144,6 +144,18 @@ function readInterpretationLlmUsage(
       : null;
   const totalTokens =
     typeof llmUsage.totalTokens === "number" ? llmUsage.totalTokens : null;
+  const totalCachedTokens =
+    typeof llmUsage.totalCachedTokens === "number"
+      ? llmUsage.totalCachedTokens
+      : null;
+  const totalReasoningTokens =
+    typeof llmUsage.totalReasoningTokens === "number"
+      ? llmUsage.totalReasoningTokens
+      : null;
+  const totalEstimatedCostUsd =
+    typeof llmUsage.totalEstimatedCostUsd === "number"
+      ? llmUsage.totalEstimatedCostUsd
+      : null;
 
   if (
     totalCalls === null ||
@@ -162,6 +174,16 @@ function readInterpretationLlmUsage(
         completionTokens: readNumber(call.completionTokens),
         totalTokens: readNumber(call.totalTokens),
         durationMs: readNumber(call.durationMs),
+        cachedTokens:
+          typeof call.cachedTokens === "number" ? call.cachedTokens : null,
+        reasoningTokens:
+          typeof call.reasoningTokens === "number"
+            ? call.reasoningTokens
+            : null,
+        estimatedCostUsd:
+          typeof call.estimatedCostUsd === "number"
+            ? call.estimatedCostUsd
+            : null,
       }))
     : [];
 
@@ -170,6 +192,9 @@ function readInterpretationLlmUsage(
     totalPromptTokens,
     totalCompletionTokens,
     totalTokens,
+    totalCachedTokens,
+    totalReasoningTokens,
+    totalEstimatedCostUsd,
     calls,
   };
 }

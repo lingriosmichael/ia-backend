@@ -1722,6 +1722,15 @@ export interface LlmUsageCall {
   completionTokens: number;
   totalTokens: number;
   durationMs: number;
+  cachedTokens: number | null;
+  // Populated only for reasoning-family models (gpt-5/o-series) that report
+  // a reasoning-token breakdown; null distinguishes "this call used no
+  // reasoning tokens" from "this model/provider doesn't report the split" —
+  // mirrors cachedTokens' own null convention above. See
+  // ia_python_service's LlmUsageCall (app/schemas/llm_usage.py), the
+  // source of truth this field is carried through from unchanged.
+  reasoningTokens: number | null;
+  estimatedCostUsd: number | null;
 }
 
 export interface LlmUsageSummary {
@@ -1729,6 +1738,11 @@ export interface LlmUsageSummary {
   totalPromptTokens: number;
   totalCompletionTokens: number;
   totalTokens: number;
+  totalCachedTokens: number | null;
+  // Null if no call in this batch reported a reasoning-token breakdown —
+  // same convention as totalCachedTokens above.
+  totalReasoningTokens: number | null;
+  totalEstimatedCostUsd: number | null;
   calls: LlmUsageCall[];
 }
 
@@ -2008,6 +2022,10 @@ export interface ActivityAnalysisRunV2Record {
   diagnostics: ActivityAnalysisV2Diagnostics;
   validation: ActivityAnalysisRunV2Validation;
   errorMessage: string | null;
+  // Total usage across every planner call this run's generation made
+  // (initial attempt plus any auto-resolved-clarification replans), not
+  // just the last one. Null for a run created before this field existed.
+  llmUsage: LlmUsageSummary | null;
   createdAt: string;
   updatedAt: string;
 }

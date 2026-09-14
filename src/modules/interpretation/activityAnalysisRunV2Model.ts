@@ -23,6 +23,7 @@ const activityAnalysisRunV2Schema = new Schema(
     diagnostics: { type: Schema.Types.Mixed, required: true },
     validation: { type: Schema.Types.Mixed, required: true },
     errorMessage: { type: String, default: null },
+    llmUsage: { type: Schema.Types.Mixed, default: null },
   },
   {
     collection: "activity_analysis_runs_v2",

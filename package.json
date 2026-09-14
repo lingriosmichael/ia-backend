@@ -29,7 +29,8 @@
     "migrate:backfill-clarification-question-copy": "tsx src/scripts/backfillClarificationQuestionUserFacingCopy.ts",
     "migrate:backfill-activity-analysis-v2-clarification-copy": "tsx src/scripts/backfillActivityAnalysisV2ClarificationCopy.ts",
     "migrate:merge-baseline-impact-measurement-activities": "tsx src/scripts/mergeBaselineAndImpactMeasurementActivities.ts",
-    "reset:structure-only": "tsx src/scripts/resetWorkspaceToStructureOnly.ts"
+    "reset:structure-only": "tsx src/scripts/resetWorkspaceToStructureOnly.ts",
+    "report:llm-usage-cost": "tsx src/scripts/collectLlmUsageCost.ts"
   },
   "dependencies": {
     "@fastify/cors": "^10.0.1",

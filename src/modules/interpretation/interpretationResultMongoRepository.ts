@@ -334,6 +334,23 @@ export class MongoInterpretationResultRepository implements InterpretationResult
       );
   }
 
+  async findAllByProjectId(
+    projectId: string,
+    session: DatabaseSession,
+  ): Promise<InterpretationResultPersistenceRecord[]> {
+    const documents = await applyMongoSession(
+      InterpretationResultMongoModel.find({ projectId }).sort({
+        createdAt: 1,
+      }),
+      session,
+    ).exec();
+
+    return documents.flatMap((document) => {
+      const record = toInterpretationResultRecord(document);
+      return record ? [record] : [];
+    });
+  }
+
   async answerQuestions(
     interpretationResultId: string,
     answers: InterpretationQuestionBatchAnswerInput[],

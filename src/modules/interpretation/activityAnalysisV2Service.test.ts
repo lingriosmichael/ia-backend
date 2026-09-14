@@ -200,6 +200,7 @@ function createServiceFixture(options?: {
         diagnostics: input.diagnostics,
         validation: input.validation,
         errorMessage: input.errorMessage,
+        llmUsage: input.llmUsage ?? null,
         createdAt: NOW,
         updatedAt: NOW,
       };
@@ -1250,6 +1251,108 @@ test("previewActivityAnalysis does not attempt an auto-resolved replan once the 
   assert.equal(record.clarificationQuestions.length, 1);
   assert.equal(record.clarificationQuestions[0]?.status, "pending");
   assert.equal(record.clarificationQuestions[0]?.recommendedOption, "geeignet");
+});
+
+test("previewActivityAnalysis persists llmUsage accumulated across the initial planner call and an auto-resolved replan, not just the last call", async () => {
+  // OPENAI_CALL_INVENTORY remaining-work item 1: the persisted run must
+  // reflect the true LLM cost of producing it — every planner call this
+  // invocation made, not whichever one happened to run last.
+  const firstCallUsage = {
+    totalCalls: 1,
+    totalPromptTokens: 100,
+    totalCompletionTokens: 20,
+    totalTokens: 120,
+    totalCachedTokens: 10,
+    totalReasoningTokens: 5,
+    totalEstimatedCostUsd: 0.001,
+    calls: [
+      {
+        stageName: "activity_analysis_v2_plan",
+        model: "gpt-5-mini",
+        promptTokens: 100,
+        completionTokens: 20,
+        totalTokens: 120,
+        durationMs: 500,
+        cachedTokens: 10,
+        reasoningTokens: 5,
+        estimatedCostUsd: 0.001,
+      },
+    ],
+  };
+  const secondCallUsage = {
+    totalCalls: 1,
+    totalPromptTokens: 50,
+    totalCompletionTokens: 10,
+    totalTokens: 60,
+    totalCachedTokens: null,
+    totalReasoningTokens: null,
+    totalEstimatedCostUsd: 0.0005,
+    calls: [
+      {
+        stageName: "activity_analysis_v2_plan",
+        model: "gpt-5-mini",
+        promptTokens: 50,
+        completionTokens: 10,
+        totalTokens: 60,
+        durationMs: 300,
+        cachedTokens: null,
+        reasoningTokens: null,
+        estimatedCostUsd: 0.0005,
+      },
+    ],
+  };
+
+  const fixture = createServiceFixture({
+    plannerResponse: [
+      {
+        goalPlans: [],
+        clarificationQuestions: [
+          {
+            goalId: null,
+            prompt: "Welche Regel soll verwendet werden?",
+            kind: "single_choice",
+            questionDomain: "interpretation",
+            options: ["geeignet", "bedingt"],
+            recommendedOption: "geeignet",
+            recommendedConfidence: 0.8,
+            isBlocking: true,
+            questionCode: "positive_status_values",
+            targetTableName: "mentors",
+            targetColumnName: "status",
+          },
+        ],
+        toolRequests: [],
+        limitations: [],
+        validation: { status: "passed", issues: [] },
+        llmUsage: firstCallUsage,
+      },
+      {
+        goalPlans: [],
+        clarificationQuestions: [],
+        toolRequests: [],
+        limitations: [],
+        validation: { status: "passed", issues: [] },
+        llmUsage: secondCallUsage,
+      },
+    ],
+  });
+
+  await fixture.service.previewActivityAnalysis("user-1", "activity-1");
+
+  // Confirms the auto-resolved replan actually happened — otherwise this
+  // test would trivially pass by only ever recording the first call.
+  assert.equal(fixture.getPlannerRequests().length, 2);
+  assert.equal(fixture.createdRuns.length, 1);
+  assert.deepEqual(fixture.createdRuns[0]?.llmUsage, {
+    totalCalls: 2,
+    totalPromptTokens: 150,
+    totalCompletionTokens: 30,
+    totalTokens: 180,
+    totalCachedTokens: 10,
+    totalReasoningTokens: 5,
+    totalEstimatedCostUsd: 0.0015,
+    calls: [...firstCallUsage.calls, ...secondCallUsage.calls],
+  });
 });
 
 test("answerClarificationQuestion persists the answer without triggering a replan", async () => {

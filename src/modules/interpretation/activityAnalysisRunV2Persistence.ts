@@ -8,6 +8,7 @@ import type {
   ActivityAnalysisRunV2ValidationStatus,
   ContextCatalogEntry,
   InterpretationQuestion,
+  LlmUsageSummary,
 } from "../../shared/contracts.js";
 
 export interface ActivityAnalysisRunV2GoalsSnapshotPersistenceRecord {
@@ -58,6 +59,14 @@ export interface ActivityAnalysisRunV2PersistenceRecord {
   diagnostics: ActivityAnalysisV2Diagnostics;
   validation: ActivityAnalysisRunV2ValidationPersistenceRecord;
   errorMessage: string | null;
+  // Total usage across every planner call this run's generation made
+  // (initial attempt plus any auto-resolved-clarification replans) — not
+  // just the last call. Null for a run created before this field existed,
+  // or if usage genuinely couldn't be captured. See OPENAI_CALL_INVENTORY
+  // remaining-work item 1: this is the per-run counterpart to the
+  // activity/project lifetime token ledgers, which only ever tracked a
+  // running total, never a single run's own cost.
+  llmUsage: LlmUsageSummary | null;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -81,4 +90,5 @@ export interface ActivityAnalysisRunV2CreateInput {
   diagnostics: ActivityAnalysisV2Diagnostics;
   validation: ActivityAnalysisRunV2ValidationPersistenceRecord;
   errorMessage: string | null;
+  llmUsage: LlmUsageSummary | null;
 }
