@@ -70,8 +70,8 @@ project and stay invisible on a small/tidy one.
   goal-progress chart specifically. There is no LLM or deterministic
   rewrite anywhere between "what the NGO user typed as their goal
   statement" and "what renders as a chart's bar label."
-- **[CORRECTED, was wrong in v1]: the truncated *"Mindestens 70 % der
-  Tan…"* label in the screenshot is a truncation bug, not a container
+- **[CORRECTED, was wrong in v1]: the truncated _"Mindestens 70 % der
+  Tan…"_ label in the screenshot is a truncation bug, not a container
   overflow.** `projectImpactStoryGoalProgressChart.tsx` already calls
   `truncateChartLabel(entry.label, MAX_CATEGORY_LABEL_LENGTH)` with
   `MAX_CATEGORY_LABEL_LENGTH = 24`; `truncateChartLabel` slices to
@@ -95,12 +95,12 @@ project and stay invisible on a small/tidy one.
   selection step at all." A project with 8 goals and a project with 19
   goals get an identically uncapped, unpaginated, unfiltered chart — one
   just happens to still be legible. Worth noting this chart currently has
-  *less* discipline than the narrative sitting next to it on the same
+  _less_ discipline than the narrative sitting next to it on the same
   dashboard — the narrative's outcome paragraph already caps citations at
   5 entries; the goal-progress chart caps at nothing.
-- **[VERIFY RESOLVED] A working human-*label* mechanism exists for one
+- **[VERIFY RESOLVED] A working human-_label_ mechanism exists for one
   entry kind — but it solves a narrower problem than it first looks like
-  it does, and its sibling *source* field is not actually solved anywhere.**
+  it does, and its sibling _source_ field is not actually solved anywhere.**
   `run.contextCatalogEntries` is built by
   `ActivityAnalysisV2Service.buildContextCatalogEntries`
   (`activityAnalysisV2Service.ts:699`). Its `labelDe`/`dimensionLabelDe`
@@ -121,7 +121,7 @@ project and stay invisible on a small/tidy one.
   name with a German prefix, not a human description. This directly
   contradicts the "already human-facing, already localized" framing above
   for the source half specifically: `context_distribution` has the
-  *identical* unsolved source-caption gap the next bullet describes for
+  _identical_ unsolved source-caption gap the next bullet describes for
   other entry kinds, it just wasn't visibly broken in the two reference
   screenshots. §3's scope is corrected accordingly.
 - **[VERIFY RESOLVED] No source-caption construction exists anywhere for
@@ -134,23 +134,23 @@ project and stay invisible on a small/tidy one.
   `projectImpactStoryImpactChart.tsx` and directly into
   `projectImpactStoryPairedDeltaGroupChart.tsx` — the exact "Vorher/
   Nachher-Vergleich" chart in the screenshot, confirming the screenshot's
-  *"Quelle: 06_Wirkungsmessung_Umfrage_Miteinander im Kiez -
+  _"Quelle: 06_Wirkungsmessung_Umfrage_Miteinander im Kiez -
   Wirkungsmessung_Umfrage → 05_Baseline_Umfrage_Miteinander im Kiez -
-  Baseline_Umfrage"* is a direct, unmodified table-name concatenation, as
+  Baseline_Umfrage"_ is a direct, unmodified table-name concatenation, as
   suspected. As noted above, the same raw-table-name pattern is also
   present on `context_distribution`'s `sourceDe` — add it to §3's scope.
 - **No scale-direction ("higher is better") signal exists anywhere in the
   schema, confirmed.** `comparison` (`"at_most"` vs. default) exists
-  *only* on `ActivityAnalysisV2GoalAssessmentRecord`, used solely for
+  _only_ on `ActivityAnalysisV2GoalAssessmentRecord`, used solely for
   goal-vs-target ratio math — it says nothing about a raw evidence column,
   and nothing analogous exists for `paired_delta`/scale columns generally.
   The preparation-stage field that might once have been the natural home
   for this, `declared_scale_bounds`, was removed entirely in the
   outcome-evidence redesign (`OUTCOME_EVIDENCE_MERGE_PLAN.md`), and even
   before removal it never carried a direction field — this gap predates
-  and is independent of that redesign. Concretely: the *"Vorher/Nachher-
-  Vergleich"* chart in the screenshot plots what looks like a day-count
-  item (*"Tage ohne persönlichen Kontakt…"*) on the same 0–8 axis as
+  and is independent of that redesign. Concretely: the _"Vorher/Nachher-
+  Vergleich"_ chart in the screenshot plots what looks like a day-count
+  item (_"Tage ohne persönlichen Kontakt…"_) on the same 0–8 axis as
   several 1–5 Likert items, with no structural signal anywhere for
   whether that item is reverse-scored. If it is, the chart currently has
   no way to know — and neither would any future automated or LLM-assisted
@@ -193,7 +193,7 @@ bottom of a long scroll, the opposite of what this section recommends.
   sub-charts — decided directly with the user rather than guessed, since
   the plan explicitly left this as an open product decision. Nothing
   past the cap is ever silently dropped; the legend (`presentStatuses`)
-  reflects every status present across *all* entries, not just the
+  reflects every status present across _all_ entries, not just the
   currently-visible slice, so collapsing back to 8 doesn't make a status
   color disappear from the legend inconsistently. New i18n keys
   `goalProgressShowMore`/`goalProgressShowLess` added to both `en.ts`/
@@ -214,7 +214,7 @@ bottom of a long scroll, the opposite of what this section recommends.
   x-axis, replicating the existing label-rotation behavior since a custom
   `tick` element bypasses Recharts' built-in `angle`/`textAnchor`
   handling). Chosen over simply raising the character cap because a
-  tooltip surfaces the *full* text losslessly regardless of length,
+  tooltip surfaces the _full_ text losslessly regardless of length,
   where any fixed cap would just move the same problem to a longer
   string. `ia_webapp` typecheck/lint/tests all pass.
 
@@ -263,9 +263,9 @@ bottom of a long scroll, the opposite of what this section recommends.
 V2's old activity-level LLM narrative/summary layer (formerly Stage 13,
 `recommendation.py`'s `renderedSummary`/`recommendationText`) — was
 deliberately removed on 2026-08-17, with the architectural decision
-recorded directly in the pipeline doc: *"the assessment object is the
+recorded directly in the pipeline doc: _"the assessment object is the
 source of truth... this module does not author user-facing summary prose
-anymore."* That removal was about **prose narrative asserting things
+anymore."_ That removal was about **prose narrative asserting things
 about structured data**, not about **short display-label rewriting** —
 this proposal is scoped narrowly enough not to repeat that mistake:
 
@@ -320,7 +320,7 @@ across all five entry kinds, not the four originally listed.**
 
 **This section's original framing didn't hold up** — checked directly:
 `UploadMetadata` has no description field, `tableName` is frequently
-*derived from* `originalFileName` (`evidence_parser.py:118`), so there
+_derived from_ `originalFileName` (`evidence_parser.py:118`), so there
 was no existing richer field to look up. Decided with the user: option 2
 (pair the table name with the activity name), not the bigger
 new-upload-description-field option.
@@ -380,7 +380,7 @@ along the way:
   would otherwise stall interpretation readiness for nearly every
   dataset), a second filter (`isResolvableIntoPreparedDataset`) was added
   — used only for resolving answers, never for the readiness/blocking
-  computation — with an explicit regression test proving an *unanswered*
+  computation — with an explicit regression test proving an _unanswered_
   `scale_direction` question still reaches `ready_for_analysis`.
 - Implemented: `PreparedDatasetColumn.scaleDirection` field
   (`"higher_is_better" | "lower_is_better" | null`), the
@@ -480,7 +480,7 @@ ahead of).
   tier — replacing the old highest-progress-first order.
 - **[DONE, verified via unit test, not yet a live LLM call]** display
   labels (§2) are stable across repeated dashboard loads and V2 re-runs
-  for the *same* goal/question — proven at the cache-key level
+  for the _same_ goal/question — proven at the cache-key level
   (content-addressed on exact goal text) rather than by observing two
   real runs live, since no live LLM call has been made this session.
 - **[DONE, by construction]** §2's backfill mechanism: an existing
@@ -494,10 +494,10 @@ ahead of).
   (`datasetPreparationService.test.ts`).
 - **[DONE, verified via unit test — not yet visually confirmed in a
   browser]** the source caption (§3) reads as `{activityName} —
-  {tableName}` on all five entry kinds, not a raw filename/table name —
+{tableName}` on all five entry kinds, not a raw filename/table name —
   proven directly for `paired_delta`, `single_distribution`, and
   `context_distribution` (one dedicated test each); `paired_categorical_
-  shift` and `paired_story_delta` share the exact same builder functions
+shift` and `paired_story_delta` share the exact same builder functions
   (`buildPairedSourceCaptionDe`), so covered by construction rather than
   a fifth duplicate test.
 - **[DONE, verified via unit test — not yet visually confirmed in a

@@ -60,7 +60,7 @@ This is the main change from v4. v4 proposed one compatibility rule
 ("observed category sets substantially overlap") applied uniformly, with
 `subjective_code` as an afterthought exception in §2. That's backwards, and
 risky specifically for `subjective_code`: genuine change is expected to
-*reduce* overlap between baseline and endline theme distributions — a
+_reduce_ overlap between baseline and endline theme distributions — a
 project succeeding at its goal should shift the coded-theme mix, not
 preserve it. Using overlap as the compatibility proxy would penalize the
 exact signal this shape exists to detect.
@@ -74,7 +74,7 @@ Split the check by role from the start, in
   normalized to the same convention the codebase already uses elsewhere
   for outcome-evidence safety checks — trim, lowercase, collapse
   whitespace, nothing more (`outcomeEvidenceApprovalSafetyCheck.ts`; no
-  synonym mapping exists today) — must resolve to the *same* domain (e.g.
+  synonym mapping exists today) — must resolve to the _same_ domain (e.g.
   both are `{Ja, Nein, Vielleicht}`). This is a domain-identity check, not
   an overlap-in-practice check — a Ja/Nein/Vielleicht column pairs with
   another Ja/Nein/Vielleicht column regardless of how the actual answers
@@ -104,8 +104,8 @@ Split the check by role from the start, in
   approval-time check.
 
 Persist the check's result and reasoning the same way `matchDiagnostics`
-is persisted for `paired_delta` today — this covers *why a proposed
-pairing was accepted or rejected at approval*, the same scope
+is persisted for `paired_delta` today — this covers _why a proposed
+pairing was accepted or rejected at approval_, the same scope
 `matchDiagnostics` already has (it's written only when a link is actually
 created/attempted, per `outcomeEvidenceRecommendationApprovalService.ts`).
 It does **not** cover "why was this pairing never proposed in the first
@@ -169,14 +169,14 @@ a new entry kind" as one line, when it's actually several independent
 places that each need the new shape added, and missing any one of them
 produces a different silent failure mode:
 
-| Location | What happens if `paired_categorical_shift` isn't added here |
-|---|---|
-| `projectImpactStoryImpactCatalog.ts` (§1d) | Link never becomes a catalog entry — nothing downstream sees it. |
-| `ia_python_service/app/project_impact_story/models.py` (request/response Pydantic models — line ~26 per your read) | Backend can't even serialize the entry into the narrative request; hard failure or silent drop depending on how Pydantic validation is configured. |
-| `narrative.py`'s prompt-building (`_describe_entry` equivalent) | Model never learns this entry exists or how to describe it — entry is invisible to the LLM even if it reached the request payload. |
-| `narrative_grounding.py`'s candidate-number pool (line ~81 per your read) | Any category count the model correctly cites gets flagged as an ungrounded/fabricated number — the narrative permanently falls into "unverified" status for any project using this shape, even when the model did everything right. |
-| `projectImpactStoryService.ts`'s deterministic fallback narrative builder (line ~143 per your read, `buildImpactCatalogFallbackNarrativeSummary`) | On a Python outage, the fallback narrative silently omits these entries instead of degrading gracefully — the one path specifically built to be robust becomes the one path that drops this shape. |
-| Frontend chart dispatch (`ProjectImpactStoryChart` / the paired-delta group chart) | Entry has no visual representation even though it's grounded and in the narrative. |
+| Location                                                                                                                                          | What happens if `paired_categorical_shift` isn't added here                                                                                                                                                                         |
+| ------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `projectImpactStoryImpactCatalog.ts` (§1d)                                                                                                        | Link never becomes a catalog entry — nothing downstream sees it.                                                                                                                                                                    |
+| `ia_python_service/app/project_impact_story/models.py` (request/response Pydantic models — line ~26 per your read)                                | Backend can't even serialize the entry into the narrative request; hard failure or silent drop depending on how Pydantic validation is configured.                                                                                  |
+| `narrative.py`'s prompt-building (`_describe_entry` equivalent)                                                                                   | Model never learns this entry exists or how to describe it — entry is invisible to the LLM even if it reached the request payload.                                                                                                  |
+| `narrative_grounding.py`'s candidate-number pool (line ~81 per your read)                                                                         | Any category count the model correctly cites gets flagged as an ungrounded/fabricated number — the narrative permanently falls into "unverified" status for any project using this shape, even when the model did everything right. |
+| `projectImpactStoryService.ts`'s deterministic fallback narrative builder (line ~143 per your read, `buildImpactCatalogFallbackNarrativeSummary`) | On a Python outage, the fallback narrative silently omits these entries instead of degrading gracefully — the one path specifically built to be robust becomes the one path that drops this shape.                                  |
+| Frontend chart dispatch (`ProjectImpactStoryChart` / the paired-delta group chart)                                                                | Entry has no visual representation even though it's grounded and in the narrative.                                                                                                                                                  |
 
 Treat this table as the actual definition-of-done for "shape added," not
 just the recommendation/approval/catalog trio.
@@ -227,7 +227,7 @@ upload, and a single upload can contain multiple free-text findings.
 - This same field is what §1b's `subjective_code` compatibility check
   reads: two `subjective_code` columns are pairing-compatible if one's
   `sourceCodebookFrom` points at the other. No separate overlap logic
-  needed for this role — the explicit provenance link *is* the
+  needed for this role — the explicit provenance link _is_ the
   compatibility proof.
 
 ### What this gets you, concretely, for this project
@@ -251,7 +251,7 @@ columns without a goal explicitly asking about them.
 This means there is **no unconfirmed path at all** for coded qualitative
 data — not to the narrative, and not to the chart-plan LLM either.
 `single_distribution` confirmation (via the interpretation page's "Get
-recommendations" flow) is the *only* way any coded free-text column
+recommendations" flow) is the _only_ way any coded free-text column
 reaches either LLM call or renders as a chart today. That makes step 1 of
 the rollout order (§6) not just the cheapest first check, but the only
 existing lever at all for this project's `Kommentar`/wish-list data until
@@ -288,8 +288,8 @@ parallel to (not sourced from) `toProjectImpactStoryNarrativeOutputFactRequests(
 **Request shape — deliberately narrow.** Today's
 `ProjectImpactStoryNarrativeOutputFactRequest`
 (`projectImpactStoryService.ts`/`models.py`) carries only `label`, `value`,
-`formatAs`, `narrativeReason`. Paragraph 1's grouping only needs *goal
-identity*, not target values — so extend the shape by adding `goalId` and
+`formatAs`, `narrativeReason`. Paragraph 1's grouping only needs _goal
+identity_, not target values — so extend the shape by adding `goalId` and
 `goalText` (for grouping and the "name the goal" phrasing in §4c), and
 stop there. Do **not** add a `targetValue` field to this request. §4e/§4f
 below aren't guarding against a target-value field that doesn't exist —
@@ -348,12 +348,12 @@ across all of them. The revision picks wide-across-groups explicitly and
 says so, plus adds `PAIRED_CATEGORICAL_SHIFT` phrasing guidance.
 
 **On enforcement — worth being precise about what's actually checked.**
-The existing checker (`narrative_grounding.py`) caps *distinct catalog
-entries* per paragraph at 5, not distinct outcomeId groups. Since every
+The existing checker (`narrative_grounding.py`) caps _distinct catalog
+entries_ per paragraph at 5, not distinct outcomeId groups. Since every
 cited group needs at least one entry, that existing check does still cap
 groups at ≤5 as an arithmetic side effect — citing from 6 groups requires
 ≥6 entries, which the current check already rejects, so no new code is
-needed for the *ceiling*. But the existing check has no concept of
+needed for the _ceiling_. But the existing check has no concept of
 "groups" at all, so it cannot tell the difference between "5 entries
 spread across 5 groups" (what the instruction wants) and "5 entries all
 from 1 group" (a total violation of the breadth instruction that passes
@@ -418,7 +418,7 @@ free.
 > natural user-facing language."
 
 Note the one substantive change from the earlier draft: the "enforced
-automatically" sentence now correctly attaches to the *entries* cap (which
+automatically" sentence now correctly attaches to the _entries_ cap (which
 really is enforced, unchanged from today), not to a "groups" cap that
 doesn't have its own check — the groups ceiling still holds, just as an
 side effect of the entries cap, and the breadth instruction remains
@@ -479,7 +479,7 @@ catalog measures change.
 
 This is the fix for the contradiction flagged above. "Targets are not
 part of either source" stops being true the moment §3 threads goal-linked
-`narrativeOutputFacts` into paragraph 1 — even though target *values*
+`narrativeOutputFacts` into paragraph 1 — even though target _values_
 still won't be inserted into the prompt text itself, the model is now
 working adjacent to goal context it wasn't before, and a flatly false
 blanket claim is worse than an accurate, still-restrictive one.
@@ -516,7 +516,7 @@ languages, not just the request's own.
 
 Missing entirely from v4 — flagged in review, and it's a real adoption
 blocker, not a nice-to-have. Per `OUTCOME_EVIDENCE_MERGE_PLAN.md`, "Get
-recommendations" is hidden once *any* confirmed link exists for the
+recommendations" is hidden once _any_ confirmed link exists for the
 activity, and the only documented way back is "remove all confirmed
 links." That means every already-active project gets zero benefit from
 `paired_categorical_shift` unless someone manually deletes and redoes
@@ -547,7 +547,7 @@ dedup logic.
 
 1. **Audit existing confirmable `single_distribution` recommendations over
    `subjective_code` columns (§2a)** — no code change. This is currently
-   the *only* path any coded qualitative data has to either LLM call or a
+   the _only_ path any coded qualitative data has to either LLM call or a
    chart, per §2a's resolved finding, not just the cheapest first step.
 2. **Decide the rollout/backfill approach (§5)** — resolved to Option A
    (relax the gating; dedup already exists) — this is a small, cheap
@@ -579,7 +579,7 @@ dedup logic.
 - Confirm end-to-end on this project once §1 ships, including the split
   compatibility check: verify a fixed-domain pairing (Ja/Nein/Vielleicht)
   is accepted via domain-match, and verify a `subjective_code` pairing
-  with *no* declared codebook provenance is rejected even if its observed
+  with _no_ declared codebook provenance is rejected even if its observed
   code sets happen to overlap heavily — this is the concrete regression
   test for the "overlap is the wrong proxy for `subjective_code`" fix.
 - Confirm a rejected/orphaned `paired_categorical_shift` link behaves
@@ -588,7 +588,7 @@ dedup logic.
 - Run the §1e checklist as an actual test matrix: for each row, confirm
   the new shape is present and correctly handled, not just "doesn't
   crash" — especially the fallback-narrative and grounding-checker rows,
-  since both fail *silently* rather than loudly.
+  since both fail _silently_ rather than loudly.
 - Confirm the rollout/backfill path (§5) on a project that already has
   confirmed `paired_delta`/`single_distribution` links — verify new
   `paired_categorical_shift` recommendations can be proposed and confirmed

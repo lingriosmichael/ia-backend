@@ -14,7 +14,7 @@ This covers two big pieces of in-progress work: the **Project Impact Story** fea
 
 ✅ **Fixed and verified.** The system already has an important distinction for coded qualitative evidence: sometimes a before/after shift in themes really is meaningful, but only if both sides use the same approved coding scheme. That means the right safeguard is **not** "never use subjective codes." It is "only treat a before/after category shift as valid when the coded columns explicitly reuse the same approved codebook provenance." This is now implemented and has automated tests covering both the allowed case (shared codebook) and the blocked case (no shared codebook) — confirmed by reading the code and running the tests.
 
-*Small residual note, not blocking:* the new rule only special-cases the "coded qualitative" evidence type. There's a second, rarer evidence type ("raw free text") that the same overall safety net blocks everywhere else in the system, but this one new comparison type doesn't explicitly re-check for it. In practice this path is unlikely to be reachable in the current product, but it's worth a follow-up look if this area is touched again.
+_Small residual note, not blocking:_ the new rule only special-cases the "coded qualitative" evidence type. There's a second, rarer evidence type ("raw free text") that the same overall safety net blocks everywhere else in the system, but this one new comparison type doesn't explicitly re-check for it. In practice this path is unlikely to be reachable in the current product, but it's worth a follow-up look if this area is touched again.
 
 ### 2. AI usage costs for a new feature aren't being tracked
 
@@ -42,7 +42,7 @@ This covers two big pieces of in-progress work: the **Project Impact Story** fea
 
 ### 6. Labeling a file as "before" or "after" isn't tested at all
 
-✅ **Fixed.** Added 6 automated tests covering: the labeling actually saves correctly, an unauthorized user's attempt to change a label is blocked *before* anything is written, an unknown file is rejected, and — separately, for the "preview a file's data" feature — that a reviewer only ever sees the privacy-checked version of the data (never the raw upload) and that a large file's preview is properly capped without losing the real row count. All 6 pass.
+✅ **Fixed.** Added 6 automated tests covering: the labeling actually saves correctly, an unauthorized user's attempt to change a label is blocked _before_ anything is written, an unknown file is rejected, and — separately, for the "preview a file's data" feature — that a reviewer only ever sees the privacy-checked version of the data (never the raw upload) and that a large file's preview is properly capped without losing the real row count. All 6 pass.
 
 ### 7. A safety check has a blind spot that its own test doesn't reveal
 
